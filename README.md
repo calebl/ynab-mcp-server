@@ -3,6 +3,10 @@
 A Model Context Protocol (MCP) server built with mcp-framework. This MCP provides tools
 for interacting with your YNAB budgets setup at https://ynab.com
 
+<a href="https://glama.ai/mcp/servers/@calebl/ynab-mcp-server">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@calebl/ynab-mcp-server/badge" alt="YNAB Server MCP server" />
+</a>
+
 In order to have an AI interact with this tool, you will need to get your Personal Access Token
 from YNAB: https://api.ynab.com/#personal-access-tokens
 
