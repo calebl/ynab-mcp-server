@@ -1,4 +1,5 @@
 # ynab-mcp-server
+[![smithery badge](https://smithery.ai/badge/@calebl/ynab-mcp-server)](https://smithery.ai/server/@calebl/ynab-mcp-server)
 
 A Model Context Protocol (MCP) server built with mcp-framework. This MCP provides tools
 for interacting with your YNAB budgets setup at https://ynab.com
@@ -151,6 +152,14 @@ After publishing, users can add it to their claude desktop client (read below) o
 
 
 ## Using with Claude Desktop
+
+### Installing via Smithery
+
+To install YNAB Budget Assistant for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@calebl/ynab-mcp-server):
+
+```bash
+npx -y @smithery/cli install @calebl/ynab-mcp-server --client claude
+```
 
 ### Local Development
 
