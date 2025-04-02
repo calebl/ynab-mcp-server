@@ -11,7 +11,7 @@ use with the YNAB api.
 
 ## Setup
 Specify env variables:
-* YNAP_API_TOKEN (required)
+* YNAB_API_TOKEN (required)
 * KNOWLEDGE_DIR (optional) - directory where knowledge file should be stored. Defaults to `data` directory where the server is running.
 * KNOWLEDGE_FILE (optional) - name of knowledge filed. Defaults to `server-knowledge.json`
 
