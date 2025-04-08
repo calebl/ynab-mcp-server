@@ -1,0 +1,37 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+
+startCommand:
+  type: stdio
+  configSchema:
+    # JSON Schema defining the configuration options for the MCP.
+    type: object
+    required:
+      - ynabApiToken
+    properties:
+      ynabApiToken:
+        type: string
+        description: Your YNAB Personal Access Token
+      knowledgeDir:
+        type: string
+        default: data
+        description: Optional directory where knowledge file should be stored
+      knowledgeFile:
+        type: string
+        default: server-knowledge.json
+        description: Optional name of the knowledge file
+  commandFunction:
+    # A JS function that produces the CLI command based on the given config to start the MCP on stdio.
+    |-
+    (config) => ({
+      command: 'node',
+      args: ['dist/index.js'],
+      env: {
+        YNAB_API_TOKEN: config.ynabApiToken,
+        KNOWLEDGE_DIR: config.knowledgeDir || 'data',
+        KNOWLEDGE_FILE: config.knowledgeFile || 'server-knowledge.json'
+      }
+    })
+  exampleConfig:
+    ynabApiToken: your-ynab-personal-access-token
+    knowledgeDir: data
+    knowledgeFile: server-knowledge.json
