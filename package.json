@@ -4,6 +4,7 @@
   "description": "ynab-mcp-server MCP server",
   "author": "Caleb LeNoir <caleb.lenoir@hey.com>",
   "type": "module",
+  "module": "src/index.ts",
   "bin": {
     "ynab-mcp-server": "./dist/index.js"
   },
@@ -11,10 +12,15 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && mcp-build && chmod +x dist/index.js",
+    "dev": "npx @smithery/cli dev",
+    "build": "npm run build:http",
+    "build:stdio": "tsc",
+    "build:http": "npx @smithery/cli build",
     "prepare": "npm run build",
     "watch": "tsc --watch",
-    "start": "node dist/index.js",
+    "start": "npm run start:http",
+    "start:stdio": "node dist/index.js",
+    "start:http": "node .smithery/index.cjs",
     "debug": "npm run build && npx @modelcontextprotocol/inspector dist/index.js",
     "test": "vitest",
     "test:watch": "vitest watch",
@@ -23,13 +29,14 @@
   "dependencies": {
     "@types/axios": "^0.14.4",
     "axios": "^1.8.4",
-    "mcp-framework": "^0.1.29",
+    "mcp-framework": "^0.2.15",
     "ynab": "^2.9.0"
   },
   "devDependencies": {
-    "@types/node": "^20.11.24",
     "@modelcontextprotocol/inspector": "^0.16.5",
+    "@types/node": "^20.11.24",
     "@vitest/coverage-v8": "^3.2.4",
+    "tsx": "^4.20.5",
     "typescript": "^5.3.3",
     "vitest": "^3.2.4"
   }
