@@ -1,6 +1,6 @@
 {
   "name": "ynab-mcp-server",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "ynab-mcp-server MCP server",
   "author": "Caleb LeNoir <caleb.lenoir@hey.com>",
   "type": "module",

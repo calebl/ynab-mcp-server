@@ -17,7 +17,7 @@ export default function createServer({config} : {config: z.infer<typeof configSc
     }
   })
 
-  return server;
+  return server.start();
 }
 
 const server = new MCPServer();
