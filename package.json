@@ -11,7 +11,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && mcp-build && chmod +x dist/index.js",
+    "build": "tsc && chmod +x dist/index.js",
     "prepare": "npm run build",
     "watch": "tsc --watch",
     "start": "node dist/index.js",
@@ -21,14 +21,16 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "@types/axios": "^0.14.4",
     "axios": "^1.8.4",
-    "mcp-framework": "^0.1.29",
-    "ynab": "^2.9.0"
+    "commander": "^14.0.1",
+    "ynab": "^2.9.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/node": "^20.11.24",
     "@modelcontextprotocol/inspector": "^0.16.5",
+    "@types/node": "^20.11.24",
     "@vitest/coverage-v8": "^3.2.4",
     "typescript": "^5.3.3",
     "vitest": "^3.2.4"
