@@ -21,6 +21,32 @@ interface ReconcileAccountInput {
   tolerance?: number; // Tolerance for matching amounts in dollars (default: 0.01)
   dryRun?: boolean;
   response_format?: "json" | "markdown";
+  columnHints?: {
+    dateColumn?: string;
+    descriptionColumn?: string;
+    amountColumn?: string;
+  };
+}
+
+interface NormalizedTransaction {
+  date: string;
+  description: string;
+  amount: number;
+  raw_data: string;
+}
+
+interface ColumnDetection {
+  columnName: string;
+  type: 'date' | 'amount' | 'description' | 'unknown';
+  confidence: number;
+  sampleValues: string[];
+}
+
+interface NormalizationResult {
+  success: boolean;
+  transactions: NormalizedTransaction[];
+  errors: string[];
+  columnAnalysis: ColumnDetection[];
 }
 
 interface TransactionMatch {
@@ -123,6 +149,25 @@ export default class ReconcileAccountTool {
             enum: ["json", "markdown"],
             description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
           },
+          columnHints: {
+            type: "object",
+            description: "Optional hints for CSV column mapping if auto-detection fails",
+            properties: {
+              dateColumn: {
+                type: "string",
+                description: "Name of the date column in the CSV",
+              },
+              descriptionColumn: {
+                type: "string", 
+                description: "Name of the description/payee column in the CSV",
+              },
+              amountColumn: {
+                type: "string",
+                description: "Name of the amount column in the CSV",
+              },
+            },
+            additionalProperties: false,
+          },
         },
         required: ["statementData", "statementBalance", "statementDate"],
         additionalProperties: false,
@@ -174,8 +219,15 @@ export default class ReconcileAccountTool {
         throw new Error(`Account not found. Please provide a valid accountId or accountName. Use the budget_summary tool to see available accounts.`);
       }
 
-      // Parse statement data
-      const statementTransactions = this.parseStatementData(input.statementData);
+      // Normalize statement data with intelligent parsing
+      const normalizationResult = this.normalizeStatementData(input.statementData, input.columnHints);
+      
+      if (!normalizationResult.success) {
+        const errorMessage = this.formatNormalizationError(normalizationResult);
+        throw new Error(errorMessage);
+      }
+      
+      const statementTransactions = normalizationResult.transactions;
       
       // Get YNAB transactions for the account
       const ynabTransactions = await this.getYNABTransactions(budgetId, targetAccount.id, input.statementDate);
@@ -340,6 +392,307 @@ export default class ReconcileAccountTool {
     return output;
   }
 
+  private normalizeStatementData(csvData: string, hints?: {dateColumn?: string, descriptionColumn?: string, amountColumn?: string}): NormalizationResult {
+    const lines = csvData.trim().split('\n');
+    const errors: string[] = [];
+    const columnAnalysis: ColumnDetection[] = [];
+    
+    if (lines.length < 2) {
+      return {
+        success: false,
+        transactions: [],
+        errors: ['CSV must have at least a header row and one data row'],
+        columnAnalysis: []
+      };
+    }
+
+    // Parse header row
+    const headerLine = lines[0];
+    const headers = this.parseCSVLine(headerLine);
+    
+    if (headers.length < 3) {
+      return {
+        success: false,
+        transactions: [],
+        errors: ['CSV must have at least 3 columns'],
+        columnAnalysis: []
+      };
+    }
+
+    // Analyze columns
+    const analysis = this.analyzeColumns(headers, lines.slice(1));
+    columnAnalysis.push(...analysis);
+
+    // Use hints if provided, otherwise use auto-detection
+    let dateColumnIndex = -1;
+    let descriptionColumnIndex = -1;
+    let amountColumnIndex = -1;
+
+    if (hints) {
+      // Use provided hints
+      if (hints.dateColumn) {
+        dateColumnIndex = headers.findIndex(h => h.toLowerCase().includes(hints.dateColumn!.toLowerCase()));
+      }
+      if (hints.descriptionColumn) {
+        descriptionColumnIndex = headers.findIndex(h => h.toLowerCase().includes(hints.descriptionColumn!.toLowerCase()));
+      }
+      if (hints.amountColumn) {
+        amountColumnIndex = headers.findIndex(h => h.toLowerCase().includes(hints.amountColumn!.toLowerCase()));
+      }
+    } else {
+      // Auto-detect columns
+      dateColumnIndex = analysis.findIndex(a => a.type === 'date' && a.confidence > 0.7);
+      descriptionColumnIndex = analysis.findIndex(a => a.type === 'description' && a.confidence > 0.7);
+      amountColumnIndex = analysis.findIndex(a => a.type === 'amount' && a.confidence > 0.7);
+    }
+
+    // Validate we found all required columns
+    if (dateColumnIndex === -1 || descriptionColumnIndex === -1 || amountColumnIndex === -1) {
+      return {
+        success: false,
+        transactions: [],
+        errors: ['Could not identify required columns (date, description, amount)'],
+        columnAnalysis: analysis
+      };
+    }
+
+    // Parse data rows
+    const transactions: NormalizedTransaction[] = [];
+    let parseSuccessCount = 0;
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      try {
+        const parts = this.parseCSVLine(line);
+        
+        if (parts.length < Math.max(dateColumnIndex, descriptionColumnIndex, amountColumnIndex) + 1) {
+          errors.push(`Row ${i + 1}: Insufficient columns`);
+          continue;
+        }
+
+        const date = this.parseDate(parts[dateColumnIndex]);
+        const description = parts[descriptionColumnIndex] || '';
+        let amountStr = parts[amountColumnIndex].replace(/[$,]/g, '');
+        // Handle parentheses for negative amounts
+        if (amountStr.startsWith('(') && amountStr.endsWith(')')) {
+          amountStr = '-' + amountStr.slice(1, -1);
+        }
+        const amount = parseFloat(amountStr);
+
+        if (!date || isNaN(amount) || !description) {
+          errors.push(`Row ${i + 1}: Invalid data - date: ${date}, amount: ${amount}, description: "${description}"`);
+          continue;
+        }
+
+        transactions.push({
+          date,
+          description,
+          amount,
+          raw_data: line
+        });
+        parseSuccessCount++;
+      } catch (error) {
+        errors.push(`Row ${i + 1}: Parse error - ${error}`);
+      }
+    }
+
+    // Check if we successfully parsed enough rows
+    const totalDataRows = lines.length - 1;
+    const successRate = parseSuccessCount / totalDataRows;
+    
+    if (successRate < 0.8) {
+      return {
+        success: false,
+        transactions: [],
+        errors: [`Only ${(successRate * 100).toFixed(1)}% of rows parsed successfully (${parseSuccessCount}/${totalDataRows})`],
+        columnAnalysis: analysis
+      };
+    }
+
+    return {
+      success: true,
+      transactions,
+      errors,
+      columnAnalysis: analysis
+    };
+  }
+
+  private analyzeColumns(headers: string[], dataRows: string[]): ColumnDetection[] {
+    const analysis: ColumnDetection[] = [];
+    const sampleRows = dataRows.slice(0, Math.min(10, dataRows.length));
+
+    for (let i = 0; i < headers.length; i++) {
+      const columnName = headers[i];
+      const sampleValues = sampleRows.map(row => {
+        const parts = this.parseCSVLine(row);
+        return parts[i] || '';
+      }).filter(v => v.length > 0);
+
+      const detection = this.detectColumnType(columnName, sampleValues);
+      analysis.push(detection);
+    }
+
+    return analysis;
+  }
+
+  private detectColumnType(columnName: string, sampleValues: string[]): ColumnDetection {
+    const nameLower = columnName.toLowerCase();
+    
+    // Check for date columns
+    if (nameLower.includes('date') || nameLower.includes('posted')) {
+      const dateConfidence = this.calculateDateConfidence(sampleValues);
+      if (dateConfidence > 0.5) {
+        return {
+          columnName,
+          type: 'date',
+          confidence: dateConfidence,
+          sampleValues: sampleValues.slice(0, 3)
+        };
+      }
+    }
+
+    // Check for amount columns
+    if (nameLower.includes('amount') || nameLower.includes('balance')) {
+      const amountConfidence = this.calculateAmountConfidence(sampleValues);
+      if (amountConfidence > 0.5) {
+        return {
+          columnName,
+          type: 'amount',
+          confidence: amountConfidence,
+          sampleValues: sampleValues.slice(0, 3)
+        };
+      }
+    }
+
+    // Check for description columns
+    if (nameLower.includes('description') || nameLower.includes('payee') || nameLower.includes('memo')) {
+      const descriptionConfidence = this.calculateDescriptionConfidence(sampleValues);
+      return {
+        columnName,
+        type: 'description',
+        confidence: descriptionConfidence,
+        sampleValues: sampleValues.slice(0, 3)
+      };
+    }
+
+    // Try to detect by content
+    const dateConfidence = this.calculateDateConfidence(sampleValues);
+    if (dateConfidence > 0.8) {
+      return {
+        columnName,
+        type: 'date',
+        confidence: dateConfidence,
+        sampleValues: sampleValues.slice(0, 3)
+      };
+    }
+
+    const amountConfidence = this.calculateAmountConfidence(sampleValues);
+    if (amountConfidence > 0.8) {
+      return {
+        columnName,
+        type: 'amount',
+        confidence: amountConfidence,
+        sampleValues: sampleValues.slice(0, 3)
+      };
+    }
+
+    // Default to description if it's the longest text field
+    const avgLength = sampleValues.reduce((sum, val) => sum + val.length, 0) / sampleValues.length;
+    if (avgLength > 10) {
+      return {
+        columnName,
+        type: 'description',
+        confidence: 0.6,
+        sampleValues: sampleValues.slice(0, 3)
+      };
+    }
+
+    return {
+      columnName,
+      type: 'unknown',
+      confidence: 0,
+      sampleValues: sampleValues.slice(0, 3)
+    };
+  }
+
+  private calculateDateConfidence(values: string[]): number {
+    if (values.length === 0) return 0;
+    
+    let validDates = 0;
+    for (const value of values) {
+      if (this.parseDate(value)) {
+        validDates++;
+      }
+    }
+    
+    return validDates / values.length;
+  }
+
+  private calculateAmountConfidence(values: string[]): number {
+    if (values.length === 0) return 0;
+    
+    let validAmounts = 0;
+    for (const value of values) {
+      const cleaned = value.replace(/[$,]/g, '');
+      if (!isNaN(parseFloat(cleaned)) && (cleaned.includes('.') || cleaned.includes('-'))) {
+        validAmounts++;
+      }
+    }
+    
+    return validAmounts / values.length;
+  }
+
+  private calculateDescriptionConfidence(values: string[]): number {
+    if (values.length === 0) return 0;
+    
+    // Description columns typically have longer text and contain letters
+    let validDescriptions = 0;
+    for (const value of values) {
+      if (value.length > 5 && /[a-zA-Z]/.test(value)) {
+        validDescriptions++;
+      }
+    }
+    
+    return validDescriptions / values.length;
+  }
+
+  private formatNormalizationError(result: NormalizationResult): string {
+    let error = "Unable to automatically parse bank statement CSV.\n\n";
+    
+    if (result.columnAnalysis.length > 0) {
+      error += "Detected structure:\n";
+      for (const analysis of result.columnAnalysis) {
+        const confidenceStr = analysis.confidence > 0 ? ` (${analysis.type.toUpperCase()} - confidence ${Math.round(analysis.confidence * 100)}%)` : ' (unknown type)';
+        error += `- Column: "${analysis.columnName}"${confidenceStr}\n`;
+      }
+      error += "\n";
+    }
+
+    if (result.errors.length > 0) {
+      error += "Parse errors:\n";
+      for (const err of result.errors.slice(0, 5)) {
+        error += `- ${err}\n`;
+      }
+      if (result.errors.length > 5) {
+        error += `- ... and ${result.errors.length - 5} more errors\n`;
+      }
+      error += "\n";
+    }
+
+    error += "Please provide column hints:\n";
+    error += "{\n";
+    error += "  \"columnHints\": {\n";
+    error += "    \"dateColumn\": \"<name of date column>\",\n";
+    error += "    \"descriptionColumn\": \"<name of description column>\",\n";
+    error += "    \"amountColumn\": \"<name of amount column>\"\n";
+    error += "  }\n";
+    error += "}\n";
+
+    return error;
+  }
+
   private parseStatementData(csvData: string): Array<{date: string, description: string, amount: number}> {
     const lines = csvData.trim().split('\n');
     const transactions: Array<{date: string, description: string, amount: number}> = [];
@@ -501,12 +854,12 @@ export default class ReconcileAccountTool {
     }
   }
 
-  private matchTransactions(ynabTransactions: any[], statementTransactions: Array<{date: string, description: string, amount: number}>, tolerance: number): TransactionMatch[] {
+  private matchTransactions(ynabTransactions: any[], statementTransactions: NormalizedTransaction[], tolerance: number): TransactionMatch[] {
     const matches: TransactionMatch[] = [];
     const usedYNAB = new Set<string>();
     const usedStatement = new Set<number>();
 
-    // First pass: exact matches
+    // First pass: exact matches (amount exact + date ≤ 1 day + description > 90%)
     for (const ynabTxn of ynabTransactions) {
       for (let i = 0; i < statementTransactions.length; i++) {
         const stmtTxn = statementTransactions[i];
@@ -517,9 +870,13 @@ export default class ReconcileAccountTool {
         const amountDiff = Math.abs(ynabAmount - stmtTxn.amount);
         const dateDiff = Math.abs(new Date(ynabTxn.date).getTime() - new Date(stmtTxn.date).getTime());
         const daysDiff = dateDiff / (1000 * 60 * 60 * 24);
+        const descriptionSimilarity = this.calculateDescriptionSimilarity(
+          ynabTxn.payee_name || '', 
+          stmtTxn.description
+        );
 
-        // Exact match: same amount and date within 1 day
-        if (amountDiff <= tolerance && daysDiff <= 1) {
+        // Exact match: same amount and date within 1 day and high description similarity
+        if (amountDiff <= tolerance && daysDiff <= 1 && descriptionSimilarity > 0.9) {
           matches.push({
             ynab_transaction_id: ynabTxn.id,
             ynab_date: ynabTxn.date,
@@ -539,7 +896,87 @@ export default class ReconcileAccountTool {
       }
     }
 
-    // Second pass: fuzzy matches
+    // Second pass: strong matches (amount exact + date ≤ 3 days + description > 70%)
+    for (const ynabTxn of ynabTransactions) {
+      if (usedYNAB.has(ynabTxn.id)) continue;
+
+      for (let i = 0; i < statementTransactions.length; i++) {
+        const stmtTxn = statementTransactions[i];
+
+        if (usedStatement.has(i)) continue;
+
+        const ynabAmount = milliUnitsToAmount(ynabTxn.amount);
+        const amountDiff = Math.abs(ynabAmount - stmtTxn.amount);
+        const dateDiff = Math.abs(new Date(ynabTxn.date).getTime() - new Date(stmtTxn.date).getTime());
+        const daysDiff = dateDiff / (1000 * 60 * 60 * 24);
+        const descriptionSimilarity = this.calculateDescriptionSimilarity(
+          ynabTxn.payee_name || '', 
+          stmtTxn.description
+        );
+
+        // Strong match: amount exact and date within 3 days and good description similarity
+        if (amountDiff <= tolerance && daysDiff <= 3 && descriptionSimilarity > 0.7) {
+          matches.push({
+            ynab_transaction_id: ynabTxn.id,
+            ynab_date: ynabTxn.date,
+            ynab_amount: ynabAmount,
+            ynab_payee: ynabTxn.payee_name || 'Unknown',
+            ynab_memo: ynabTxn.memo || '',
+            statement_amount: stmtTxn.amount,
+            statement_date: stmtTxn.date,
+            statement_description: stmtTxn.description,
+            match_type: 'fuzzy',
+            confidence: 0.8 + (descriptionSimilarity * 0.2), // 0.8-1.0 range
+            discrepancy: amountDiff,
+          });
+          usedYNAB.add(ynabTxn.id);
+          usedStatement.add(i);
+          break;
+        }
+      }
+    }
+
+    // Third pass: fuzzy matches (amount exact + date ≤ 5 days + description > 60%)
+    for (const ynabTxn of ynabTransactions) {
+      if (usedYNAB.has(ynabTxn.id)) continue;
+
+      for (let i = 0; i < statementTransactions.length; i++) {
+        const stmtTxn = statementTransactions[i];
+
+        if (usedStatement.has(i)) continue;
+
+        const ynabAmount = milliUnitsToAmount(ynabTxn.amount);
+        const amountDiff = Math.abs(ynabAmount - stmtTxn.amount);
+        const dateDiff = Math.abs(new Date(ynabTxn.date).getTime() - new Date(stmtTxn.date).getTime());
+        const daysDiff = dateDiff / (1000 * 60 * 60 * 24);
+        const descriptionSimilarity = this.calculateDescriptionSimilarity(
+          ynabTxn.payee_name || '', 
+          stmtTxn.description
+        );
+
+        // Fuzzy match: amount exact and date within 5 days and moderate description similarity
+        if (amountDiff <= tolerance && daysDiff <= 5 && descriptionSimilarity > 0.6) {
+          matches.push({
+            ynab_transaction_id: ynabTxn.id,
+            ynab_date: ynabTxn.date,
+            ynab_amount: ynabAmount,
+            ynab_payee: ynabTxn.payee_name || 'Unknown',
+            ynab_memo: ynabTxn.memo || '',
+            statement_amount: stmtTxn.amount,
+            statement_date: stmtTxn.date,
+            statement_description: stmtTxn.description,
+            match_type: 'fuzzy',
+            confidence: 0.6 + (descriptionSimilarity * 0.2), // 0.6-0.8 range
+            discrepancy: amountDiff,
+          });
+          usedYNAB.add(ynabTxn.id);
+          usedStatement.add(i);
+          break;
+        }
+      }
+    }
+
+    // Fourth pass: amount-only matches (amount exact + date ≤ 7 days, flag as low confidence)
     for (const ynabTxn of ynabTransactions) {
       if (usedYNAB.has(ynabTxn.id)) continue;
 
@@ -553,33 +990,29 @@ export default class ReconcileAccountTool {
         const dateDiff = Math.abs(new Date(ynabTxn.date).getTime() - new Date(stmtTxn.date).getTime());
         const daysDiff = dateDiff / (1000 * 60 * 60 * 24);
 
-        // Fuzzy match: amount within tolerance and date within 7 days
-        if (amountDiff <= tolerance * 10 && daysDiff <= 7) {
-          const confidence = this.calculateMatchConfidence(ynabTxn, stmtTxn, amountDiff, daysDiff);
-
-          if (confidence > 0.5) {
-            matches.push({
-              ynab_transaction_id: ynabTxn.id,
-              ynab_date: ynabTxn.date,
-              ynab_amount: ynabAmount,
-              ynab_payee: ynabTxn.payee_name || 'Unknown',
-              ynab_memo: ynabTxn.memo || '',
-              statement_amount: stmtTxn.amount,
-              statement_date: stmtTxn.date,
-              statement_description: stmtTxn.description,
-              match_type: 'fuzzy',
-              confidence: confidence,
-              discrepancy: amountDiff,
-            });
-            usedYNAB.add(ynabTxn.id);
-            usedStatement.add(i);
-            break;
-          }
+        // Amount-only match: amount exact and date within 7 days (low confidence)
+        if (amountDiff <= tolerance && daysDiff <= 7) {
+          matches.push({
+            ynab_transaction_id: ynabTxn.id,
+            ynab_date: ynabTxn.date,
+            ynab_amount: ynabAmount,
+            ynab_payee: ynabTxn.payee_name || 'Unknown',
+            ynab_memo: ynabTxn.memo || '',
+            statement_amount: stmtTxn.amount,
+            statement_date: stmtTxn.date,
+            statement_description: stmtTxn.description,
+            match_type: 'fuzzy',
+            confidence: 0.3, // Low confidence for amount-only matches
+            discrepancy: amountDiff,
+          });
+          usedYNAB.add(ynabTxn.id);
+          usedStatement.add(i);
+          break;
         }
       }
     }
 
-    // Third pass: unmatched YNAB transactions
+    // Fifth pass: unmatched YNAB transactions
     for (const ynabTxn of ynabTransactions) {
       if (!usedYNAB.has(ynabTxn.id)) {
         matches.push({
@@ -594,7 +1027,7 @@ export default class ReconcileAccountTool {
       }
     }
 
-    // Fourth pass: unmatched statement transactions
+    // Sixth pass: unmatched statement transactions
     for (let i = 0; i < statementTransactions.length; i++) {
       if (!usedStatement.has(i)) {
         const stmtTxn = statementTransactions[i];
@@ -635,13 +1068,88 @@ export default class ReconcileAccountTool {
     return Math.max(0, Math.min(1, confidence));
   }
 
+  private extractKeywords(description: string): string[] {
+    // Remove common banking noise terms
+    const bankingTerms = [
+      'web', 'id', 'ach', 'ppd', 'tel', 'payment', 'transfer', 'transaction',
+      'auto', 'pay', 'credit', 'debit', 'fee', 'withdrawal', 'deposit',
+      'online', 'electronic', 'wire', 'check', 'card', 'pos', 'atm',
+      'td', 'amt', 'ref', 'conf', 'auth', 'app', 'mobile', 'digital'
+    ];
+    
+    // Split on various delimiters and clean up
+    const words = description
+      .toLowerCase()
+      .split(/[\s\-_\/\:\.]+/)
+      .map(word => word.replace(/[^\w]/g, ''))
+      .filter(word => word.length > 2 && !bankingTerms.includes(word))
+      .filter(word => !/^\d+$/.test(word)) // Remove pure numbers
+      .filter(word => word !== '');
+
+    // Normalize common patterns
+    const normalizedWords = words.map(word => {
+      // Normalize common banking abbreviations
+      if (word === 'gsbank') return 'apple';
+      if (word === 'mercuryach') return 'mercury';
+      if (word === 'privacycom') return 'privacy';
+      if (word === 'chase') return 'chase';
+      if (word === 'wells' || word === 'fargo') return 'wellsfargo';
+      if (word === 'schwab') return 'schwab';
+      if (word === 'bankamerica' || word === 'bofa') return 'bankofamerica';
+      if (word === 'pwp') return 'privacy'; // PwP is Privacy.com
+      return word;
+    });
+
+    // Remove duplicates and return
+    return [...new Set(normalizedWords)];
+  }
+
+  private calculateDescriptionSimilarity(ynabPayee: string, bankDescription: string): number {
+    const ynabKeywords = this.extractKeywords(ynabPayee);
+    const bankKeywords = this.extractKeywords(bankDescription);
+    
+    if (ynabKeywords.length === 0 && bankKeywords.length === 0) {
+      return 0.1; // Both are empty/just noise
+    }
+    
+    if (ynabKeywords.length === 0 || bankKeywords.length === 0) {
+      return 0; // One has keywords, other doesn't
+    }
+    
+    // Calculate keyword overlap
+    const commonKeywords = ynabKeywords.filter(keyword => 
+      bankKeywords.includes(keyword)
+    );
+    
+    // Calculate similarity as percentage of common keywords
+    const maxKeywords = Math.max(ynabKeywords.length, bankKeywords.length);
+    let similarity = maxKeywords > 0 ? commonKeywords.length / maxKeywords : 0;
+    
+    // If we have any common keywords, boost the similarity
+    if (commonKeywords.length > 0 && maxKeywords > 0) {
+      similarity = Math.max(similarity, 0.3); // Minimum 30% if any keywords match
+    }
+    
+    // Boost similarity if we have exact matches for important words
+    const importantWords = ['apple', 'amazon', 'google', 'microsoft', 'target', 'walmart', 'starbucks', 'mcdonalds'];
+    const hasImportantMatch = importantWords.some(word => 
+      ynabKeywords.includes(word) && bankKeywords.includes(word)
+    );
+    
+    if (hasImportantMatch && similarity > 0.3) {
+      return Math.min(1.0, similarity + 0.2); // Boost by 20%
+    }
+    
+    return similarity;
+  }
+
   private getCommonWords(str1: string, str2: string): string[] {
     const words1 = str1.split(/\s+/).filter(w => w.length > 2);
     const words2 = str2.split(/\s+/).filter(w => w.length > 2);
     return words1.filter(word => words2.includes(word));
   }
 
-  private analyzeDiscrepancies(matches: TransactionMatch[], ynabTransactions: any[], statementTransactions: Array<{date: string, description: string, amount: number}>): Array<{type: 'missing_ynab' | 'missing_statement' | 'amount_mismatch' | 'date_mismatch', description: string, amount?: number, transaction_id?: string}> {
+  private analyzeDiscrepancies(matches: TransactionMatch[], ynabTransactions: any[], statementTransactions: NormalizedTransaction[]): Array<{type: 'missing_ynab' | 'missing_statement' | 'amount_mismatch' | 'date_mismatch', description: string, amount?: number, transaction_id?: string}> {
     const discrepancies: Array<{type: 'missing_ynab' | 'missing_statement' | 'amount_mismatch' | 'date_mismatch', description: string, amount?: number, transaction_id?: string}> = [];
 
     // Find unmatched YNAB transactions

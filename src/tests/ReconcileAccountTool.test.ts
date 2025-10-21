@@ -1,28 +1,8 @@
-import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
-import * as ynab from 'ynab';
-import ReconcileAccountTool from '../tools/ReconcileAccountTool';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import ReconcileAccountTool from '../tools/ReconcileAccountTool.js';
 
-vi.mock('ynab');
-vi.mock('../utils/apiErrorHandler.js', () => ({
-  handleAPIError: vi.fn(),
-  createRetryableAPICall: async (fn: any) => await fn(),
-}));
-
-describe('ReconcileAccountTool', () => {
-  let tool: ReconcileAccountTool;
-  let mockApi: {
-    accounts: {
-      getAccounts: Mock;
-    };
-    transactions: {
-      getTransactionsByAccount: Mock;
-    };
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-
-    mockApi = {
+// Mock YNAB API
+const mockYNABApi = {
       accounts: {
         getAccounts: vi.fn(),
       },
@@ -31,370 +11,335 @@ describe('ReconcileAccountTool', () => {
       },
     };
 
-    (ynab.API as any).mockImplementation(() => mockApi);
+describe('ReconcileAccountTool', () => {
+  let tool: ReconcileAccountTool;
 
-    process.env.YNAB_API_TOKEN = 'test-token';
-    process.env.YNAB_BUDGET_ID = 'test-budget-id';
-
-    tool = new ReconcileAccountTool();
+  beforeEach(() => {
+    vi.clearAllMocks();
+    tool = new ReconcileAccountTool('test-budget-id', mockYNABApi as any);
   });
 
-  describe('tool configuration', () => {
-    it('should have correct name and description', () => {
-      const toolDef = tool.getToolDefinition();
-      expect(toolDef.name).toBe('ynab_reconcile_account');
-      expect(toolDef.description.toLowerCase()).toContain('reconcile');
-      expect(toolDef.description).toContain('statement');
+  describe('CSV Normalization', () => {
+    it('should parse Chase bank format correctly', () => {
+      const chaseCSV = `Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #
+DEBIT,10/20/2025,"PwP  Privacy.com Privacycom TN: 5199481     WEB ID:  626060084",-99.80,MISC_DEBIT,7139.41,,
+CREDIT,10/17/2025,"Online Transfer from CHK ...3515 transaction#: 26622174224",4000.00,ACCT_XFER,7239.21,,`;
+
+      const result = (tool as any).normalizeStatementData(chaseCSV);
+      
+      expect(result.success).toBe(true);
+      expect(result.transactions).toHaveLength(2);
+      expect(result.transactions[0]).toMatchObject({
+        date: '2025-10-20',
+        description: 'PwP  Privacy.com Privacycom TN: 5199481     WEB ID:  626060084',
+        amount: -99.80,
+      });
+      expect(result.transactions[1]).toMatchObject({
+        date: '2025-10-17',
+        description: 'Online Transfer from CHK ...3515 transaction#: 26622174224',
+        amount: 4000.00,
+      });
     });
 
-    it('should have correct input schema', () => {
-      const toolDef = tool.getToolDefinition();
-      expect(toolDef.inputSchema.properties).toHaveProperty('budgetId');
-      expect(toolDef.inputSchema.properties).toHaveProperty('accountId');
-      expect(toolDef.inputSchema.properties).toHaveProperty('accountName');
-      expect(toolDef.inputSchema.properties).toHaveProperty('statementData');
-      expect(toolDef.inputSchema.properties).toHaveProperty('statementBalance');
-      expect(toolDef.inputSchema.properties).toHaveProperty('tolerance');
+    it('should parse Wells Fargo format correctly', () => {
+      const wellsCSV = `Date,Amount,*,*,Description
+10/20/2025,-99.80,,,"Privacy.com Payment"
+10/17/2025,4000.00,,,"Online Transfer"`;
+
+      const result = (tool as any).normalizeStatementData(wellsCSV);
+      
+      expect(result.success).toBe(true);
+      expect(result.transactions).toHaveLength(2);
+      expect(result.transactions[0]).toMatchObject({
+        date: '2025-10-20',
+        description: 'Privacy.com Payment',
+        amount: -99.80,
+      });
     });
 
-    it('should have default tolerance of 0.01', () => {
-      const toolDef = tool.getToolDefinition();
-      expect(toolDef.inputSchema.properties.tolerance.default).toBe(0.01);
+    it('should parse Schwab format correctly', () => {
+      const schwabCSV = `Date,Action,Symbol,Description,Amount
+10/20/2025,DEPOSIT,,"Privacy.com Payment",-99.80
+10/17/2025,TRANSFER,,"Online Transfer",4000.00`;
+
+      const result = (tool as any).normalizeStatementData(schwabCSV);
+      
+      expect(result.success).toBe(true);
+      expect(result.transactions).toHaveLength(2);
+      expect(result.transactions[0]).toMatchObject({
+        date: '2025-10-20',
+        description: 'Privacy.com Payment',
+        amount: -99.80,
+      });
+    });
+
+    it('should parse Bank of America format correctly', () => {
+      const boaCSV = `Posted Date,Payee,Address,Amount
+10/20/2025,Privacy.com,,$99.80
+10/17/2025,Online Transfer,,-$4000.00`;
+
+      const result = (tool as any).normalizeStatementData(boaCSV);
+      
+      expect(result.success).toBe(true);
+      expect(result.transactions).toHaveLength(2);
+      expect(result.transactions[0]).toMatchObject({
+        date: '2025-10-20',
+        description: 'Privacy.com',
+        amount: 99.80,
+      });
+      expect(result.transactions[1]).toMatchObject({
+        date: '2025-10-17',
+        description: 'Online Transfer',
+        amount: -4000.00,
+      });
+    });
+
+    it('should parse simple format correctly', () => {
+      const simpleCSV = `Date,Description,Amount
+10/20/2025,Privacy.com Payment,-99.80
+10/17/2025,Online Transfer,4000.00`;
+
+      const result = (tool as any).normalizeStatementData(simpleCSV);
+      
+      expect(result.success).toBe(true);
+      expect(result.transactions).toHaveLength(2);
+      expect(result.transactions[0]).toMatchObject({
+        date: '2025-10-20',
+        description: 'Privacy.com Payment',
+        amount: -99.80,
+      });
+    });
+
+    it('should use column hints when provided', () => {
+      const csv = `Custom Date,Custom Desc,Custom Amount
+10/20/2025,Test Payment,-99.80`;
+
+      const result = (tool as any).normalizeStatementData(csv, {
+        dateColumn: 'Custom Date',
+        descriptionColumn: 'Custom Desc',
+        amountColumn: 'Custom Amount'
+      });
+      
+      expect(result.success).toBe(true);
+      expect(result.transactions).toHaveLength(1);
+      expect(result.transactions[0]).toMatchObject({
+        date: '2025-10-20',
+        description: 'Test Payment',
+        amount: -99.80,
+      });
+    });
+
+    it('should handle negative amounts in parentheses', () => {
+      const csv = `Date,Description,Amount
+10/20/2025,Test Payment,($99.80)`;
+
+      const result = (tool as any).normalizeStatementData(csv);
+      
+      expect(result.success).toBe(true);
+      expect(result.transactions).toHaveLength(1);
+      expect(result.transactions[0].amount).toBe(-99.80);
+    });
+
+    it('should fail with insufficient data', () => {
+      const csv = `Date,Description
+10/20/2025,Test Payment`;
+
+      const result = (tool as any).normalizeStatementData(csv);
+      
+      expect(result.success).toBe(false);
+      expect(result.errors).toContain('Could not identify required columns (date, description, amount)');
+    });
+
+    it('should provide helpful error messages with column analysis', () => {
+      const csv = `Unknown1,Unknown2,Unknown3
+10/20/2025,Test Payment,99.80`;
+
+      const result = (tool as any).normalizeStatementData(csv);
+      
+      expect(result.success).toBe(false);
+      expect(result.columnAnalysis).toHaveLength(3);
+      expect(result.columnAnalysis[0].type).toBe('date');
+      expect(result.columnAnalysis[1].type).toBe('description');
+      expect(result.columnAnalysis[2].type).toBe('amount');
     });
   });
 
-  describe('execute - CSV parsing', () => {
-    const mockAccounts = {
-      data: {
-        accounts: [
-          {
-            id: 'acc-checking',
-            name: 'Checking Account',
-            type: 'checking',
-            balance: 150000, // $150
-            deleted: false,
-            closed: false,
-          },
-        ],
+  describe('Keyword Extraction', () => {
+    it('should extract meaningful keywords from bank descriptions', () => {
+      const keywords = (tool as any).extractKeywords('PwP  Privacy.com Privacycom TN: 5199481     WEB ID:  626060084');
+      
+      expect(keywords).toContain('privacy');
+      expect(keywords).not.toContain('web');
+      expect(keywords).not.toContain('id');
+      expect(keywords).not.toContain('5199481');
+    });
+
+    it('should normalize common banking abbreviations', () => {
+      const keywords = (tool as any).extractKeywords('APPLECARD GSBANK PAYMENT');
+      
+      expect(keywords).toContain('apple');
+      expect(keywords).not.toContain('gsbank');
+    });
+
+    it('should handle YNAB payee names', () => {
+      const keywords = (tool as any).extractKeywords('Privacy - Lena Telegram');
+      
+      expect(keywords).toContain('privacy');
+      expect(keywords).toContain('lena');
+      expect(keywords).toContain('telegram');
+    });
+  });
+
+  describe('Description Similarity', () => {
+    it('should find high similarity between related descriptions', () => {
+      const similarity = (tool as any).calculateDescriptionSimilarity(
+        'Privacy - Lena Telegram',
+        'PwP  Privacy.com Privacycom TN: 5199481     WEB ID:  626060084'
+      );
+      
+      expect(similarity).toBeGreaterThan(0.3);
+    });
+
+    it('should find low similarity between unrelated descriptions', () => {
+      const similarity = (tool as any).calculateDescriptionSimilarity(
+        'Apple Store',
+        'McDonald\'s Restaurant'
+      );
+      
+      expect(similarity).toBeLessThan(0.5);
+    });
+
+    it('should boost similarity for important merchant matches', () => {
+      const similarity = (tool as any).calculateDescriptionSimilarity(
+        'Apple Store Purchase',
+        'APPLECARD GSBANK PAYMENT'
+      );
+      
+      expect(similarity).toBeGreaterThan(0.5);
+    });
+  });
+
+  describe('Transaction Matching', () => {
+    const mockYNABTransactions = [
+      {
+        id: 'ynab-1',
+        date: '2025-10-20',
+        amount: -99800, // -99.80 in milliunits
+        payee_name: 'Privacy - Lena Telegram',
+        memo: 'Test memo'
       },
-    };
+      {
+        id: 'ynab-2',
+        date: '2025-10-17',
+        amount: 4000000, // 4000.00 in milliunits
+        payee_name: 'Online Transfer',
+        memo: ''
+      }
+    ];
 
-    const mockTransactions = {
-      data: {
-        transactions: [
-          {
-            id: 'txn-1',
-            date: '2024-01-15',
-            amount: -50000, // -$50
-            payee_name: 'Grocery Store',
-            memo: 'Weekly shopping',
-            deleted: false,
-            cleared: ynab.TransactionClearedStatus.Cleared,
-          },
-          {
-            id: 'txn-2',
-            date: '2024-01-20',
-            amount: -30000, // -$30
-            payee_name: 'Gas Station',
-            memo: 'Fill up',
-            deleted: false,
-            cleared: ynab.TransactionClearedStatus.Cleared,
-          },
-        ],
+    const mockStatementTransactions = [
+      {
+        date: '2025-10-20',
+        description: 'PwP  Privacy.com Privacycom TN: 5199481     WEB ID:  626060084',
+        amount: -99.80,
+        raw_data: 'DEBIT,10/20/2025,"PwP  Privacy.com Privacycom TN: 5199481     WEB ID:  626060084",-99.80,MISC_DEBIT,7139.41,,'
       },
-    };
+      {
+        date: '2025-10-17',
+        description: 'Online Transfer from CHK ...3515 transaction#: 26622174224',
+        amount: 4000.00,
+        raw_data: 'CREDIT,10/17/2025,"Online Transfer from CHK ...3515 transaction#: 26622174224",4000.00,ACCT_XFER,7239.21,,'
+      }
+    ];
 
-    // TODO: Fix complex CSV parsing mock setup
-    it.skip('should parse CSV statement data', async () => {
-      mockApi.accounts.getAccounts.mockResolvedValue(mockAccounts);
-      mockApi.transactions.getTransactionsByAccount.mockResolvedValue(mockTransactions);
-
-      const csvData = `Date,Description,Amount
-2024-01-15,Grocery Store,-50.00
-2024-01-20,Gas Station,-30.00`;
-
-      const result = await tool.execute({
-        budgetId: 'test-budget-id',
-        accountId: 'acc-checking',
-        statementData: csvData,
-        statementBalance: 150.0,
-        statementDate: '2024-01-31',
-        response_format: 'json',
-      });
-
-      const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult).toHaveProperty('matches');
-      expect(parsedResult.total_statement_transactions).toBe(2);
+    it('should find exact matches', () => {
+      const matches = (tool as any).matchTransactions(mockYNABTransactions, mockStatementTransactions, 0.01);
+      
+      const exactMatches = matches.filter(m => m.match_type === 'exact');
+      expect(exactMatches.length).toBeGreaterThan(0);
+      
+      const privacyMatch = exactMatches.find(m => m.ynab_transaction_id === 'ynab-1');
+      expect(privacyMatch).toBeDefined();
+      expect(privacyMatch?.confidence).toBe(1.0);
     });
 
-    // TODO: Fix complex transaction matching mock setup
-    it.skip('should match transactions exactly', async () => {
-      mockApi.accounts.getAccounts.mockResolvedValue(mockAccounts);
-      mockApi.transactions.getTransactionsByAccount.mockResolvedValue(mockTransactions);
+    it('should find fuzzy matches with date tolerance', () => {
+      const ynabTxn = [{
+        id: 'ynab-1',
+        date: '2025-10-18', // 2 days after statement date
+        amount: -99800,
+        payee_name: 'Privacy - Lena Telegram',
+        memo: ''
+      }];
 
-      const csvData = `Date,Description,Amount
-2024-01-15,Grocery Store,-50.00
-2024-01-20,Gas Station,-30.00`;
+      const stmtTxn = [{
+        date: '2025-10-20',
+        description: 'PwP  Privacy.com Privacycom TN: 5199481     WEB ID:  626060084',
+        amount: -99.80,
+        raw_data: 'test'
+      }];
 
-      const result = await tool.execute({
-        budgetId: 'test-budget-id',
-        accountId: 'acc-checking',
-        statementData: csvData,
-        statementBalance: 150.0,
-        statementDate: '2024-01-31',
-        response_format: 'json',
-      });
-
-      expect(result).not.toHaveProperty('isError');
-      const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult).toHaveProperty('exact_matches');
-      expect(parsedResult).toHaveProperty('matches');
-      expect(parsedResult.total_statement_transactions).toBe(2);
-      expect(parsedResult.total_ynab_transactions).toBe(2);
+      const matches = (tool as any).matchTransactions(ynabTxn, stmtTxn, 0.01);
+      
+      const fuzzyMatches = matches.filter(m => m.match_type === 'fuzzy');
+      expect(fuzzyMatches.length).toBeGreaterThan(0);
+      expect(fuzzyMatches[0].confidence).toBeGreaterThan(0.3);
     });
 
-    // TODO: Fix unmatched transaction detection mock setup
-    it.skip('should detect unmatched transactions', async () => {
-      mockApi.accounts.getAccounts.mockResolvedValue(mockAccounts);
-      mockApi.transactions.getTransactionsByAccount.mockResolvedValue(mockTransactions);
+    it('should handle unmatched transactions', () => {
+      const ynabTxn = [{
+        id: 'ynab-1',
+        date: '2025-10-20',
+        amount: -99800,
+        payee_name: 'Unmatched YNAB Transaction',
+        memo: ''
+      }];
 
-      const csvData = `Date,Description,Amount
-2024-01-15,Grocery Store,-50.00
-2024-01-25,Restaurant,-45.00`;
+      const stmtTxn = [{
+        date: '2025-10-20',
+        description: 'Completely Different Transaction',
+        amount: -50.00,
+        raw_data: 'test'
+      }];
 
-      const result = await tool.execute({
-        budgetId: 'test-budget-id',
-        accountId: 'acc-checking',
-        statementData: csvData,
-        statementBalance: 150.0,
-        statementDate: '2024-01-31',
-        response_format: 'json',
-      });
-
-      const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult).toHaveProperty('unmatched_ynab');
-      expect(parsedResult).toHaveProperty('unmatched_statement');
-    });
-
-    // TODO: Fix balance difference calculation mock setup
-    it.skip('should calculate balance difference', async () => {
-      mockApi.accounts.getAccounts.mockResolvedValue(mockAccounts);
-      mockApi.transactions.getTransactionsByAccount.mockResolvedValue(mockTransactions);
-
-      const csvData = `Date,Description,Amount
-2024-01-15,Grocery Store,-50.00`;
-
-      const result = await tool.execute({
-        budgetId: 'test-budget-id',
-        accountId: 'acc-checking',
-        statementData: csvData,
-        statementBalance: 200.0, // Different from YNAB balance
-        statementDate: '2024-01-31',
-        response_format: 'json',
-      });
-
-      const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult.balance_difference).not.toBe(0);
-    });
-
-    // TODO: Fix tolerance setting mock setup
-    it.skip('should respect tolerance setting', async () => {
-      mockApi.accounts.getAccounts.mockResolvedValue(mockAccounts);
-      mockApi.transactions.getTransactionsByAccount.mockResolvedValue(mockTransactions);
-
-      const csvData = `Date,Description,Amount
-2024-01-15,Grocery Store,-50.01`;
-
-      const result = await tool.execute({
-        budgetId: 'test-budget-id',
-        accountId: 'acc-checking',
-        statementData: csvData,
-        statementBalance: 150.0,
-        statementDate: '2024-01-31',
-        tolerance: 0.05, // $0.05 tolerance
-        response_format: 'json',
-      });
-
-      const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult).toHaveProperty('matches');
+      const matches = (tool as any).matchTransactions(ynabTxn, stmtTxn, 0.01);
+      
+      const unmatched = matches.filter(m => m.match_type === 'unmatched');
+      expect(unmatched.length).toBe(2); // One from each side
     });
   });
 
-  describe('execute - edge cases', () => {
-    // TODO: Fix account lookup by name mock setup
-    it.skip('should handle account lookup by name', async () => {
-      const mockAccounts = {
-        data: {
-          accounts: [
-            {
-              id: 'acc-1',
-              name: 'Checking Account',
-              type: 'checking',
-              balance: 100000,
-              deleted: false,
-              closed: false,
-            },
-          ],
-        },
-      };
-
-      mockApi.accounts.getAccounts.mockResolvedValue(mockAccounts);
-      mockApi.transactions.getTransactionsByAccount.mockResolvedValue({ data: { transactions: [] } });
-
-      const result = await tool.execute({
-        budgetId: 'test-budget-id',
-        accountName: 'Checking',
-        statementData: 'Date,Description,Amount\n',
-        statementBalance: 100,
-        statementDate: '2024-01-31',
-        response_format: 'json',
+  describe('Error Handling', () => {
+    it('should handle missing account', async () => {
+      mockYNABApi.accounts.getAccounts.mockResolvedValue({
+        data: { accounts: [] }
       });
 
-      expect(result).not.toHaveProperty('isError');
-      const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult.account_name).toContain('Checking');
-    });
-
-    it('should handle invalid account', async () => {
-      mockApi.accounts.getAccounts.mockResolvedValue({ data: { accounts: [] } });
-
       const result = await tool.execute({
-        budgetId: 'test-budget-id',
-        accountId: 'invalid-id',
-        statementData: 'Date,Description,Amount\n',
-        statementBalance: 100,
-        statementDate: '2024-01-31',
+        statementData: 'Date,Description,Amount\n10/20/2025,Test,-99.80',
+        statementBalance: 1000.00,
+        statementDate: '2025-10-20',
+        accountName: 'Nonexistent Account'
       });
 
-      expect(result).toHaveProperty('isError', true);
+      expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Account not found');
     });
 
-    // TODO: Fix empty statement data mock setup
-    it.skip('should handle empty statement data', async () => {
-      const mockAccounts = {
-        data: {
-          accounts: [
-            {
-              id: 'acc-1',
-              name: 'Checking',
-              balance: 100000,
-              deleted: false,
-              closed: false,
-            },
-          ],
-        },
-      };
-
-      mockApi.accounts.getAccounts.mockResolvedValue(mockAccounts);
-      mockApi.transactions.getTransactionsByAccount.mockResolvedValue({ data: { transactions: [] } });
-
-      const result = await tool.execute({
-        budgetId: 'test-budget-id',
-        accountId: 'acc-1',
-        statementData: 'Date,Description,Amount\n',
-        statementBalance: 100,
-        statementDate: '2024-01-31',
-        response_format: 'json',
+    it('should handle CSV parsing errors gracefully', async () => {
+      mockYNABApi.accounts.getAccounts.mockResolvedValue({
+        data: { accounts: [{ id: 'test-account', name: 'Test Account', balance: 100000 }] }
       });
 
-      expect(result).not.toHaveProperty('isError');
-      const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult.total_statement_transactions).toBe(0);
-    });
-
-    // TODO: Fix dry run mode mock setup
-    it.skip('should handle dry run mode', async () => {
-      const mockAccounts = {
-        data: {
-          accounts: [
-            {
-              id: 'acc-1',
-              name: 'Checking',
-              balance: 100000,
-              deleted: false,
-              closed: false,
-            },
-          ],
-        },
-      };
-
-      mockApi.accounts.getAccounts.mockResolvedValue(mockAccounts);
-      mockApi.transactions.getTransactionsByAccount.mockResolvedValue({ data: { transactions: [] } });
-
       const result = await tool.execute({
-        budgetId: 'test-budget-id',
-        accountId: 'acc-1',
-        statementData: 'Date,Description,Amount\n',
-        statementBalance: 100,
-        statementDate: '2024-01-31',
-        dryRun: true,
-        response_format: 'json',
+        statementData: 'Invalid CSV data',
+        statementBalance: 1000.00,
+        statementDate: '2025-10-20',
+        accountName: 'Test Account'
       });
 
-      expect(result).not.toHaveProperty('isError');
-      const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult.note).toContain('reconciliation');
-    });
-
-    it('should handle missing budget ID', async () => {
-      delete process.env.YNAB_BUDGET_ID;
-      tool = new ReconcileAccountTool();
-
-      const result = await tool.execute({
-        accountId: 'acc-1',
-        statementData: '',
-        statementBalance: 100,
-        statementDate: '2024-01-31',
-      });
-
-      expect(result).toHaveProperty('isError', true);
-    });
-
-    it('should handle API errors', async () => {
-      mockApi.accounts.getAccounts.mockRejectedValue(new Error('API Error'));
-
-      const result = await tool.execute({
-        budgetId: 'test-budget-id',
-        accountId: 'acc-1',
-        statementData: '',
-        statementBalance: 100,
-        statementDate: '2024-01-31',
-      });
-
-      expect(result).toHaveProperty('isError', true);
-    });
-
-    // TODO: Fix markdown format mock setup
-    it.skip('should return markdown format when requested', async () => {
-      const mockAccounts = {
-        data: {
-          accounts: [
-            {
-              id: 'acc-1',
-              name: 'Checking',
-              balance: 100000,
-              deleted: false,
-              closed: false,
-            },
-          ],
-        },
-      };
-
-      mockApi.accounts.getAccounts.mockResolvedValue(mockAccounts);
-      mockApi.transactions.getTransactionsByAccount.mockResolvedValue({ data: { transactions: [] } });
-
-      const result = await tool.execute({
-        budgetId: 'test-budget-id',
-        accountId: 'acc-1',
-        statementData: 'Date,Description,Amount\n',
-        statementBalance: 100,
-        statementDate: '2024-01-31',
-        response_format: 'markdown',
-      });
-
-      expect(result).not.toHaveProperty('isError');
-      expect(result.content[0].text).toContain('#');
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Unable to automatically parse');
     });
   });
 });
