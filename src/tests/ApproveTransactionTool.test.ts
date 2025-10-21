@@ -72,6 +72,7 @@ describe('ApproveTransactionTool', () => {
         budgetId: 'custom-budget-id',
         transactionId: 'transaction-123',
         approved: true,
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -125,6 +126,7 @@ describe('ApproveTransactionTool', () => {
       const input = {
         transactionId: 'transaction-123',
         approved: true,
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -184,6 +186,7 @@ describe('ApproveTransactionTool', () => {
         budgetId: 'test-budget-id',
         transactionId: 'transaction-123',
         approved: false,
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -232,7 +235,9 @@ describe('ApproveTransactionTool', () => {
       };
 
       const result = await tool.execute(input);
-      expect(result.content[0].text).toContain('No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.');
+      expect(result).toHaveProperty('isError', true);
+      expect(result.content[0].text).toContain('Error updating transaction:');
+      expect(result.content[0].text).toContain('Budget ID is required');
     });
 
     it('should handle transaction not found error', async () => {
@@ -320,6 +325,7 @@ describe('ApproveTransactionTool', () => {
       const input = {
         budgetId: 'test-budget-id',
         transactionId: 'transaction-123',
+        response_format: 'json' as const,
         // approved not specified, should default to true
       };
 
@@ -378,7 +384,7 @@ describe('ApproveTransactionTool', () => {
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       const toolDef = tool.getToolDefinition();
-      expect(toolDef.name).toBe('approve_transaction');
+      expect(toolDef.name).toBe('ynab_approve_transaction');
       expect(toolDef.description).toBe('Approves an existing transaction in your YNAB budget.');
     });
 

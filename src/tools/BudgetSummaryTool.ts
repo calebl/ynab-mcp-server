@@ -1,10 +1,12 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { optimizeCategories, optimizeAccounts, withContextOptimization } from "../utils/contextOptimizer.js";
+import { truncateResponse, CHARACTER_LIMIT, getBudgetId, milliUnitsToAmount, formatCurrency } from "../utils/commonUtils.js";
 
 interface BudgetSummaryInput {
   budgetId?: string;
   month: string;
+  response_format?: "json" | "markdown";
 }
 
 class BudgetSummaryTool {
@@ -18,7 +20,7 @@ class BudgetSummaryTool {
 
   getToolDefinition(): Tool {
     return {
-      name: "budget_summary",
+      name: "ynab_budget_summary",
       description: "Get a summary of the budget for a specific month highlighting overspent categories that need attention and categories with a positive balance that are doing well.",
       inputSchema: {
         type: "object",
@@ -33,26 +35,27 @@ class BudgetSummaryTool {
             default: "current",
             description: "The budget month in ISO format (e.g. 2016-12-01). The string 'current' can also be used to specify the current calendar month (UTC)",
           },
+          response_format: {
+            type: "string",
+            enum: ["json", "markdown"],
+            description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
+          },
         },
         additionalProperties: false,
+      },
+      annotations: {
+        title: "Budget Summary",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     };
   }
 
   async execute(input: BudgetSummaryInput) {
-    const budgetId = input.budgetId || this.budgetId;
-    if (!budgetId) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable. Use the ListBudgets tool to get a list of available budgets.",
-          },
-        ],
-      };
-    }
-
     try {
+      const budgetId = getBudgetId(input.budgetId || this.budgetId);
       console.error(`Getting accounts and categories for budget ${budgetId} and month ${input.month}`);
       const accountsResponse = await this.api.accounts.getAccounts(budgetId);
       // Filter accounts: only include open, non-deleted accounts that are on-budget
@@ -86,20 +89,40 @@ class BudgetSummaryTool {
         categorySummary: categorySummary
       };
 
-      // Optimize for context efficiency
-      return withContextOptimization(enhancedResult, {
-        maxTokens: 4000,
-        summarizeCategories: true,
-        summarizeAccounts: true
-      });
-    } catch (error: unknown) {
-      console.error(`Error getting budget ${budgetId}:`);
-      console.error(JSON.stringify(error, null, 2));
+      const format = input.response_format || "markdown";
+      let responseText: string;
+
+      if (format === "json") {
+        // Optimize for context efficiency in JSON mode
+        const optimized = withContextOptimization(enhancedResult, {
+          maxTokens: 4000,
+          summarizeCategories: true,
+          summarizeAccounts: true
+        });
+        responseText = optimized.content[0].text;
+      } else {
+        responseText = this.formatMarkdown(monthBudget.data.month, accounts, categories, categorySummary);
+      }
+
+      const { text, wasTruncated } = truncateResponse(responseText, CHARACTER_LIMIT);
+
       return {
         content: [
           {
             type: "text",
-            text: `Error getting budget ${budgetId}: ${JSON.stringify(error)}`,
+            text,
+          },
+        ],
+      };
+    } catch (error: unknown) {
+      console.error(`Error getting budget:`);
+      console.error(JSON.stringify(error, null, 2));
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Error getting budget: ${error instanceof Error ? error.message : JSON.stringify(error)}`,
           },
         ],
       };
@@ -196,17 +219,106 @@ class BudgetSummaryTool {
       categories_with_budget: categoriesWithBudget.length,
       overspent_categories: overspentCategories.length,
       underfunded_categories: underfundedCategories.length,
-      total_activity_dollars: Math.round((totalActivity / 1000) * 100) / 100,
-      total_budgeted_dollars: Math.round((totalBudgeted / 1000) * 100) / 100,
-      total_overspent_dollars: Math.round((totalOverspent / 1000) * 100) / 100,
+      total_activity_dollars: Math.round((milliUnitsToAmount(totalActivity)) * 100) / 100,
+      total_budgeted_dollars: Math.round((milliUnitsToAmount(totalBudgeted)) * 100) / 100,
+      total_overspent_dollars: Math.round((milliUnitsToAmount(totalOverspent)) * 100) / 100,
       top_activity_categories: categoriesWithActivity
         .sort((a, b) => Math.abs(b.activity) - Math.abs(a.activity))
         .slice(0, 5)
         .map(cat => ({
           name: cat.name,
-          activity_dollars: Math.round((cat.activity / 1000) * 100) / 100
+          activity_dollars: Math.round((milliUnitsToAmount(cat.activity)) * 100) / 100
         }))
     };
+  }
+
+  private formatMarkdown(
+    monthBudget: ynab.MonthDetail,
+    accounts: ynab.Account[],
+    categories: ynab.Category[],
+    categorySummary: any
+  ): string {
+    let output = `# Budget Summary for ${monthBudget.month}\n\n`;
+
+    output += "## Month Overview\n";
+    output += `- **Income**: ${formatCurrency(milliUnitsToAmount(monthBudget.income))}\n`;
+    output += `- **Budgeted**: ${formatCurrency(milliUnitsToAmount(monthBudget.budgeted))}\n`;
+    output += `- **Activity**: ${formatCurrency(milliUnitsToAmount(monthBudget.activity))}\n`;
+    output += `- **Ready to Assign**: ${formatCurrency(milliUnitsToAmount(monthBudget.to_be_budgeted))}\n`;
+    if (monthBudget.age_of_money !== null) {
+      output += `- **Age of Money**: ${monthBudget.age_of_money} days\n`;
+    }
+    if (monthBudget.note) {
+      output += `- **Note**: ${monthBudget.note}\n`;
+    }
+    output += "\n";
+
+    output += "## Category Summary\n";
+    output += `- **Total Categories**: ${categorySummary.total_categories}\n`;
+    output += `- **Categories with Activity**: ${categorySummary.categories_with_activity}\n`;
+    output += `- **Categories with Budget**: ${categorySummary.categories_with_budget}\n`;
+    output += `- **Overspent Categories**: ${categorySummary.overspent_categories}\n`;
+    output += `- **Total Activity**: ${formatCurrency(categorySummary.total_activity_dollars)}\n`;
+    output += `- **Total Budgeted**: ${formatCurrency(categorySummary.total_budgeted_dollars)}\n`;
+    if (categorySummary.overspent_categories > 0) {
+      output += `- **Total Overspent**: ${formatCurrency(categorySummary.total_overspent_dollars)}\n`;
+    }
+    output += "\n";
+
+    if (categorySummary.top_activity_categories.length > 0) {
+      output += "## Top Activity Categories\n";
+      for (const cat of categorySummary.top_activity_categories) {
+        output += `- **${cat.name}**: ${formatCurrency(cat.activity_dollars)}\n`;
+      }
+      output += "\n";
+    }
+
+    // Show overspent categories
+    const overspentCategories = categories.filter(cat => cat.balance < 0)
+      .sort((a, b) => a.balance - b.balance);
+
+    if (overspentCategories.length > 0) {
+      output += "## Overspent Categories (Need Attention)\n";
+      for (const cat of overspentCategories) {
+        output += `- **${cat.name}** (${cat.category_group_name})\n`;
+        output += `  - Balance: ${formatCurrency(milliUnitsToAmount(cat.balance))}\n`;
+        output += `  - Budgeted: ${formatCurrency(milliUnitsToAmount(cat.budgeted))}\n`;
+        output += `  - Activity: ${formatCurrency(milliUnitsToAmount(cat.activity))}\n`;
+      }
+      output += "\n";
+    }
+
+    // Show well-performing categories
+    const wellPerformingCategories = categories.filter(cat => cat.balance > 0 && cat.budgeted > 0)
+      .sort((a, b) => b.balance - a.balance)
+      .slice(0, 5);
+
+    if (wellPerformingCategories.length > 0) {
+      output += "## Well-Performing Categories\n";
+      for (const cat of wellPerformingCategories) {
+        output += `- **${cat.name}** (${cat.category_group_name})\n`;
+        output += `  - Balance: ${formatCurrency(milliUnitsToAmount(cat.balance))}\n`;
+        output += `  - Budgeted: ${formatCurrency(milliUnitsToAmount(cat.budgeted))}\n`;
+        output += `  - Activity: ${formatCurrency(milliUnitsToAmount(cat.activity))}\n`;
+      }
+      output += "\n";
+    }
+
+    // Show account balances
+    const checkingAndSavingsAccounts = accounts.filter(account =>
+      account.type === "checking" || account.type === "savings"
+    );
+
+    if (checkingAndSavingsAccounts.length > 0) {
+      output += "## Checking and Savings Accounts\n";
+      for (const account of checkingAndSavingsAccounts) {
+        output += `- **${account.name}** (${account.type})\n`;
+        output += `  - Balance: ${formatCurrency(milliUnitsToAmount(account.balance))}\n`;
+      }
+      output += "\n";
+    }
+
+    return output;
   }
 }
 

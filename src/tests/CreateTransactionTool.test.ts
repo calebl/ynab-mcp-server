@@ -63,6 +63,7 @@ describe('CreateTransactionTool', () => {
         memo: 'Test memo',
         cleared: false,
         approved: false,
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -111,6 +112,7 @@ describe('CreateTransactionTool', () => {
         amount: 25.99,
         payeeId: 'payee-123',
         categoryId: 'category-789',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -157,6 +159,7 @@ describe('CreateTransactionTool', () => {
         date: '2023-12-01',
         amount: 10.50,
         payeeName: 'Test Payee',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -196,6 +199,7 @@ describe('CreateTransactionTool', () => {
         cleared: true,
         approved: true,
         flagColor: 'red',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -243,6 +247,7 @@ describe('CreateTransactionTool', () => {
         date: '2023-12-01',
         amount: 12.996, // Should round to 12996 milliunits
         payeeName: 'Test Payee',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -272,7 +277,9 @@ describe('CreateTransactionTool', () => {
       };
 
       const result = await tool.execute(input);
-      expect(result.content[0].text).toContain('No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.');
+      expect(result).toHaveProperty('isError', true);
+      expect(result.content[0].text).toContain('Error creating transaction:');
+      expect(result.content[0].text).toContain('Budget ID is required');
     });
 
     it('should throw error when neither payee_id nor payee_name is provided', async () => {
@@ -285,6 +292,7 @@ describe('CreateTransactionTool', () => {
       };
 
       const result = await tool.execute(input);
+      expect(result).toHaveProperty('isError', true);
       expect(result.content[0].text).toContain('Either payee_id or payee_name must be provided');
     });
 
@@ -303,11 +311,9 @@ describe('CreateTransactionTool', () => {
 
       const result = await tool.execute(input);
 
-      const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult).toEqual({
-        success: false,
-        error: 'API Error: Budget not found',
-      });
+      expect(result).toHaveProperty('isError', true);
+      expect(result.content[0].text).toContain('Error creating transaction:');
+      expect(result.content[0].text).toContain('API Error: Budget not found');
     });
 
     it('should return success false when API returns no transaction data', async () => {
@@ -326,11 +332,9 @@ describe('CreateTransactionTool', () => {
 
       const result = await tool.execute(input);
 
-      const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult).toEqual({
-        success: false,
-        error: 'Failed to create transaction - no transaction data returned',
-      });
+      expect(result).toHaveProperty('isError', true);
+      expect(result.content[0].text).toContain('Error creating transaction:');
+      expect(result.content[0].text).toContain('Failed to create transaction');
     });
 
     it('should handle non-Error objects in catch block', async () => {
@@ -348,11 +352,8 @@ describe('CreateTransactionTool', () => {
 
       const result = await tool.execute(input);
 
-      const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult).toEqual({
-        success: false,
-        error: 'Unknown error occurred',
-      });
+      expect(result).toHaveProperty('isError', true);
+      expect(result.content[0].text).toContain('Error creating transaction:');
     });
 
     it('should handle cleared status correctly when false', async () => {
@@ -368,6 +369,7 @@ describe('CreateTransactionTool', () => {
         amount: 50.00,
         payeeName: 'Test Payee',
         cleared: false,
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -397,6 +399,7 @@ describe('CreateTransactionTool', () => {
         amount: 50.00,
         payeeName: 'Test Payee',
         cleared: true,
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -425,6 +428,7 @@ describe('CreateTransactionTool', () => {
         date: '2023-12-01',
         amount: 50.00,
         payeeName: 'Test Payee',
+        response_format: 'json' as const,
         // approved not provided, should default to false
       };
 
@@ -455,6 +459,7 @@ describe('CreateTransactionTool', () => {
         amount: 50.00,
         payeeName: 'Test Payee',
         flagColor: 'blue',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -475,7 +480,7 @@ describe('CreateTransactionTool', () => {
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       const toolDef = tool.getToolDefinition();
-      expect(toolDef.name).toBe('create_transaction');
+      expect(toolDef.name).toBe('ynab_create_transaction');
       expect(toolDef.description).toBe('Creates a new transaction in your YNAB budget. Either payee_id or payee_name must be provided in addition to the other required fields.');
     });
 

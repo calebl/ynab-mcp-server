@@ -1,6 +1,14 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { handleAPIError, createRetryableAPICall } from "../utils/apiErrorHandler.js";
+import {
+  truncateResponse,
+  CHARACTER_LIMIT,
+  getBudgetId,
+  amountToMilliUnits,
+  milliUnitsToAmount,
+  formatCurrency
+} from "../utils/commonUtils.js";
 
 interface SetCategoryGoalsInput {
   budgetId?: string;
@@ -12,6 +20,7 @@ interface SetCategoryGoalsInput {
   goalTargetMonth?: string; // YYYY-MM-DD format for TBD goals
   note?: string;
   dryRun?: boolean;
+  response_format?: "json" | "markdown";
 }
 
 interface GoalUpdateResult {
@@ -51,7 +60,7 @@ export default class SetCategoryGoalsTool {
 
   getToolDefinition(): Tool {
     return {
-      name: "set_category_goals",
+      name: "ynab_set_category_goals",
       description: "Create or update category goals in YNAB. Supports updating goal targets and target dates for existing goals. Note: Creating new goals requires the YNAB web interface - this tool can only update existing goal targets.",
       inputSchema: {
         type: "object",
@@ -94,19 +103,28 @@ export default class SetCategoryGoalsTool {
             description: "If true, will show what would be updated without making changes",
             default: false,
           },
+          response_format: {
+            type: "string",
+            enum: ["json", "markdown"],
+            description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
+          },
         },
         required: [],
+        additionalProperties: false,
+      },
+      annotations: {
+        title: "Set Category Goals",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
       },
     };
   }
 
-  async execute(input: SetCategoryGoalsInput): Promise<{ content: Array<{ type: string; text: string }> }> {
-    const budgetId = input.budgetId || this.budgetId;
-    if (!budgetId) {
-      throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable. Use the ListBudgets tool to get a list of available budgets.");
-    }
-
+  async execute(input: SetCategoryGoalsInput): Promise<{ content: Array<{ type: string; text: string }>, isError?: boolean }> {
     try {
+      const budgetId = getBudgetId(input.budgetId || this.budgetId);
       // Get all categories
       const categoriesResponse = await this.api.categories.getCategories(budgetId);
       const allCategories = categoriesResponse.data.category_groups
@@ -153,7 +171,7 @@ export default class SetCategoryGoalsTool {
       } else {
         // Category has a goal, we can update the target
         const currentGoalTarget = targetCategory.goal_target || 0;
-        const currentGoalTargetDollars = currentGoalTarget / 1000;
+        const currentGoalTargetDollars = milliUnitsToAmount(currentGoalTarget);
         const currentGoalTargetMonth = targetCategory.goal_target_month;
 
         let newGoalTarget = currentGoalTarget;
@@ -162,11 +180,11 @@ export default class SetCategoryGoalsTool {
 
         // Update goal target if provided
         if (input.goalTarget !== undefined) {
-          const newTargetMilliunits = Math.round(input.goalTarget * 1000);
+          const newTargetMilliunits = amountToMilliUnits(input.goalTarget);
           if (newTargetMilliunits !== currentGoalTarget) {
             newGoalTarget = newTargetMilliunits;
             hasChanges = true;
-            changesMade.push(`Goal target: $${currentGoalTargetDollars.toFixed(2)} → $${input.goalTarget.toFixed(2)}`);
+            changesMade.push(`Goal target: ${formatCurrency(currentGoalTargetDollars)} → ${formatCurrency(input.goalTarget)}`);
           }
         }
 
@@ -199,7 +217,7 @@ export default class SetCategoryGoalsTool {
               category_name: targetCategory.name,
               goal_type: targetCategory.goal_type,
               goal_target: newGoalTarget,
-              goal_target_dollars: newGoalTarget / 1000,
+              goal_target_dollars: milliUnitsToAmount(newGoalTarget),
               goal_target_month: newGoalTargetMonth,
               success: true,
               message: `Would update goal: ${changesMade.join(', ')}`,
@@ -221,7 +239,7 @@ export default class SetCategoryGoalsTool {
               category_name: targetCategory.name,
               goal_type: targetCategory.goal_type,
               goal_target: newGoalTarget,
-              goal_target_dollars: newGoalTarget / 1000,
+              goal_target_dollars: milliUnitsToAmount(newGoalTarget),
               goal_target_month: newGoalTargetMonth,
               success: true,
               message: `Successfully updated goal: ${changesMade.join(', ')}`,
@@ -245,18 +263,85 @@ export default class SetCategoryGoalsTool {
         note: "All amounts are in dollars. Creating new goals requires the YNAB web interface. This tool can only update existing goal targets and dates.",
       };
 
+      const format = input.response_format || "markdown";
+      let responseText: string;
+
+      if (format === "json") {
+        responseText = JSON.stringify(result, null, 2);
+      } else {
+        responseText = this.formatMarkdown(result);
+      }
+
+      const { text, wasTruncated } = truncateResponse(responseText, CHARACTER_LIMIT);
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result, null, 2),
+            text,
           },
         ],
       };
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to set category goals: ${errorMessage}`);
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Failed to set category goals: ${errorMessage}`,
+          },
+        ],
+      };
     }
+  }
+
+  private formatMarkdown(result: SetCategoryGoalsResult): string {
+    let output = `# Set Category Goals\n\n`;
+
+    output += `## Summary\n`;
+    output += `- **Budget ID**: ${result.budget_id}\n`;
+    output += `- **Updates Performed**: ${result.updates_performed}\n\n`;
+
+    if (result.results.length > 0) {
+      output += `## Results\n\n`;
+
+      for (const res of result.results) {
+        output += `### ${res.category_name}\n`;
+        output += `- **Category ID**: ${res.category_id}\n`;
+        output += `- **Goal Type**: ${res.goal_type || 'None'}\n`;
+
+        if (res.goal_target !== null) {
+          output += `- **Goal Target**: ${formatCurrency(res.goal_target_dollars!)}\n`;
+        }
+
+        if (res.goal_target_month) {
+          output += `- **Target Month**: ${res.goal_target_month}\n`;
+        }
+
+        output += `- **Success**: ${res.success ? 'Yes' : 'No'}\n`;
+        output += `- **Message**: ${res.message}\n`;
+
+        if (res.changes_made.length > 0) {
+          output += `- **Changes Made**:\n`;
+          for (const change of res.changes_made) {
+            output += `  - ${change}\n`;
+          }
+        }
+        output += "\n";
+      }
+    }
+
+    output += `## Goal Types Reference\n\n`;
+    for (const [key, value] of Object.entries(result.goal_types_info)) {
+      output += `- **${key}**: ${value}\n`;
+    }
+    output += "\n";
+
+    output += `---\n\n`;
+    output += `${result.note}\n`;
+
+    return output;
   }
 }

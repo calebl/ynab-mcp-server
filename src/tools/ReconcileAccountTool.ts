@@ -1,6 +1,15 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { handleAPIError, createRetryableAPICall } from "../utils/apiErrorHandler.js";
+import {
+  truncateResponse,
+  CHARACTER_LIMIT,
+  getBudgetId,
+  milliUnitsToAmount,
+  amountToMilliUnits,
+  normalizeMonth,
+  formatCurrency
+} from "../utils/commonUtils.js";
 
 interface ReconcileAccountInput {
   budgetId?: string;
@@ -11,6 +20,7 @@ interface ReconcileAccountInput {
   statementDate?: string; // Statement date in YYYY-MM-DD format
   tolerance?: number; // Tolerance for matching amounts in dollars (default: 0.01)
   dryRun?: boolean;
+  response_format?: "json" | "markdown";
 }
 
 interface TransactionMatch {
@@ -69,7 +79,7 @@ export default class ReconcileAccountTool {
 
   getToolDefinition(): Tool {
     return {
-      name: "reconcile_account",
+      name: "ynab_reconcile_account",
       description: "Reconcile a YNAB account with bank statement data. Compares YNAB transactions with statement transactions to identify discrepancies, missing transactions, and balance differences. Supports CSV statement data import.",
       inputSchema: {
         type: "object",
@@ -108,23 +118,32 @@ export default class ReconcileAccountTool {
             description: "If true, will analyze and show discrepancies without making any changes",
             default: false,
           },
+          response_format: {
+            type: "string",
+            enum: ["json", "markdown"],
+            description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
+          },
         },
         required: ["statementData", "statementBalance", "statementDate"],
+        additionalProperties: false,
+      },
+      annotations: {
+        title: "Reconcile Account",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
       },
     };
   }
 
-  async execute(input: ReconcileAccountInput): Promise<{ content: Array<{ type: string; text: string }> }> {
-    const budgetId = input.budgetId || this.budgetId;
-    if (!budgetId) {
-      throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable. Use the ListBudgets tool to get a list of available budgets.");
-    }
-
-    if (!input.statementData || !input.statementBalance || !input.statementDate) {
-      throw new Error("Missing required parameters: statementData, statementBalance, and statementDate are required.");
-    }
-
+  async execute(input: ReconcileAccountInput) {
     try {
+      const budgetId = getBudgetId(input.budgetId || this.budgetId);
+
+      if (!input.statementData || !input.statementBalance || !input.statementDate) {
+        throw new Error("Missing required parameters: statementData, statementBalance, and statementDate are required.");
+      }
       // Get all accounts
       const accountsResponse = await createRetryableAPICall(
         () => this.api.accounts.getAccounts(budgetId),
@@ -162,18 +181,19 @@ export default class ReconcileAccountTool {
       const ynabTransactions = await this.getYNABTransactions(budgetId, targetAccount.id, input.statementDate);
 
       // Perform reconciliation
-      const matches = this.matchTransactions(ynabTransactions, statementTransactions, input.tolerance || 0.01);
-      
+      const tolerance = input.tolerance || 0.01;
+      const matches = this.matchTransactions(ynabTransactions, statementTransactions, tolerance);
+
       // Calculate balances and discrepancies
-      const ynabBalance = targetAccount.balance / 1000; // Convert to dollars
+      const ynabBalance = milliUnitsToAmount(targetAccount.balance);
       const statementBalance = input.statementBalance;
       const balanceDifference = ynabBalance - statementBalance;
 
       // Analyze matches and create discrepancies
       const discrepancies = this.analyzeDiscrepancies(matches, ynabTransactions, statementTransactions);
-      
+
       // Generate summary and recommendations
-      const summary = this.generateSummary(matches, discrepancies, balanceDifference, input.tolerance || 0.01);
+      const summary = this.generateSummary(matches, discrepancies, balanceDifference, tolerance);
 
       const result: ReconciliationResult = {
         account_id: targetAccount.id,
@@ -195,19 +215,129 @@ export default class ReconcileAccountTool {
         note: "All amounts are in dollars. This reconciliation compares YNAB transactions with bank statement data to identify discrepancies and missing transactions.",
       };
 
+      const format = input.response_format || "markdown";
+      let responseText: string;
+
+      if (format === "json") {
+        responseText = JSON.stringify(result, null, 2);
+      } else {
+        responseText = this.formatMarkdown(result);
+      }
+
+      const { text, wasTruncated } = truncateResponse(responseText, CHARACTER_LIMIT);
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result, null, 2),
+            text,
           },
         ],
       };
 
     } catch (error) {
       await handleAPIError(error, 'Account reconciliation');
-      throw error; // This line will never be reached, but satisfies TypeScript
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Error reconciling account: ${errorMessage}`,
+          },
+        ],
+      };
     }
+  }
+
+  private formatMarkdown(result: ReconciliationResult): string {
+    let output = "# Account Reconciliation Report\n\n";
+
+    output += "## Account Information\n";
+    output += `- **Account**: ${result.account_name}\n`;
+    output += `- **Statement Date**: ${result.statement_date}\n`;
+    output += `- **Reconciliation Date**: ${result.reconciliation_date}\n\n`;
+
+    output += "## Balance Summary\n";
+    output += `- **Statement Balance**: ${formatCurrency(result.statement_balance)}\n`;
+    output += `- **YNAB Balance**: ${formatCurrency(result.ynab_balance)}\n`;
+
+    const balanceSymbol = result.balance_difference === 0 ? '✅' :
+                          Math.abs(result.balance_difference) <= 0.01 ? '⚠️' : '❌';
+    output += `- **Balance Difference**: ${formatCurrency(result.balance_difference)} ${balanceSymbol}\n\n`;
+
+    output += "## Transaction Matching\n";
+    output += `- **Total YNAB Transactions**: ${result.total_ynab_transactions}\n`;
+    output += `- **Total Statement Transactions**: ${result.total_statement_transactions}\n`;
+    output += `- **Exact Matches**: ${result.exact_matches} ✓\n`;
+    output += `- **Fuzzy Matches**: ${result.fuzzy_matches} ~\n`;
+    output += `- **Unmatched YNAB**: ${result.unmatched_ynab} ⚠️\n`;
+    output += `- **Unmatched Statement**: ${result.unmatched_statement} ⚠️\n\n`;
+
+    output += "## Reconciliation Status\n";
+    const statusEmoji = result.summary.reconciliation_status === 'balanced' ? '✅' :
+                        result.summary.reconciliation_status === 'needs_review' ? '⚠️' : '❌';
+    output += `- **Status**: ${result.summary.reconciliation_status.toUpperCase()} ${statusEmoji}\n`;
+    output += `- **Confidence Score**: ${(result.summary.confidence_score * 100).toFixed(1)}%\n`;
+    output += `- **Total Discrepancies**: ${result.summary.total_discrepancies}\n`;
+    output += `- **Largest Discrepancy**: ${formatCurrency(result.summary.largest_discrepancy)}\n\n`;
+
+    if (result.summary.recommendations.length > 0) {
+      output += "## Recommendations\n\n";
+      for (const recommendation of result.summary.recommendations) {
+        output += `- ${recommendation}\n`;
+      }
+      output += "\n";
+    }
+
+    if (result.discrepancies.length > 0) {
+      output += "## Discrepancies\n\n";
+
+      const missingYNAB = result.discrepancies.filter(d => d.type === 'missing_ynab');
+      const missingStatement = result.discrepancies.filter(d => d.type === 'missing_statement');
+      const amountMismatches = result.discrepancies.filter(d => d.type === 'amount_mismatch');
+
+      if (missingYNAB.length > 0) {
+        output += "### Missing in YNAB (found in statement)\n\n";
+        for (const disc of missingYNAB) {
+          output += `- ${disc.description}\n`;
+        }
+        output += "\n";
+      }
+
+      if (missingStatement.length > 0) {
+        output += "### Missing in Statement (found in YNAB)\n\n";
+        for (const disc of missingStatement) {
+          output += `- ${disc.description}\n`;
+        }
+        output += "\n";
+      }
+
+      if (amountMismatches.length > 0) {
+        output += "### Amount Mismatches\n\n";
+        for (const disc of amountMismatches) {
+          output += `- ${disc.description}\n`;
+        }
+        output += "\n";
+      }
+    }
+
+    if (result.matches.length > 0 && result.exact_matches > 0) {
+      output += "## Matched Transactions (Sample)\n\n";
+      const exactMatches = result.matches.filter(m => m.match_type === 'exact').slice(0, 10);
+
+      if (exactMatches.length > 0) {
+        output += "### Exact Matches (showing first 10)\n\n";
+        for (const match of exactMatches) {
+          output += `- **${match.ynab_payee}** - ${formatCurrency(match.ynab_amount)} on ${match.ynab_date}\n`;
+        }
+        output += "\n";
+      }
+    }
+
+    output += `## Note\n${result.note}\n`;
+
+    return output;
   }
 
   private parseStatementData(csvData: string): Array<{date: string, description: string, amount: number}> {
@@ -219,20 +349,56 @@ export default class ReconcileAccountTool {
       if (!line) continue;
 
       // Skip header row if it looks like a header
-      if (i === 0 && (line.toLowerCase().includes('date') || line.toLowerCase().includes('description'))) {
+      if (i === 0 && (line.toLowerCase().includes('date') || line.toLowerCase().includes('description') || line.toLowerCase().includes('details'))) {
         continue;
       }
 
-      // Parse CSV line (simple comma-separated)
-      const parts = line.split(',').map(part => part.trim().replace(/^["']|["']$/g, ''));
+      // Parse CSV line - handle both simple and complex formats
+      const parts = this.parseCSVLine(line);
       
       if (parts.length >= 3) {
         try {
-          const date = this.parseDate(parts[0]);
-          const description = parts[1];
-          const amount = parseFloat(parts[2].replace(/[$,]/g, ''));
+          // Try different column arrangements for different bank formats
+          let dateIndex = -1;
+          let descriptionIndex = -1;
+          let amountIndex = -1;
 
-          if (!isNaN(amount) && date) {
+          // Look for date column (try different positions)
+          for (let j = 0; j < parts.length; j++) {
+            if (this.looksLikeDate(parts[j])) {
+              dateIndex = j;
+              break;
+            }
+          }
+
+          // Look for amount column (numeric with possible negative sign)
+          for (let j = 0; j < parts.length; j++) {
+            const cleaned = parts[j].replace(/[$,]/g, '');
+            if (!isNaN(parseFloat(cleaned)) && (cleaned.includes('-') || cleaned.includes('.'))) {
+              amountIndex = j;
+              break;
+            }
+          }
+
+          // Description is usually the longest text field
+          let maxLength = 0;
+          for (let j = 0; j < parts.length; j++) {
+            if (j !== dateIndex && j !== amountIndex && parts[j].length > maxLength) {
+              maxLength = parts[j].length;
+              descriptionIndex = j;
+            }
+          }
+
+          // Fallback: if we can't determine columns, try first 3 columns
+          if (dateIndex === -1) dateIndex = 0;
+          if (descriptionIndex === -1) descriptionIndex = 1;
+          if (amountIndex === -1) amountIndex = 2;
+
+          const date = this.parseDate(parts[dateIndex]);
+          const description = parts[descriptionIndex] || '';
+          const amount = parseFloat(parts[amountIndex].replace(/[$,]/g, ''));
+
+          if (!isNaN(amount) && date && description) {
             transactions.push({
               date: date,
               description: description,
@@ -246,6 +412,35 @@ export default class ReconcileAccountTool {
     }
 
     return transactions;
+  }
+
+  private parseCSVLine(line: string): string[] {
+    const parts: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        parts.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    
+    parts.push(current.trim());
+    return parts;
+  }
+
+  private looksLikeDate(str: string): boolean {
+    // Check if string looks like a date
+    return /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(str) || 
+           /^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/.test(str) ||
+           !isNaN(Date.parse(str));
   }
 
   private parseDate(dateStr: string): string | null {
@@ -315,10 +510,10 @@ export default class ReconcileAccountTool {
     for (const ynabTxn of ynabTransactions) {
       for (let i = 0; i < statementTransactions.length; i++) {
         const stmtTxn = statementTransactions[i];
-        
+
         if (usedStatement.has(i)) continue;
 
-        const ynabAmount = ynabTxn.amount / 1000; // Convert to dollars
+        const ynabAmount = milliUnitsToAmount(ynabTxn.amount);
         const amountDiff = Math.abs(ynabAmount - stmtTxn.amount);
         const dateDiff = Math.abs(new Date(ynabTxn.date).getTime() - new Date(stmtTxn.date).getTime());
         const daysDiff = dateDiff / (1000 * 60 * 60 * 24);
@@ -350,10 +545,10 @@ export default class ReconcileAccountTool {
 
       for (let i = 0; i < statementTransactions.length; i++) {
         const stmtTxn = statementTransactions[i];
-        
+
         if (usedStatement.has(i)) continue;
 
-        const ynabAmount = ynabTxn.amount / 1000;
+        const ynabAmount = milliUnitsToAmount(ynabTxn.amount);
         const amountDiff = Math.abs(ynabAmount - stmtTxn.amount);
         const dateDiff = Math.abs(new Date(ynabTxn.date).getTime() - new Date(stmtTxn.date).getTime());
         const daysDiff = dateDiff / (1000 * 60 * 60 * 24);
@@ -361,7 +556,7 @@ export default class ReconcileAccountTool {
         // Fuzzy match: amount within tolerance and date within 7 days
         if (amountDiff <= tolerance * 10 && daysDiff <= 7) {
           const confidence = this.calculateMatchConfidence(ynabTxn, stmtTxn, amountDiff, daysDiff);
-          
+
           if (confidence > 0.5) {
             matches.push({
               ynab_transaction_id: ynabTxn.id,
@@ -390,7 +585,7 @@ export default class ReconcileAccountTool {
         matches.push({
           ynab_transaction_id: ynabTxn.id,
           ynab_date: ynabTxn.date,
-          ynab_amount: ynabTxn.amount / 1000,
+          ynab_amount: milliUnitsToAmount(ynabTxn.amount),
           ynab_payee: ynabTxn.payee_name || 'Unknown',
           ynab_memo: ynabTxn.memo || '',
           match_type: 'unmatched',

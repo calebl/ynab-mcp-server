@@ -84,47 +84,53 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
+    // Note: We use 'as any' here because MCP protocol provides arguments as Record<string, unknown>
+    // but each tool has its own specific input interface. The tools themselves validate inputs
+    // at runtime via their inputSchema definitions. This is the standard pattern for MCP servers.
+    const toolArgs = (args ?? {}) as any;
+
     switch (name) {
-      case "list_budgets":
-        return await listBudgetsTool.execute(args as any);
-      case "budget_summary":
-        return await budgetSummaryTool.execute(args as any);
-      case "create_transaction":
-        return await createTransactionTool.execute(args as any);
-      case "get_unapproved_transactions":
-        return await getUnapprovedTransactionsTool.execute(args as any);
-      case "approve_transaction":
-        return await approveTransactionTool.execute(args as any);
-      case "handle_overspending":
-        return await handleOverspendingTool.execute(args as any);
-      case "auto_distribute_funds":
-        return await autoDistributeFundsTool.execute(args as any);
-      case "bulk_approve_transactions":
-        return await bulkApproveTransactionsTool.execute(args as any);
-      case "move_funds_between_categories":
-        return await moveFundsBetweenCategoriesTool.execute(args as any);
-      case "net_worth_analysis":
-        return await netWorthAnalysisTool.execute(args as any);
-      case "analyze_spending_patterns":
-        return await analyzeSpendingPatternsTool.execute(args as any);
-      case "goal_progress_report":
-        return await goalProgressReportTool.execute(args as any);
-      case "cash_flow_forecast":
-        return await cashFlowForecastTool.execute(args as any);
-      case "category_performance_review":
-        return await categoryPerformanceReviewTool.execute(args as any);
-      case "set_category_goals":
-        return await setCategoryGoalsTool.execute(args as any);
-      case "budget_from_history":
-        return await budgetFromHistoryTool.execute(args as any);
-      case "reconcile_account":
-        return await reconcileAccountTool.execute(args as any);
+      case "ynab_list_budgets":
+        return await listBudgetsTool.execute(toolArgs);
+      case "ynab_budget_summary":
+        return await budgetSummaryTool.execute(toolArgs);
+      case "ynab_create_transaction":
+        return await createTransactionTool.execute(toolArgs);
+      case "ynab_get_unapproved_transactions":
+        return await getUnapprovedTransactionsTool.execute(toolArgs);
+      case "ynab_approve_transaction":
+        return await approveTransactionTool.execute(toolArgs);
+      case "ynab_handle_overspending":
+        return await handleOverspendingTool.execute(toolArgs);
+      case "ynab_auto_distribute_funds":
+        return await autoDistributeFundsTool.execute(toolArgs);
+      case "ynab_bulk_approve_transactions":
+        return await bulkApproveTransactionsTool.execute(toolArgs);
+      case "ynab_move_funds_between_categories":
+        return await moveFundsBetweenCategoriesTool.execute(toolArgs);
+      case "ynab_net_worth_analysis":
+        return await netWorthAnalysisTool.execute(toolArgs);
+      case "ynab_analyze_spending_patterns":
+        return await analyzeSpendingPatternsTool.execute(toolArgs);
+      case "ynab_goal_progress_report":
+        return await goalProgressReportTool.execute(toolArgs);
+      case "ynab_cash_flow_forecast":
+        return await cashFlowForecastTool.execute(toolArgs);
+      case "ynab_category_performance_review":
+        return await categoryPerformanceReviewTool.execute(toolArgs);
+      case "ynab_set_category_goals":
+        return await setCategoryGoalsTool.execute(toolArgs);
+      case "ynab_budget_from_history":
+        return await budgetFromHistoryTool.execute(toolArgs);
+      case "ynab_reconcile_account":
+        return await reconcileAccountTool.execute(toolArgs);
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return {
+      isError: true,
       content: [
         {
           type: "text",
@@ -135,8 +141,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+// Environment validation
+function validateEnvironment() {
+  if (!process.env.YNAB_API_TOKEN) {
+    console.error("ERROR: YNAB_API_TOKEN environment variable is required");
+    console.error("Please set YNAB_API_TOKEN to your YNAB Personal Access Token");
+    console.error("You can get one from: https://app.ynab.com/settings/developer");
+    process.exit(1);
+  }
+
+  console.error("✓ YNAB_API_TOKEN is set");
+
+  if (process.env.YNAB_BUDGET_ID) {
+    console.error(`✓ YNAB_BUDGET_ID is set: ${process.env.YNAB_BUDGET_ID}`);
+  } else {
+    console.error("⚠ YNAB_BUDGET_ID is not set (optional, can be provided per-request)");
+  }
+}
+
 // Start the server
 async function main() {
+  validateEnvironment();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("YNAB MCP Server running on stdio");

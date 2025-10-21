@@ -1,6 +1,15 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { handleAPIError, createRetryableAPICall } from "../utils/apiErrorHandler.js";
+import {
+  truncateResponse,
+  CHARACTER_LIMIT,
+  getBudgetId,
+  milliUnitsToAmount,
+  amountToMilliUnits,
+  normalizeMonth,
+  formatCurrency
+} from "../utils/commonUtils.js";
 
 interface BudgetFromHistoryInput {
   budgetId?: string;
@@ -12,6 +21,7 @@ interface BudgetFromHistoryInput {
   minSpendingThreshold?: number; // Minimum average spending to include in budget
   maxBudgetIncrease?: number; // Maximum percentage increase from historical average
   dryRun?: boolean;
+  response_format?: "json" | "markdown";
 }
 
 interface CategoryBudgetSuggestion {
@@ -62,7 +72,7 @@ export default class BudgetFromHistoryTool {
 
   getToolDefinition(): Tool {
     return {
-      name: "budget_from_history",
+      name: "ynab_budget_from_history",
       description: "Analyze historical spending patterns and suggest budget allocations based on past behavior. Useful for setting up new budgets or adjusting existing ones based on actual spending history.",
       inputSchema: {
         type: "object",
@@ -112,24 +122,32 @@ export default class BudgetFromHistoryTool {
             description: "If true, will show suggestions without applying them to the budget",
             default: false,
           },
+          response_format: {
+            type: "string",
+            enum: ["json", "markdown"],
+            description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
+          },
         },
         required: [],
+        additionalProperties: false,
+      },
+      annotations: {
+        title: "Budget from History",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
       },
     };
   }
 
-  async execute(input: BudgetFromHistoryInput): Promise<{ content: Array<{ type: string; text: string }> }> {
-    const budgetId = input.budgetId || this.budgetId;
-    if (!budgetId) {
-      throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable. Use the ListBudgets tool to get a list of available budgets.");
-    }
-
-    const monthsToAnalyze = input.months || 6;
-    const strategy = input.strategy || 'average';
-    const minSpendingThreshold = (input.minSpendingThreshold || 10.00) * 1000; // Convert to milliunits
-    const maxBudgetIncrease = (input.maxBudgetIncrease || 50) / 100; // Convert to decimal
-
+  async execute(input: BudgetFromHistoryInput) {
     try {
+      const budgetId = getBudgetId(input.budgetId || this.budgetId);
+      const monthsToAnalyze = input.months || 6;
+      const strategy = input.strategy || 'average';
+      const minSpendingThreshold = amountToMilliUnits(input.minSpendingThreshold || 10.00);
+      const maxBudgetIncrease = (input.maxBudgetIncrease || 50) / 100; // Convert to decimal
       // Get current categories
       const categoriesResponse = await createRetryableAPICall(
         () => this.api.categories.getCategories(budgetId),
@@ -233,27 +251,27 @@ export default class BudgetFromHistoryTool {
             case 'average':
               suggestedBudget = averageSpending;
               confidenceLevel = spendingConsistency > 0.7 ? 'high' : spendingConsistency > 0.4 ? 'medium' : 'low';
-              reasoning = `Based on ${monthsWithSpending} months of spending data (avg: $${(averageSpending / 1000).toFixed(2)})`;
+              reasoning = `Based on ${monthsWithSpending} months of spending data (avg: ${formatCurrency(milliUnitsToAmount(averageSpending))})`;
               break;
             case 'median':
               suggestedBudget = medianSpending;
               confidenceLevel = spendingConsistency > 0.6 ? 'high' : spendingConsistency > 0.3 ? 'medium' : 'low';
-              reasoning = `Based on median spending of $${(medianSpending / 1000).toFixed(2)} over ${monthsWithSpending} months`;
+              reasoning = `Based on median spending of ${formatCurrency(milliUnitsToAmount(medianSpending))} over ${monthsWithSpending} months`;
               break;
             case 'trend':
               suggestedBudget = Math.max(0, averageSpending * (1 + trend));
               confidenceLevel = Math.abs(trend) < 0.2 ? 'high' : Math.abs(trend) < 0.5 ? 'medium' : 'low';
-              reasoning = `Trend-based: ${trend > 0 ? '+' : ''}${(trend * 100).toFixed(1)}% change from average $${(averageSpending / 1000).toFixed(2)}`;
+              reasoning = `Trend-based: ${trend > 0 ? '+' : ''}${(trend * 100).toFixed(1)}% change from average ${formatCurrency(milliUnitsToAmount(averageSpending))}`;
               break;
             case 'conservative':
               suggestedBudget = averageSpending * 0.8; // 20% below average
               confidenceLevel = spendingConsistency > 0.6 ? 'high' : spendingConsistency > 0.3 ? 'medium' : 'low';
-              reasoning = `Conservative: 20% below average spending of $${(averageSpending / 1000).toFixed(2)}`;
+              reasoning = `Conservative: 20% below average spending of ${formatCurrency(milliUnitsToAmount(averageSpending))}`;
               break;
             case 'aggressive':
               suggestedBudget = averageSpending * 1.2; // 20% above average
               confidenceLevel = spendingConsistency > 0.6 ? 'high' : spendingConsistency > 0.3 ? 'medium' : 'low';
-              reasoning = `Aggressive: 20% above average spending of $${(averageSpending / 1000).toFixed(2)}`;
+              reasoning = `Aggressive: 20% above average spending of ${formatCurrency(milliUnitsToAmount(averageSpending))}`;
               break;
           }
 
@@ -295,8 +313,8 @@ export default class BudgetFromHistoryTool {
       const budgetVsHistoricalRatio = averageMonthlySpending > 0 ? suggestedBudgetTotal / averageMonthlySpending : 0;
 
       insights.push(`Analyzed ${suggestions.length} categories with meaningful spending history`);
-      insights.push(`Total historical spending: $${(totalHistoricalSpending / 1000).toFixed(2)} over ${monthsToAnalyze} months`);
-      insights.push(`Suggested budget total: $${(suggestedBudgetTotal / 1000).toFixed(2)} (${(budgetVsHistoricalRatio * 100).toFixed(1)}% of historical spending)`);
+      insights.push(`Total historical spending: ${formatCurrency(milliUnitsToAmount(totalHistoricalSpending))} over ${monthsToAnalyze} months`);
+      insights.push(`Suggested budget total: ${formatCurrency(milliUnitsToAmount(suggestedBudgetTotal))} (${(budgetVsHistoricalRatio * 100).toFixed(1)}% of historical spending)`);
 
       const highConfidenceCount = suggestions.filter(s => s.confidence_level === 'high').length;
       const mediumConfidenceCount = suggestions.filter(s => s.confidence_level === 'medium').length;
@@ -323,7 +341,7 @@ export default class BudgetFromHistoryTool {
 
       const result: BudgetFromHistoryResult = {
         budget_id: budgetId,
-        target_month: input.targetMonth || new Date().toISOString().substring(0, 7) + '-01',
+        target_month: normalizeMonth(input.targetMonth),
         analysis_period: `${monthsToAnalyze} months ending ${new Date().toISOString().substring(0, 7)}`,
         strategy_used: strategy,
         total_suggested_budget: suggestedBudgetTotal,
@@ -331,15 +349,15 @@ export default class BudgetFromHistoryTool {
         categories_with_suggestions: suggestions.length,
         suggestions: suggestions.map(s => ({
           ...s,
-          historical_average: s.historical_average / 1000,
-          historical_median: s.historical_median / 1000,
-          suggested_budget: s.suggested_budget / 1000,
-          total_spent: s.total_spent / 1000,
+          historical_average: milliUnitsToAmount(s.historical_average),
+          historical_median: milliUnitsToAmount(s.historical_median),
+          suggested_budget: milliUnitsToAmount(s.suggested_budget),
+          total_spent: milliUnitsToAmount(s.total_spent),
         })),
         summary: {
-          total_historical_spending: totalHistoricalSpending / 1000,
-          average_monthly_spending: averageMonthlySpending / 1000,
-          suggested_budget_total: suggestedBudgetTotal / 1000,
+          total_historical_spending: milliUnitsToAmount(totalHistoricalSpending),
+          average_monthly_spending: milliUnitsToAmount(averageMonthlySpending),
+          suggested_budget_total: milliUnitsToAmount(suggestedBudgetTotal),
           budget_vs_historical_ratio: budgetVsHistoricalRatio,
           high_confidence_suggestions: highConfidenceCount,
           medium_confidence_suggestions: mediumConfidenceCount,
@@ -349,19 +367,115 @@ export default class BudgetFromHistoryTool {
         note: "All amounts are in dollars. Suggestions are based on historical spending patterns and should be reviewed before applying to your budget.",
       };
 
+      const format = input.response_format || "markdown";
+      let responseText: string;
+
+      if (format === "json") {
+        responseText = JSON.stringify(result, null, 2);
+      } else {
+        responseText = this.formatMarkdown(result);
+      }
+
+      const { text, wasTruncated } = truncateResponse(responseText, CHARACTER_LIMIT);
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result, null, 2),
+            text,
           },
         ],
       };
 
     } catch (error) {
       await handleAPIError(error, 'Budget from history analysis');
-      throw error; // This line will never be reached, but satisfies TypeScript
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Error analyzing budget from history: ${errorMessage}`,
+          },
+        ],
+      };
     }
+  }
+
+  private formatMarkdown(result: BudgetFromHistoryResult): string {
+    let output = "# Budget from History Analysis\n\n";
+
+    output += "## Summary\n";
+    output += `- **Target Month**: ${result.target_month}\n`;
+    output += `- **Analysis Period**: ${result.analysis_period}\n`;
+    output += `- **Strategy Used**: ${result.strategy_used}\n`;
+    output += `- **Categories Analyzed**: ${result.categories_analyzed}\n`;
+    output += `- **Categories with Suggestions**: ${result.categories_with_suggestions}\n\n`;
+
+    output += "## Financial Overview\n";
+    output += `- **Total Historical Spending**: ${formatCurrency(result.summary.total_historical_spending)}\n`;
+    output += `- **Average Monthly Spending**: ${formatCurrency(result.summary.average_monthly_spending)}\n`;
+    output += `- **Suggested Budget Total**: ${formatCurrency(result.summary.suggested_budget_total)}\n`;
+    output += `- **Budget vs Historical Ratio**: ${(result.summary.budget_vs_historical_ratio * 100).toFixed(1)}%\n\n`;
+
+    output += "## Confidence Distribution\n";
+    output += `- **High Confidence**: ${result.summary.high_confidence_suggestions} suggestions\n`;
+    output += `- **Medium Confidence**: ${result.summary.medium_confidence_suggestions} suggestions\n`;
+    output += `- **Low Confidence**: ${result.summary.low_confidence_suggestions} suggestions\n\n`;
+
+    if (result.suggestions.length > 0) {
+      output += "## Category Suggestions\n\n";
+
+      // Group by confidence level
+      const highConfidence = result.suggestions.filter(s => s.confidence_level === 'high');
+      const mediumConfidence = result.suggestions.filter(s => s.confidence_level === 'medium');
+      const lowConfidence = result.suggestions.filter(s => s.confidence_level === 'low');
+
+      if (highConfidence.length > 0) {
+        output += "### High Confidence 🟢\n\n";
+        for (const suggestion of highConfidence) {
+          output += `**${suggestion.category_name}** (${suggestion.category_group_name})\n`;
+          output += `- Suggested Budget: ${formatCurrency(suggestion.suggested_budget)}\n`;
+          output += `- Historical Average: ${formatCurrency(suggestion.historical_average)}\n`;
+          output += `- Reasoning: ${suggestion.reasoning}\n`;
+          output += `- Months Analyzed: ${suggestion.months_analyzed}\n\n`;
+        }
+      }
+
+      if (mediumConfidence.length > 0) {
+        output += "### Medium Confidence 🟡\n\n";
+        for (const suggestion of mediumConfidence) {
+          output += `**${suggestion.category_name}** (${suggestion.category_group_name})\n`;
+          output += `- Suggested Budget: ${formatCurrency(suggestion.suggested_budget)}\n`;
+          output += `- Historical Average: ${formatCurrency(suggestion.historical_average)}\n`;
+          output += `- Reasoning: ${suggestion.reasoning}\n`;
+          output += `- Months Analyzed: ${suggestion.months_analyzed}\n\n`;
+        }
+      }
+
+      if (lowConfidence.length > 0) {
+        output += "### Low Confidence 🔴\n\n";
+        for (const suggestion of lowConfidence) {
+          output += `**${suggestion.category_name}** (${suggestion.category_group_name})\n`;
+          output += `- Suggested Budget: ${formatCurrency(suggestion.suggested_budget)}\n`;
+          output += `- Historical Average: ${formatCurrency(suggestion.historical_average)}\n`;
+          output += `- Reasoning: ${suggestion.reasoning}\n`;
+          output += `- Months Analyzed: ${suggestion.months_analyzed}\n\n`;
+        }
+      }
+    }
+
+    if (result.insights.length > 0) {
+      output += "## Insights\n\n";
+      for (const insight of result.insights) {
+        output += `- ${insight}\n`;
+      }
+      output += "\n";
+    }
+
+    output += `## Note\n${result.note}\n`;
+
+    return output;
   }
 
   private calculateMedian(numbers: number[]): number {

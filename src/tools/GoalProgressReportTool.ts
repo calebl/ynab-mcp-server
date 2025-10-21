@@ -1,11 +1,13 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { truncateResponse, CHARACTER_LIMIT, getBudgetId, normalizeMonth, milliUnitsToAmount, formatCurrency } from "../utils/commonUtils.js";
 
 interface GoalProgressReportInput {
   budgetId?: string;
   month?: string;
   includeCompleted?: boolean;
   includeInsights?: boolean;
+  response_format?: "json" | "markdown";
 }
 
 interface GoalProgress {
@@ -67,7 +69,7 @@ export default class GoalProgressReportTool {
 
   getToolDefinition(): Tool {
     return {
-      name: "goal_progress_report",
+      name: "ynab_goal_progress_report",
       description: "Generate a comprehensive report on category goal progress, including completion status, remaining amounts, and insights for goal achievement.",
       inputSchema: {
         type: "object",
@@ -90,30 +92,30 @@ export default class GoalProgressReportTool {
             default: true,
             description: "Whether to include AI-generated insights and recommendations",
           },
+          response_format: {
+            type: "string",
+            enum: ["json", "markdown"],
+            description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
+          },
         },
-        required: [],
+        additionalProperties: false,
+      },
+      annotations: {
+        title: "Goal Progress Report",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     };
   }
 
   async execute(input: GoalProgressReportInput) {
-    const budgetId = input.budgetId || this.budgetId;
-    if (!budgetId) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable. Use the ListBudgets tool to get a list of available budgets.",
-          },
-        ],
-      };
-    }
-
-    const targetMonth = input.month || new Date().toISOString().split('T')[0].substring(0, 7) + '-01';
-    const includeCompleted = input.includeCompleted !== false;
-    const includeInsights = input.includeInsights !== false;
-
     try {
+      const budgetId = getBudgetId(input.budgetId || this.budgetId);
+      const targetMonth = normalizeMonth(input.month);
+      const includeCompleted = input.includeCompleted !== false;
+      const includeInsights = input.includeInsights !== false;
       console.error(`Generating goal progress report for budget ${budgetId} for month ${targetMonth}`);
       
       // Get budget month data
@@ -240,14 +242,14 @@ export default class GoalProgressReportTool {
           category_name: category.name,
           goal_type: category.goal_type || '',
           goal_target: goalTarget,
-          goal_target_dollars: Math.round(goalTarget / 1000 * 100) / 100,
+          goal_target_dollars: Math.round(milliUnitsToAmount(goalTarget) * 100) / 100,
           current_balance: currentBalance,
-          current_balance_dollars: Math.round(currentBalance / 1000 * 100) / 100,
+          current_balance_dollars: Math.round(milliUnitsToAmount(currentBalance) * 100) / 100,
           budgeted_this_month: budgetedThisMonth,
-          budgeted_this_month_dollars: Math.round(budgetedThisMonth / 1000 * 100) / 100,
+          budgeted_this_month_dollars: Math.round(milliUnitsToAmount(budgetedThisMonth) * 100) / 100,
           progress_percentage: Math.round(progressPercentage * 100) / 100,
           remaining_amount: remainingAmount,
-          remaining_amount_dollars: Math.round(remainingAmount / 1000 * 100) / 100,
+          remaining_amount_dollars: Math.round(milliUnitsToAmount(remainingAmount) * 100) / 100,
           months_remaining: monthsRemaining,
           status: status,
           priority: priority,
@@ -260,7 +262,7 @@ export default class GoalProgressReportTool {
             insights.push({
               type: 'achievement',
               category: category.name,
-              message: `Goal completed! Target of $${(goalTarget / 1000).toFixed(2)} achieved.`,
+              message: `Goal completed! Target of ${formatCurrency(milliUnitsToAmount(goalTarget))} achieved.`,
               severity: 'low',
               data: { goal_target: goalTarget, current_balance: currentBalance }
             });
@@ -271,7 +273,7 @@ export default class GoalProgressReportTool {
             insights.push({
               type: 'concern',
               category: category.name,
-              message: `Significantly behind on goal: $${(remainingAmount / 1000).toFixed(2)} remaining, only $${(budgetedThisMonth / 1000).toFixed(2)} budgeted this month`,
+              message: `Significantly behind on goal: ${formatCurrency(milliUnitsToAmount(remainingAmount))} remaining, only ${formatCurrency(milliUnitsToAmount(budgetedThisMonth))} budgeted this month`,
               severity: 'high',
               data: { remaining_amount: remainingAmount, budgeted_this_month: budgetedThisMonth }
             });
@@ -329,11 +331,22 @@ export default class GoalProgressReportTool {
         note: "All amounts are in dollars. Goal types: TB=Target Balance, TBD=Target Balance by Date, MF=Monthly Funding. Status indicates if you're on track to meet your goal based on current budgeting patterns.",
       };
 
+      const format = input.response_format || "markdown";
+      let responseText: string;
+
+      if (format === "json") {
+        responseText = JSON.stringify(result, null, 2);
+      } else {
+        responseText = this.formatMarkdown(result);
+      }
+
+      const { text, wasTruncated } = truncateResponse(responseText, CHARACTER_LIMIT);
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result, null, 2),
+            text,
           },
         ],
       };
@@ -341,6 +354,7 @@ export default class GoalProgressReportTool {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {
+        isError: true,
         content: [
           {
             type: "text",
@@ -349,5 +363,59 @@ export default class GoalProgressReportTool {
         ],
       };
     }
+  }
+
+  private formatMarkdown(result: GoalProgressReportResult): string {
+    let output = "# Goal Progress Report\n\n";
+
+    output += "## Summary\n";
+    output += `- **Report Month**: ${result.report_month}\n`;
+    output += `- **Total Goals**: ${result.total_goals}\n`;
+    output += `- **Completed Goals**: ${result.completed_goals}\n`;
+    output += `- **On Track Goals**: ${result.on_track_goals}\n`;
+    output += `- **Behind Goals**: ${result.behind_goals}\n`;
+    output += `- **Total Budgeted for Goals**: ${formatCurrency(result.summary.total_budgeted_for_goals)}\n`;
+    output += `- **Average Progress**: ${result.summary.average_progress.toFixed(1)}%\n`;
+    output += `- **Most Urgent Goal**: ${result.summary.most_urgent_goal}\n`;
+    output += `- **Most Progress Made**: ${result.summary.most_progress_made}\n`;
+    output += `- **Goals Needing Attention**: ${result.summary.goals_needing_attention}\n\n`;
+
+    if (result.goal_progress.length > 0) {
+      output += "## Goal Progress by Category\n\n";
+      for (const goal of result.goal_progress) {
+        const statusEmoji = goal.status === 'completed' ? '✅' :
+                           goal.status === 'on_track' ? '🟢' :
+                           goal.status === 'behind' ? '🔴' :
+                           goal.status === 'ahead' ? '🟡' : '⚪';
+        const priorityEmoji = goal.priority === 'high' ? '🔥' :
+                             goal.priority === 'medium' ? '⚡' : '📌';
+
+        output += `### ${statusEmoji} ${goal.category_name} ${priorityEmoji}\n`;
+        output += `- **Goal Type**: ${goal.goal_type}\n`;
+        output += `- **Target**: ${formatCurrency(goal.goal_target_dollars)}\n`;
+        output += `- **Current Balance**: ${formatCurrency(goal.current_balance_dollars)}\n`;
+        output += `- **Budgeted This Month**: ${formatCurrency(goal.budgeted_this_month_dollars)}\n`;
+        output += `- **Progress**: ${goal.progress_percentage.toFixed(1)}%\n`;
+        output += `- **Remaining**: ${formatCurrency(goal.remaining_amount_dollars)}\n`;
+        if (goal.months_remaining !== null) {
+          output += `- **Months Remaining**: ${goal.months_remaining}\n`;
+        }
+        output += `- **Status**: ${goal.status}\n`;
+        output += `- **Priority**: ${goal.priority}\n\n`;
+      }
+    }
+
+    if (result.insights.length > 0) {
+      output += "## Insights\n\n";
+      for (const insight of result.insights) {
+        const emoji = insight.type === 'achievement' ? '🎉' :
+                     insight.type === 'concern' ? '⚠️' : '💡';
+        output += `${emoji} **${insight.category}** (${insight.severity}): ${insight.message}\n\n`;
+      }
+    }
+
+    output += `## Note\n${result.note}\n`;
+
+    return output;
   }
 }

@@ -1,8 +1,10 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { truncateResponse, CHARACTER_LIMIT, getBudgetId, milliUnitsToAmount, formatCurrency, formatDate } from "../utils/commonUtils.js";
 
 interface GetUnapprovedTransactionsInput {
   budgetId?: string;
+  response_format?: "json" | "markdown";
 }
 
 class GetUnapprovedTransactionsTool {
@@ -16,7 +18,7 @@ class GetUnapprovedTransactionsTool {
 
   getToolDefinition(): Tool {
     return {
-      name: "get_unapproved_transactions",
+      name: "ynab_get_unapproved_transactions",
       description: "Gets unapproved transactions from a budget. First time pulls last 3 days, subsequent pulls use server knowledge to get only changes.",
       inputSchema: {
         type: "object",
@@ -25,27 +27,28 @@ class GetUnapprovedTransactionsTool {
             type: "string",
             description: "The ID of the budget to fetch transactions for (optional, defaults to the budget set in the YNAB_BUDGET_ID environment variable)",
           },
+          response_format: {
+            type: "string",
+            enum: ["json", "markdown"],
+            description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
+          },
         },
         additionalProperties: false,
+      },
+      annotations: {
+        title: "Get Unapproved YNAB Transactions",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     };
   }
 
   async execute(input: GetUnapprovedTransactionsInput) {
-    const budgetId = input.budgetId || this.budgetId;
-
-    if (!budgetId) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable. Use the ListBudgets tool to get a list of available budgets.",
-          },
-        ],
-      };
-    }
-
     try {
+      const budgetId = getBudgetId(input.budgetId || this.budgetId);
+
       console.error(`Getting unapproved transactions for budget ${budgetId}`);
 
       const response = await this.api.transactions.getTransactions(
@@ -64,20 +67,32 @@ class GetUnapprovedTransactionsTool {
         transaction_count: transactions.length,
       };
 
+      const format = input.response_format || "markdown";
+      let responseText: string;
+
+      if (format === "json") {
+        responseText = JSON.stringify(result, null, 2);
+      } else {
+        responseText = this.formatMarkdown(result);
+      }
+
+      const { text } = truncateResponse(responseText, CHARACTER_LIMIT);
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result, null, 2),
+            text,
           },
         ],
       };
     } catch (error) {
       console.error(
-        `Error getting unapproved transactions for budget ${budgetId}:`
+        `Error getting unapproved transactions:`
       );
       console.error(JSON.stringify(error, null, 2));
       return {
+        isError: true,
         content: [
           {
             type: "text",
@@ -96,7 +111,7 @@ class GetUnapprovedTransactionsTool {
       .map((transaction) => ({
         id: transaction.id,
         date: transaction.date,
-        amount: (transaction.amount / 1000).toFixed(2), // Convert milliunits to actual currency
+        amount: milliUnitsToAmount(transaction.amount),
         memo: transaction.memo,
         approved: transaction.approved,
         account_name: transaction.account_name,
@@ -107,6 +122,33 @@ class GetUnapprovedTransactionsTool {
         matched_transaction_id: transaction.matched_transaction_id,
         import_id: transaction.import_id,
       }));
+  }
+
+  private formatMarkdown(result: { transactions: any[]; transaction_count: number }): string {
+    let output = "# Unapproved Transactions\n\n";
+    output += `Found ${result.transaction_count} unapproved transaction(s)\n\n`;
+
+    if (result.transaction_count === 0) {
+      output += "No unapproved transactions found. Great job staying on top of your budget!\n";
+      return output;
+    }
+
+    for (const txn of result.transactions) {
+      output += `## ${txn.payee_name || "Unknown Payee"}\n`;
+      output += `- **Date:** ${formatDate(txn.date)}\n`;
+      output += `- **Amount:** ${formatCurrency(txn.amount)}\n`;
+      output += `- **Account:** ${txn.account_name}\n`;
+      if (txn.category_name) {
+        output += `- **Category:** ${txn.category_name}\n`;
+      }
+      if (txn.memo) {
+        output += `- **Memo:** ${txn.memo}\n`;
+      }
+      output += `- **Transaction ID:** \`${txn.id}\`\n`;
+      output += "\n";
+    }
+
+    return output;
   }
 }
 

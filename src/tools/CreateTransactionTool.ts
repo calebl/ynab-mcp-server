@@ -1,5 +1,6 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { getBudgetId, amountToMilliUnits, truncateResponse, CHARACTER_LIMIT } from "../utils/commonUtils.js";
 
 interface CreateTransactionInput {
   budgetId?: string;
@@ -13,6 +14,7 @@ interface CreateTransactionInput {
   cleared?: boolean;
   approved?: boolean;
   flagColor?: string;
+  response_format?: "json" | "markdown";
 }
 
 class CreateTransactionTool {
@@ -26,7 +28,7 @@ class CreateTransactionTool {
 
   getToolDefinition(): Tool {
     return {
-      name: "create_transaction",
+      name: "ynab_create_transaction",
       description: "Creates a new transaction in your YNAB budget. Either payee_id or payee_name must be provided in addition to the other required fields.",
       inputSchema: {
         type: "object",
@@ -75,41 +77,43 @@ class CreateTransactionTool {
             type: "string",
             description: "The transaction flag color (red, orange, yellow, green, blue, purple) (optional)",
           },
+          response_format: {
+            type: "string",
+            enum: ["json", "markdown"],
+            description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
+          },
         },
         required: ["accountId", "date", "amount"],
         additionalProperties: false,
+      },
+      annotations: {
+        title: "Create YNAB Transaction",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
       },
     };
   }
 
   async execute(input: CreateTransactionInput) {
-    const budgetId = input.budgetId || this.budgetId;
-
-    if (!budgetId) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.",
-          },
-        ],
-      };
-    }
-
-    if(!input.payeeId && !input.payeeName) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Either payee_id or payee_name must be provided",
-          },
-        ],
-      };
-    }
-
-    const milliunitAmount = Math.round(input.amount * 1000);
-
     try {
+      const budgetId = getBudgetId(input.budgetId || this.budgetId);
+
+      if(!input.payeeId && !input.payeeName) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: "Either payee_id or payee_name must be provided",
+            },
+          ],
+        };
+      }
+
+      const milliunitAmount = amountToMilliUnits(input.amount);
+
       const transaction: ynab.PostTransactionsWrapper = {
         transaction: {
           account_id: input.accountId,
@@ -140,29 +144,45 @@ class CreateTransactionTool {
         message: "Transaction created successfully",
       };
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(result, null, 2),
-          },
-        ],
-      };
-    } catch (error) {
-      const result = {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error occurred",
-      };
+      const format = input.response_format || "markdown";
+      let responseText: string;
+
+      if (format === "json") {
+        responseText = JSON.stringify(result, null, 2);
+      } else {
+        responseText = this.formatMarkdown(result);
+      }
+
+      const { text } = truncateResponse(responseText, CHARACTER_LIMIT);
 
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result, null, 2),
+            text,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Error creating transaction: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
           },
         ],
       };
     }
+  }
+
+  private formatMarkdown(result: { success: boolean; transactionId: string; message: string }): string {
+    let output = "# Transaction Created Successfully\n\n";
+    output += `✅ ${result.message}\n\n`;
+    output += `**Transaction ID:** \`${result.transactionId}\`\n`;
+    return output;
   }
 }
 

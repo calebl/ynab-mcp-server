@@ -1,6 +1,14 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { optimizeTransactions, withContextOptimization } from "../utils/contextOptimizer.js";
+import {
+  truncateResponse,
+  CHARACTER_LIMIT,
+  getBudgetId,
+  amountToMilliUnits,
+  milliUnitsToAmount,
+  formatCurrency,
+} from "../utils/commonUtils.js";
 
 interface BulkApproveTransactionsInput {
   budgetId?: string;
@@ -15,6 +23,7 @@ interface BulkApproveTransactionsInput {
     memo?: string;
   };
   dryRun?: boolean;
+  response_format?: "json" | "markdown";
 }
 
 interface TransactionFilter {
@@ -40,7 +49,7 @@ class BulkApproveTransactionsTool {
 
   getToolDefinition(): Tool {
     return {
-      name: "bulk_approve_transactions",
+      name: "ynab_bulk_approve_transactions",
       description: "Approve multiple transactions matching specified criteria in one operation. Supports various filters and natural language patterns.",
       inputSchema: {
         type: "object",
@@ -92,28 +101,30 @@ class BulkApproveTransactionsTool {
             default: false,
             description: "If true, will not make any actual changes, just return what would be approved",
           },
+          response_format: {
+            type: "string",
+            enum: ["json", "markdown"],
+            description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
+          },
         },
         additionalProperties: false,
+      },
+      annotations: {
+        title: "Bulk Approve YNAB Transactions",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
       },
     };
   }
 
   async execute(input: BulkApproveTransactionsInput) {
-    const budgetId = input.budgetId || this.budgetId;
-    if (!budgetId) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.",
-          },
-        ],
-      };
-    }
-
     try {
+      const budgetId = getBudgetId(input.budgetId || this.budgetId);
+
       console.log(`Bulk approving transactions for budget ${budgetId}`);
-      
+
       // Get all transactions for the budget
       const transactionsResponse = await this.api.transactions.getTransactions(budgetId);
       const allTransactions = transactionsResponse.data.transactions.filter(t => !t.deleted);
@@ -130,9 +141,10 @@ class BulkApproveTransactionsTool {
       
       // Filter to only unapproved transactions
       const unapprovedTransactions = filteredTransactions.filter(t => !t.approved);
-      
+
       if (unapprovedTransactions.length === 0) {
         return {
+          isError: false,
           content: [
             {
               type: "text",
@@ -157,7 +169,7 @@ class BulkApproveTransactionsTool {
         totalTransactionsChecked: allTransactions.length,
         matchingTransactions: filteredTransactions.length,
         unapprovedTransactions: unapprovedTransactions.length,
-        totalAmount: totalAmount / 1000,
+        totalAmount: milliUnitsToAmount(totalAmount),
         filters: input.filters || {},
         transactions: optimizeTransactions(unapprovedTransactions.map(t => ({
           ...t,
@@ -167,14 +179,30 @@ class BulkApproveTransactionsTool {
         dryRun: input.dryRun || false
       };
 
-      return withContextOptimization(result, {
-        maxTokens: 4000,
-        summarizeTransactions: true
-      });
+      const format = input.response_format || "markdown";
+      let responseText: string;
+
+      if (format === "json") {
+        responseText = JSON.stringify(result, null, 2);
+      } else {
+        responseText = this.formatMarkdown(result);
+      }
+
+      const { text } = truncateResponse(responseText, CHARACTER_LIMIT);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text,
+          },
+        ],
+      };
 
     } catch (error) {
-      console.error(`Error bulk approving transactions for budget ${budgetId}:`, error);
+      console.error(`Error bulk approving transactions:`, error);
       return {
+        isError: true,
         content: [
           {
             type: "text",
@@ -183,6 +211,57 @@ class BulkApproveTransactionsTool {
         ],
       };
     }
+  }
+
+  private formatMarkdown(result: any): string {
+    let output = `# Bulk Approve Transactions ${result.dryRun ? "(Dry Run)" : ""}\n\n`;
+    output += `**Budget ID:** ${result.budgetId}\n\n`;
+    output += `## Summary\n\n`;
+    output += `- **Total Transactions Checked:** ${result.totalTransactionsChecked}\n`;
+    output += `- **Matching Transactions:** ${result.matchingTransactions}\n`;
+    output += `- **Unapproved Transactions:** ${result.unapprovedTransactions}\n`;
+    output += `- **Total Amount:** ${formatCurrency(result.totalAmount)}\n`;
+
+    if (result.dryRun) {
+      output += `\n*This was a dry run - no actual changes were made.*\n`;
+    }
+
+    if (Object.keys(result.filters).length > 0) {
+      output += `\n## Filters Applied\n\n`;
+      for (const [key, value] of Object.entries(result.filters)) {
+        if (value !== undefined && value !== null) {
+          output += `- **${key}:** ${value}\n`;
+        }
+      }
+    }
+
+    if (result.approvedTransactions && result.approvedTransactions.length > 0) {
+      output += `\n## Approved Transactions\n\n`;
+      for (const txn of result.approvedTransactions) {
+        const statusIcon = txn.status === "success" ? "✅" : "❌";
+        output += `${statusIcon} **${txn.payeeName || "Unknown"}** - ${formatCurrency(txn.amount)} on ${txn.date}\n`;
+        if (txn.error) {
+          output += `  - Error: ${txn.error}\n`;
+        }
+      }
+    } else {
+      output += `\n## Transactions to Approve\n\n`;
+      const transactions = result.transactions || [];
+      for (const txn of transactions.slice(0, 20)) { // Limit to 20 for readability
+        output += `- **${txn.payee_name || "Unknown"}** - ${formatCurrency(milliUnitsToAmount(txn.amount))} on ${txn.date}\n`;
+        if (txn.account_name) {
+          output += `  - Account: ${txn.account_name}\n`;
+        }
+        if (txn.category_name) {
+          output += `  - Category: ${txn.category_name}\n`;
+        }
+      }
+      if (transactions.length > 20) {
+        output += `\n*... and ${transactions.length - 20} more transactions*\n`;
+      }
+    }
+
+    return output;
   }
 
   private filterTransactions(
@@ -219,14 +298,14 @@ class BulkApproveTransactionsTool {
 
       // Amount filters
       if (filters.minAmount !== undefined) {
-        const minAmountMilliunits = Math.round(filters.minAmount * 1000);
+        const minAmountMilliunits = amountToMilliUnits(filters.minAmount);
         if (transaction.amount < minAmountMilliunits) {
           return false;
         }
       }
 
       if (filters.maxAmount !== undefined) {
-        const maxAmountMilliunits = Math.round(filters.maxAmount * 1000);
+        const maxAmountMilliunits = amountToMilliUnits(filters.maxAmount);
         if (transaction.amount > maxAmountMilliunits) {
           return false;
         }
@@ -265,8 +344,8 @@ class BulkApproveTransactionsTool {
 
     for (const transaction of transactions) {
       try {
-        console.log(`Approving transaction: ${transaction.payee_name} - $${(transaction.amount / 1000).toFixed(2)} on ${transaction.date}`);
-        
+        console.log(`Approving transaction: ${transaction.payee_name} - ${formatCurrency(milliUnitsToAmount(transaction.amount))} on ${transaction.date}`);
+
         // Update transaction to approved
         const updateData: ynab.PutTransactionWrapper = {
           transaction: {
@@ -285,11 +364,11 @@ class BulkApproveTransactionsTool {
         };
 
         await this.api.transactions.updateTransaction(budgetId, transaction.id, updateData);
-        
+
         approvedTransactions.push({
           id: transaction.id,
           payeeName: transaction.payee_name,
-          amount: transaction.amount / 1000,
+          amount: milliUnitsToAmount(transaction.amount),
           date: transaction.date,
           status: "success"
         });
@@ -299,7 +378,7 @@ class BulkApproveTransactionsTool {
         approvedTransactions.push({
           id: transaction.id,
           payeeName: transaction.payee_name,
-          amount: transaction.amount / 1000,
+          amount: milliUnitsToAmount(transaction.amount),
           date: transaction.date,
           status: "failed",
           error: error instanceof Error ? error.message : "Unknown error"

@@ -1,10 +1,12 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { truncateResponse, CHARACTER_LIMIT, getBudgetId } from "../utils/commonUtils.js";
 
 interface UpdateTransactionInput {
   budgetId?: string;
   transactionId: string;
   approved?: boolean;
+  response_format?: "json" | "markdown";
 }
 
 class ApproveTransactionTool {
@@ -18,7 +20,7 @@ class ApproveTransactionTool {
 
   getToolDefinition(): Tool {
     return {
-      name: "approve_transaction",
+      name: "ynab_approve_transaction",
       description: "Approves an existing transaction in your YNAB budget.",
       inputSchema: {
         type: "object",
@@ -36,28 +38,29 @@ class ApproveTransactionTool {
             default: true,
             description: "Whether the transaction should be marked as approved",
           },
+          response_format: {
+            type: "string",
+            enum: ["json", "markdown"],
+            description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
+          },
         },
         required: ["transactionId"],
         additionalProperties: false,
+      },
+      annotations: {
+        title: "Approve YNAB Transaction",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
       },
     };
   }
 
   async execute(input: UpdateTransactionInput) {
-    const budgetId = input.budgetId || this.budgetId;
-
-    if (!budgetId) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.",
-          },
-        ],
-      };
-    }
-
     try {
+      const budgetId = getBudgetId(input.budgetId || this.budgetId);
+
       // First, get the existing transaction to ensure we don't lose any data
       const existingTransaction = await this.api.transactions.getTransactionById(budgetId, input.transactionId);
 
@@ -100,20 +103,32 @@ class ApproveTransactionTool {
         message: "Transaction updated successfully",
       };
 
+      const format = input.response_format || "markdown";
+      let responseText: string;
+
+      if (format === "json") {
+        responseText = JSON.stringify(result, null, 2);
+      } else {
+        responseText = this.formatMarkdown(result);
+      }
+
+      const { text } = truncateResponse(responseText, CHARACTER_LIMIT);
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result, null, 2),
+            text,
           },
         ],
       };
     } catch (error) {
       console.error(
-        `Error updating transaction for budget ${budgetId}:`
+        `Error updating transaction:`
       );
       console.error(JSON.stringify(error, null, 2));
       return {
+        isError: true,
         content: [
           {
             type: "text",
@@ -124,6 +139,13 @@ class ApproveTransactionTool {
         ],
       };
     }
+  }
+
+  private formatMarkdown(result: { success: boolean; transactionId: string; message: string }): string {
+    let output = "# Transaction Updated Successfully\n\n";
+    output += `${result.message}\n\n`;
+    output += `**Transaction ID:** \`${result.transactionId}\`\n`;
+    return output;
   }
 }
 

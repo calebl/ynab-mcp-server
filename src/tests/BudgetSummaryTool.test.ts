@@ -141,22 +141,23 @@ describe('BudgetSummaryTool', () => {
       const input = {
         budgetId: 'custom-budget-id',
         month: '2023-12-01',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
 
       expect(mockApi.accounts.getAccounts).toHaveBeenCalledWith('custom-budget-id');
       expect(mockApi.months.getBudgetMonth).toHaveBeenCalledWith('custom-budget-id', '2023-12-01');
-      
+
       expect(result).toHaveProperty('content');
       expect(result.content).toHaveLength(1);
       expect(result.content[0]).toHaveProperty('type', 'text');
-      
+
       const resultText = result.content[0].text;
       expect(resultText).toContain('monthBudget');
       expect(resultText).toContain('accounts');
       expect(resultText).toContain('All amounts in dollars. Compressed format: bal=balance, bud=budgeted, act=activity. All categories shown, sorted by activity.');
-      
+
       // Parse the JSON result to verify structure
       const parsedResult = JSON.parse(resultText);
       expect(parsedResult).toHaveProperty('monthBudget');
@@ -175,17 +176,18 @@ describe('BudgetSummaryTool', () => {
 
       const input = {
         month: 'current',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
 
       expect(mockApi.accounts.getAccounts).toHaveBeenCalledWith('test-budget-id');
       expect(mockApi.months.getBudgetMonth).toHaveBeenCalledWith('test-budget-id', 'current');
-      
+
       expect(result).toHaveProperty('content');
       expect(result.content).toHaveLength(1);
       expect(result.content[0]).toHaveProperty('type', 'text');
-      
+
       const resultText = result.content[0].text;
       expect(resultText).toContain('monthBudget');
       expect(resultText).toContain('accounts');
@@ -204,6 +206,7 @@ describe('BudgetSummaryTool', () => {
       const input = {
         budgetId: 'test-budget-id',
         month: 'current',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -211,7 +214,7 @@ describe('BudgetSummaryTool', () => {
       expect(result).toHaveProperty('content');
       expect(result.content).toHaveLength(1);
       expect(result.content[0]).toHaveProperty('type', 'text');
-      
+
       const parsedResult = JSON.parse(result.content[0].text);
       expect(parsedResult.accounts).toHaveLength(2);
       expect(parsedResult.accounts.every((account: any) => !account.deleted && !account.closed)).toBe(true);
@@ -252,14 +255,12 @@ describe('BudgetSummaryTool', () => {
 
       const result = await tool.execute(input);
 
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable. Use the ListBudgets tool to get a list of available budgets.",
-          },
-        ],
-      });
+      expect(result).toHaveProperty('isError', true);
+      expect(result).toHaveProperty('content');
+      expect(result.content).toHaveLength(1);
+      expect(result.content[0]).toHaveProperty('type', 'text');
+      expect(result.content[0].text).toContain('Error getting budget:');
+      expect(result.content[0].text).toContain('Budget ID is required');
     });
 
     it('should handle API error when getting accounts', async () => {
@@ -274,8 +275,9 @@ describe('BudgetSummaryTool', () => {
 
       const result = await tool.execute(input);
 
-      // Error objects get serialized as {} by JSON.stringify
-      expect(result.content[0].text).toMatch(/Error getting budget invalid-budget-id: {}/);
+      expect(result).toHaveProperty('isError', true);
+      expect(result.content[0].text).toContain('Error getting budget:');
+      expect(result.content[0].text).toContain('API Error: Budget not found');
     });
 
     it('should handle API error when getting budget month', async () => {
@@ -283,7 +285,7 @@ describe('BudgetSummaryTool', () => {
       mockApi.accounts.getAccounts.mockResolvedValue({
         data: { accounts: mockAccounts },
       });
-      
+
       const apiError = new Error('API Error: Month not found');
       mockApi.months.getBudgetMonth.mockRejectedValue(apiError);
 
@@ -294,8 +296,9 @@ describe('BudgetSummaryTool', () => {
 
       const result = await tool.execute(input);
 
-      // Error objects get serialized as {} by JSON.stringify
-      expect(result.content[0].text).toMatch(/Error getting budget test-budget-id: {}/);
+      expect(result).toHaveProperty('isError', true);
+      expect(result.content[0].text).toContain('Error getting budget:');
+      expect(result.content[0].text).toContain('API Error: Month not found');
     });
 
     it('should handle non-Error objects in catch block', async () => {
@@ -310,7 +313,10 @@ describe('BudgetSummaryTool', () => {
 
       const result = await tool.execute(input);
 
-      expect(result.content[0].text).toMatch(/Error getting budget test-budget-id: {"message":"Custom error object","code":500}/);
+      expect(result).toHaveProperty('isError', true);
+      expect(result.content[0].text).toContain('Error getting budget:');
+      expect(result.content[0].text).toContain('"message":"Custom error object"');
+      expect(result.content[0].text).toContain('"code":500');
     });
 
     it('should use current month as default when month not specified', async () => {
@@ -325,6 +331,7 @@ describe('BudgetSummaryTool', () => {
       const input = {
         budgetId: 'test-budget-id',
         month: 'current', // explicitly set to current since the framework may not apply defaults
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -346,6 +353,7 @@ describe('BudgetSummaryTool', () => {
       const input = {
         budgetId: 'test-budget-id',
         month: 'current',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -362,7 +370,7 @@ describe('BudgetSummaryTool', () => {
         ...mockMonthBudget,
         categories: [],
       };
-      
+
       mockApi.accounts.getAccounts.mockResolvedValue({
         data: { accounts: mockAccounts },
       });
@@ -373,6 +381,7 @@ describe('BudgetSummaryTool', () => {
       const input = {
         budgetId: 'test-budget-id',
         month: 'current',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -387,7 +396,7 @@ describe('BudgetSummaryTool', () => {
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       const toolDef = tool.getToolDefinition();
-      expect(toolDef.name).toBe('budget_summary');
+      expect(toolDef.name).toBe('ynab_budget_summary');
       expect(toolDef.description).toBe(
         'Get a summary of the budget for a specific month highlighting overspent categories that need attention and categories with a positive balance that are doing well.'
       );

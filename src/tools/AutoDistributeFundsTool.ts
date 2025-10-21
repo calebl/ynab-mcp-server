@@ -1,5 +1,15 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import {
+  normalizeMonth,
+  getBudgetId,
+  milliUnitsToAmount,
+  amountToMilliUnits,
+  truncateResponse,
+  CHARACTER_LIMIT,
+  formatCurrency,
+  formatDate
+} from "../utils/commonUtils.js";
 
 interface AutoDistributeFundsInput {
   budgetId?: string;
@@ -7,6 +17,7 @@ interface AutoDistributeFundsInput {
   strategy?: "goals-first" | "proportional" | "custom";
   maxAmount?: number;
   dryRun?: boolean;
+  response_format?: "json" | "markdown";
 }
 
 interface DistributionPlan {
@@ -32,7 +43,7 @@ class AutoDistributeFundsTool {
 
   getToolDefinition(): Tool {
     return {
-      name: "auto_distribute_funds",
+      name: "ynab_auto_distribute_funds",
       description: "Intelligently allocate 'Ready to Assign' money based on category goals and priorities. Supports multiple distribution strategies.",
       inputSchema: {
         type: "object",
@@ -62,44 +73,47 @@ class AutoDistributeFundsTool {
             default: false,
             description: "If true, will not make any actual changes, just return the distribution plan",
           },
+          response_format: {
+            type: "string",
+            enum: ["json", "markdown"],
+            description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
+          },
         },
         additionalProperties: false,
+      },
+      annotations: {
+        title: "Auto Distribute Funds in YNAB Budget",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
       },
     };
   }
 
   async execute(input: AutoDistributeFundsInput) {
-    const budgetId = input.budgetId || this.budgetId;
-    if (!budgetId) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.",
-          },
-        ],
-      };
-    }
-
     try {
-      console.log(`Auto-distributing funds for budget ${budgetId}, month ${input.month || "current"}`);
-      
+      const budgetId = getBudgetId(input.budgetId || this.budgetId);
+      const month = normalizeMonth(input.month);
+
+      console.log(`Auto-distributing funds for budget ${budgetId}, month ${month}`);
+
       // Get current month budget data
-      const month = input.month === "current" ? new Date().toISOString().slice(0, 7) + "-01" : input.month!;
       const monthResponse = await this.api.months.getBudgetMonth(budgetId, month);
       const monthData = monthResponse.data.month;
       
       // Check available funds
       const availableFunds = monthData.to_be_budgeted;
-      const maxAmount = input.maxAmount ? Math.round(input.maxAmount * 1000) : availableFunds;
+      const maxAmount = input.maxAmount ? amountToMilliUnits(input.maxAmount) : availableFunds;
       const amountToDistribute = Math.min(availableFunds, maxAmount);
 
       if (amountToDistribute <= 0) {
+        const message = `No funds available to distribute. Ready to Assign: ${formatCurrency(milliUnitsToAmount(availableFunds))}`;
         return {
           content: [
             {
               type: "text",
-              text: `No funds available to distribute. Ready to Assign: $${(availableFunds / 1000).toFixed(2)}`,
+              text: input.response_format === "json" ? JSON.stringify({ message, availableFunds: milliUnitsToAmount(availableFunds) }, null, 2) : message,
             },
           ],
         };
@@ -118,11 +132,12 @@ class AutoDistributeFundsTool {
       );
 
       if (distributionPlan.length === 0) {
+        const message = "No suitable categories found for fund distribution.";
         return {
           content: [
             {
               type: "text",
-              text: "No suitable categories found for fund distribution.",
+              text: input.response_format === "json" ? JSON.stringify({ message, distributionPlan: [] }, null, 2) : message,
             },
           ],
         };
@@ -140,37 +155,49 @@ class AutoDistributeFundsTool {
 
       const result = {
         month: monthData.month,
-        availableFunds: availableFunds / 1000,
-        amountToDistribute: amountToDistribute / 1000,
-        totalDistributed: totalDistributed / 1000,
-        remainingFunds: remainingFunds / 1000,
+        availableFunds: milliUnitsToAmount(availableFunds),
+        amountToDistribute: milliUnitsToAmount(amountToDistribute),
+        totalDistributed: milliUnitsToAmount(totalDistributed),
+        remainingFunds: milliUnitsToAmount(remainingFunds),
         strategy: input.strategy,
         distributionPlan: distributionPlan.map(item => ({
           category: item.categoryName,
           categoryGroup: item.categoryGroup,
-          currentBudgeted: item.currentBudgeted / 1000,
-          proposedAmount: item.proposedAmount / 1000,
+          currentBudgeted: milliUnitsToAmount(item.currentBudgeted),
+          proposedAmount: milliUnitsToAmount(item.proposedAmount),
           reason: item.reason,
           goalType: item.goalType,
-          goalTarget: item.goalTarget ? item.goalTarget / 1000 : null,
-          goalUnderFunded: item.goalUnderFunded ? item.goalUnderFunded / 1000 : null
+          goalTarget: item.goalTarget ? milliUnitsToAmount(item.goalTarget) : null,
+          goalUnderFunded: item.goalUnderFunded ? milliUnitsToAmount(item.goalUnderFunded) : null
         })),
         executedDistributions: executedDistributions,
         dryRun: input.dryRun || false
       };
 
+      const format = input.response_format || "markdown";
+      let responseText: string;
+
+      if (format === "json") {
+        responseText = JSON.stringify(result, null, 2);
+      } else {
+        responseText = this.formatMarkdown(result);
+      }
+
+      const { text } = truncateResponse(responseText, CHARACTER_LIMIT);
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result, null, 2),
+            text,
           },
         ],
       };
 
     } catch (error) {
-      console.error(`Error auto-distributing funds for budget ${budgetId}:`, error);
+      console.error(`Error auto-distributing funds:`, error);
       return {
+        isError: true,
         content: [
           {
             type: "text",
@@ -179,6 +206,61 @@ class AutoDistributeFundsTool {
         ],
       };
     }
+  }
+
+  private formatMarkdown(result: any): string {
+    let output = "# Auto Distribute Funds Report\n\n";
+    output += `**Month:** ${formatDate(result.month)}\n`;
+    output += `**Strategy:** ${result.strategy}\n`;
+    output += `**Dry Run:** ${result.dryRun ? "Yes" : "No"}\n\n`;
+
+    // Summary
+    output += "## Summary\n\n";
+    output += `- **Available Funds:** ${formatCurrency(result.availableFunds)}\n`;
+    output += `- **Amount to Distribute:** ${formatCurrency(result.amountToDistribute)}\n`;
+    output += `- **Total Distributed:** ${formatCurrency(result.totalDistributed)}\n`;
+    output += `- **Remaining Funds:** ${formatCurrency(result.remainingFunds)}\n\n`;
+
+    // Distribution Plan
+    output += "## Distribution Plan\n\n";
+    if (result.distributionPlan.length === 0) {
+      output += "No categories eligible for distribution.\n\n";
+    } else {
+      output += `Planning to distribute to ${result.distributionPlan.length} categories:\n\n`;
+      for (const item of result.distributionPlan) {
+        output += `### ${item.category} (${item.categoryGroup})\n`;
+        output += `- **Current Budgeted:** ${formatCurrency(item.currentBudgeted)}\n`;
+        output += `- **Proposed Amount:** ${formatCurrency(item.proposedAmount)}\n`;
+        output += `- **Reason:** ${item.reason}\n`;
+        if (item.goalType) {
+          output += `- **Goal Type:** ${item.goalType}\n`;
+          if (item.goalTarget) {
+            output += `- **Goal Target:** ${formatCurrency(item.goalTarget)}\n`;
+          }
+          if (item.goalUnderFunded) {
+            output += `- **Goal Under Funded:** ${formatCurrency(item.goalUnderFunded)}\n`;
+          }
+        }
+        output += "\n";
+      }
+    }
+
+    // Executed Distributions
+    if (result.executedDistributions && result.executedDistributions.length > 0) {
+      output += "## Executed Distributions\n\n";
+      for (const dist of result.executedDistributions) {
+        output += `### ${dist.category}\n`;
+        output += `- **Amount:** ${formatCurrency(dist.amount)}\n`;
+        output += `- **Reason:** ${dist.reason}\n`;
+        output += `- **Status:** ${dist.status}\n`;
+        if (dist.error) {
+          output += `- **Error:** ${dist.error}\n`;
+        }
+        output += "\n";
+      }
+    }
+
+    return output;
   }
 
   private generateDistributionPlan(
@@ -316,8 +398,8 @@ class AutoDistributeFundsTool {
 
     for (const item of plan) {
       try {
-        console.log(`Distributing $${(item.proposedAmount / 1000).toFixed(2)} to ${item.categoryName} (${item.reason})`);
-        
+        console.log(`Distributing ${formatCurrency(milliUnitsToAmount(item.proposedAmount))} to ${item.categoryName} (${item.reason})`);
+
         // Get current month data to get current budgeted amounts
         const monthResponse = await this.api.months.getBudgetMonth(budgetId, month);
         const monthData = monthResponse.data.month;
@@ -342,7 +424,7 @@ class AutoDistributeFundsTool {
         
         executedDistributions.push({
           category: item.categoryName,
-          amount: item.proposedAmount / 1000,
+          amount: milliUnitsToAmount(item.proposedAmount),
           reason: item.reason,
           status: "success"
         });
@@ -351,7 +433,7 @@ class AutoDistributeFundsTool {
         console.error(`Error distributing funds to ${item.categoryName}:`, error);
         executedDistributions.push({
           category: item.categoryName,
-          amount: item.proposedAmount / 1000,
+          amount: milliUnitsToAmount(item.proposedAmount),
           reason: item.reason,
           status: "failed",
           error: error instanceof Error ? error.message : "Unknown error"

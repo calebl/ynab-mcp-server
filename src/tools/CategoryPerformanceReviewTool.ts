@@ -1,11 +1,20 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import {
+  truncateResponse,
+  CHARACTER_LIMIT,
+  getBudgetId,
+  normalizeMonth,
+  milliUnitsToAmount,
+  formatCurrency
+} from "../utils/commonUtils.js";
 
 interface CategoryPerformanceReviewInput {
   budgetId?: string;
   months?: number;
   includeInsights?: boolean;
   performanceThreshold?: number;
+  response_format?: "json" | "markdown";
 }
 
 interface CategoryPerformance {
@@ -62,7 +71,7 @@ export default class CategoryPerformanceReviewTool {
 
   getToolDefinition(): Tool {
     return {
-      name: "category_performance_review",
+      name: "ynab_category_performance_review",
       description: "Review category budget performance over time, analyzing spending patterns, budget utilization, and providing performance ratings and recommendations.",
       inputSchema: {
         type: "object",
@@ -86,30 +95,33 @@ export default class CategoryPerformanceReviewTool {
             default: 0.1,
             description: "Threshold for considering a category as overspent (default: 0.1 = 10% over budget)",
           },
+          response_format: {
+            type: "string",
+            enum: ["json", "markdown"],
+            description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
+          },
         },
         required: [],
+        additionalProperties: false,
+      },
+      annotations: {
+        title: "Category Performance Review",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     };
   }
 
   async execute(input: CategoryPerformanceReviewInput) {
-    const budgetId = input.budgetId || this.budgetId;
-    if (!budgetId) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable. Use the ListBudgets tool to get a list of available budgets.",
-          },
-        ],
-      };
-    }
-
-    const monthsToAnalyze = Math.min(input.months || 6, 12);
-    const includeInsights = input.includeInsights !== false;
-    const performanceThreshold = input.performanceThreshold || 0.1;
-
     try {
+      const budgetId = getBudgetId(input.budgetId || this.budgetId);
+
+      const monthsToAnalyze = Math.min(input.months || 6, 12);
+      const includeInsights = input.includeInsights !== false;
+      const performanceThreshold = input.performanceThreshold || 0.1;
+
       console.error(`Reviewing category performance for budget ${budgetId} over ${monthsToAnalyze} months`);
       
       // Get historical budget data - go back from current month
@@ -296,9 +308,9 @@ export default class CategoryPerformanceReviewTool {
           categoryPerformance.push({
             category_id: category.id,
             category_name: category.name,
-            average_budgeted_dollars: Math.round(averageBudgeted / 1000 * 100) / 100,
-            average_spent_dollars: Math.round(averageSpent / 1000 * 100) / 100,
-            average_available_dollars: Math.round(averageAvailable / 1000 * 100) / 100,
+            average_budgeted_dollars: Math.round(milliUnitsToAmount(averageBudgeted) * 100) / 100,
+            average_spent_dollars: Math.round(milliUnitsToAmount(averageSpent) * 100) / 100,
+            average_available_dollars: Math.round(milliUnitsToAmount(averageAvailable) * 100) / 100,
             budget_utilization: Math.round(budgetUtilization * 100) / 100,
             overspend_frequency: Math.round(overspendFrequency * 100) / 100,
             underspend_frequency: Math.round(underspendFrequency * 100) / 100,
@@ -397,11 +409,22 @@ export default class CategoryPerformanceReviewTool {
         note: "All amounts are in dollars. Performance score (0-100) based on budget adherence, utilization, and consistency. Budget utilization = average spent / average budgeted. Overspend frequency = percentage of months over budget.",
       };
 
+      const format = input.response_format || "markdown";
+      let responseText: string;
+
+      if (format === "json") {
+        responseText = JSON.stringify(result, null, 2);
+      } else {
+        responseText = this.formatMarkdown(result);
+      }
+
+      const { text, wasTruncated } = truncateResponse(responseText, CHARACTER_LIMIT);
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result, null, 2),
+            text,
           },
         ],
       };
@@ -409,6 +432,7 @@ export default class CategoryPerformanceReviewTool {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {
+        isError: true,
         content: [
           {
             type: "text",
@@ -417,5 +441,100 @@ export default class CategoryPerformanceReviewTool {
         ],
       };
     }
+  }
+
+  private formatMarkdown(result: CategoryPerformanceReviewResult): string {
+    let output = `# Category Performance Review\n\n`;
+
+    output += `## Review Period\n`;
+    output += `${result.review_period}\n\n`;
+
+    output += `## Summary\n`;
+    output += `- **Total Categories Reviewed**: ${result.total_categories_reviewed}\n`;
+    output += `- **Average Performance Score**: ${result.summary.average_performance_score}/100\n`;
+    output += `- **Best Performing Category**: ${result.summary.best_performing_category}\n`;
+    output += `- **Worst Performing Category**: ${result.summary.worst_performing_category}\n`;
+    output += `- **Most Overspent Category**: ${result.summary.most_overspent_category}\n`;
+    output += `- **Most Underspent Category**: ${result.summary.most_underspent_category}\n`;
+    output += `- **Categories Needing Attention**: ${result.summary.categories_needing_attention}\n\n`;
+
+    // Show categories needing attention first
+    const poorCategories = result.category_performance.filter(cat => cat.performance_rating === 'poor');
+    if (poorCategories.length > 0) {
+      output += `## Categories Needing Attention (Poor Performance)\n`;
+      for (const cat of poorCategories) {
+        output += `\n### ${cat.category_name}\n`;
+        output += `- **Performance Score**: ${cat.performance_score}/100\n`;
+        output += `- **Performance Rating**: ${cat.performance_rating}\n`;
+        output += `- **Trend**: ${cat.trend}\n`;
+        output += `- **Average Budgeted**: ${formatCurrency(cat.average_budgeted_dollars)}\n`;
+        output += `- **Average Spent**: ${formatCurrency(cat.average_spent_dollars)}\n`;
+        output += `- **Average Available**: ${formatCurrency(cat.average_available_dollars)}\n`;
+        output += `- **Budget Utilization**: ${(cat.budget_utilization * 100).toFixed(0)}%\n`;
+        output += `- **Overspend Frequency**: ${(cat.overspend_frequency * 100).toFixed(0)}%\n`;
+        output += `- **Underspend Frequency**: ${(cat.underspend_frequency * 100).toFixed(0)}%\n`;
+        if (cat.recommendations.length > 0) {
+          output += `- **Recommendations**:\n`;
+          for (const rec of cat.recommendations) {
+            output += `  - ${rec}\n`;
+          }
+        }
+      }
+      output += "\n";
+    }
+
+    // Show insights
+    if (result.insights.length > 0) {
+      output += `## Insights\n`;
+
+      const concerns = result.insights.filter(i => i.type === 'concern');
+      const excellence = result.insights.filter(i => i.type === 'excellence');
+      const trends = result.insights.filter(i => i.type === 'trend');
+      const opportunities = result.insights.filter(i => i.type === 'opportunity');
+
+      if (concerns.length > 0) {
+        output += `\n### Concerns\n`;
+        for (const insight of concerns) {
+          output += `- **${insight.category}**: ${insight.message} (${insight.severity} severity)\n`;
+        }
+      }
+
+      if (trends.length > 0) {
+        output += `\n### Trends\n`;
+        for (const insight of trends) {
+          output += `- **${insight.category}**: ${insight.message}\n`;
+        }
+      }
+
+      if (excellence.length > 0) {
+        output += `\n### Excellence\n`;
+        for (const insight of excellence) {
+          output += `- **${insight.category}**: ${insight.message}\n`;
+        }
+      }
+
+      if (opportunities.length > 0) {
+        output += `\n### Opportunities\n`;
+        for (const insight of opportunities) {
+          output += `- **${insight.category}**: ${insight.message}\n`;
+        }
+      }
+      output += "\n";
+    }
+
+    // Show top performers
+    const excellentCategories = result.category_performance.filter(cat => cat.performance_rating === 'excellent').slice(0, 5);
+    if (excellentCategories.length > 0) {
+      output += `## Top Performing Categories\n`;
+      for (const cat of excellentCategories) {
+        output += `- **${cat.category_name}**: Score ${cat.performance_score}/100, ${(cat.budget_utilization * 100).toFixed(0)}% utilization\n`;
+      }
+      output += "\n";
+    }
+
+    output += `---\n\n`;
+    output += `${result.note}\n`;
+
+    return output;
   }
 }

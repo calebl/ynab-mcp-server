@@ -1,11 +1,13 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { truncateResponse, CHARACTER_LIMIT, getBudgetId, milliUnitsToAmount, formatCurrency } from "../utils/commonUtils.js";
 
 interface CashFlowForecastInput {
   budgetId?: string;
   months?: number;
   accountId?: string;
   includeProjections?: boolean;
+  response_format?: "json" | "markdown";
 }
 
 interface CashFlowProjection {
@@ -62,7 +64,7 @@ export default class CashFlowForecastTool {
 
   getToolDefinition(): Tool {
     return {
-      name: "cash_flow_forecast",
+      name: "ynab_cash_flow_forecast",
       description: "Generate cash flow projections for accounts based on historical income and expense patterns to forecast future balances.",
       inputSchema: {
         type: "object",
@@ -85,29 +87,29 @@ export default class CashFlowForecastTool {
             default: true,
             description: "Whether to include detailed monthly projections",
           },
+          response_format: {
+            type: "string",
+            enum: ["json", "markdown"],
+            description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
+          },
         },
-        required: [],
+        additionalProperties: false,
+      },
+      annotations: {
+        title: "Cash Flow Forecast",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     };
   }
 
   async execute(input: CashFlowForecastInput) {
-    const budgetId = input.budgetId || this.budgetId;
-    if (!budgetId) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable. Use the ListBudgets tool to get a list of available budgets.",
-          },
-        ],
-      };
-    }
-
-    const monthsToForecast = Math.min(input.months || 6, 12);
-    const includeProjections = input.includeProjections !== false;
-
     try {
+      const budgetId = getBudgetId(input.budgetId || this.budgetId);
+      const monthsToForecast = Math.min(input.months || 6, 12);
+      const includeProjections = input.includeProjections !== false;
       console.error(`Generating cash flow forecast for budget ${budgetId} for ${monthsToForecast} months`);
       
       // Get accounts
@@ -244,13 +246,13 @@ export default class CashFlowForecastTool {
         projections.push({
           month: monthKey,
           projected_balance: currentBalance,
-          projected_balance_dollars: Math.round(currentBalance / 1000 * 100) / 100,
+          projected_balance_dollars: Math.round(milliUnitsToAmount(currentBalance) * 100) / 100,
           income: projectedIncome,
-          income_dollars: Math.round(projectedIncome / 1000 * 100) / 100,
+          income_dollars: Math.round(milliUnitsToAmount(projectedIncome) * 100) / 100,
           expenses: projectedExpenses,
-          expenses_dollars: Math.round(projectedExpenses / 1000 * 100) / 100,
+          expenses_dollars: Math.round(milliUnitsToAmount(projectedExpenses) * 100) / 100,
           net_cash_flow: netCashFlow,
-          net_cash_flow_dollars: Math.round(netCashFlow / 1000 * 100) / 100,
+          net_cash_flow_dollars: Math.round(milliUnitsToAmount(netCashFlow) * 100) / 100,
           confidence_level: confidenceLevel,
         });
       }
@@ -284,14 +286,14 @@ export default class CashFlowForecastTool {
         if (netCashFlowTotal > 0) {
           insights.push({
             type: 'trend',
-            message: `Positive cash flow trend: +$${(netCashFlowTotal / 1000).toFixed(2)} over ${monthsToForecast} months`,
+            message: `Positive cash flow trend: +${formatCurrency(milliUnitsToAmount(netCashFlowTotal))} over ${monthsToForecast} months`,
             severity: 'low',
             data: { net_cash_flow_total: netCashFlowTotal }
           });
         } else {
           insights.push({
             type: 'warning',
-            message: `Negative cash flow trend: -$${(Math.abs(netCashFlowTotal) / 1000).toFixed(2)} over ${monthsToForecast} months`,
+            message: `Negative cash flow trend: -${formatCurrency(Math.abs(milliUnitsToAmount(netCashFlowTotal)))} over ${monthsToForecast} months`,
             severity: 'medium',
             data: { net_cash_flow_total: netCashFlowTotal }
           });
@@ -302,25 +304,36 @@ export default class CashFlowForecastTool {
         forecast_period: `${monthsToForecast} months starting ${new Date().toISOString().substring(0, 7)}`,
         account_analyzed: targetAccount.name,
         current_balance: targetAccount.balance,
-        current_balance_dollars: Math.round(targetAccount.balance / 1000 * 100) / 100,
+        current_balance_dollars: Math.round(milliUnitsToAmount(targetAccount.balance) * 100) / 100,
         projections: projections,
         insights: insights,
         summary: {
-          projected_balance_end: Math.round(currentBalance / 1000 * 100) / 100,
-          total_income_projected: Math.round(totalIncomeProjected / 1000 * 100) / 100,
-          total_expenses_projected: Math.round(totalExpensesProjected / 1000 * 100) / 100,
-          net_cash_flow_total: Math.round((totalIncomeProjected - totalExpensesProjected) / 1000 * 100) / 100,
+          projected_balance_end: Math.round(milliUnitsToAmount(currentBalance) * 100) / 100,
+          total_income_projected: Math.round(milliUnitsToAmount(totalIncomeProjected) * 100) / 100,
+          total_expenses_projected: Math.round(milliUnitsToAmount(totalExpensesProjected) * 100) / 100,
+          net_cash_flow_total: Math.round(milliUnitsToAmount(totalIncomeProjected - totalExpensesProjected) * 100) / 100,
           months_until_negative: monthsUntilNegative,
           months_until_goal: monthsUntilGoal,
         },
         note: "All amounts are in dollars. Projections based on historical patterns and may not account for irregular income, large purchases, or lifestyle changes. Confidence levels reflect historical variance in income and expenses.",
       };
 
+      const format = input.response_format || "markdown";
+      let responseText: string;
+
+      if (format === "json") {
+        responseText = JSON.stringify(result, null, 2);
+      } else {
+        responseText = this.formatMarkdown(result);
+      }
+
+      const { text, wasTruncated } = truncateResponse(responseText, CHARACTER_LIMIT);
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result, null, 2),
+            text,
           },
         ],
       };
@@ -328,6 +341,7 @@ export default class CashFlowForecastTool {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {
+        isError: true,
         content: [
           {
             type: "text",
@@ -336,5 +350,56 @@ export default class CashFlowForecastTool {
         ],
       };
     }
+  }
+
+  private formatMarkdown(result: CashFlowForecastResult): string {
+    let output = "# Cash Flow Forecast\n\n";
+
+    output += "## Summary\n";
+    output += `- **Forecast Period**: ${result.forecast_period}\n`;
+    output += `- **Account Analyzed**: ${result.account_analyzed}\n`;
+    output += `- **Current Balance**: ${formatCurrency(result.current_balance_dollars)}\n`;
+    output += `- **Projected Balance (End)**: ${formatCurrency(result.summary.projected_balance_end)}\n`;
+    output += `- **Total Income Projected**: ${formatCurrency(result.summary.total_income_projected)}\n`;
+    output += `- **Total Expenses Projected**: ${formatCurrency(result.summary.total_expenses_projected)}\n`;
+    output += `- **Net Cash Flow Total**: ${formatCurrency(result.summary.net_cash_flow_total)}\n`;
+    if (result.summary.months_until_negative !== null) {
+      output += `- **Months Until Negative**: ${result.summary.months_until_negative}\n`;
+    }
+    if (result.summary.months_until_goal !== null) {
+      output += `- **Months Until Goal**: ${result.summary.months_until_goal}\n`;
+    }
+    output += "\n";
+
+    if (result.projections.length > 0) {
+      output += "## Monthly Projections\n\n";
+      for (const projection of result.projections) {
+        const confidenceEmoji = projection.confidence_level === 'high' ? '🟢' :
+                               projection.confidence_level === 'medium' ? '🟡' : '🔴';
+        output += `### ${projection.month} ${confidenceEmoji}\n`;
+        output += `- **Projected Balance**: ${formatCurrency(projection.projected_balance_dollars)}\n`;
+        output += `- **Income**: ${formatCurrency(projection.income_dollars)}\n`;
+        output += `- **Expenses**: ${formatCurrency(projection.expenses_dollars)}\n`;
+        output += `- **Net Cash Flow**: ${formatCurrency(projection.net_cash_flow_dollars)}\n`;
+        output += `- **Confidence Level**: ${projection.confidence_level}\n\n`;
+      }
+    }
+
+    if (result.insights.length > 0) {
+      output += "## Insights\n\n";
+      for (const insight of result.insights) {
+        const emoji = insight.type === 'warning' ? '⚠️' :
+                     insight.type === 'opportunity' ? '💡' : '📊';
+        output += `${emoji} **${insight.severity.toUpperCase()}**: ${insight.message}\n`;
+        if (insight.month) {
+          output += `   _Month: ${insight.month}_\n`;
+        }
+        output += "\n";
+      }
+    }
+
+    output += `## Note\n${result.note}\n`;
+
+    return output;
   }
 }

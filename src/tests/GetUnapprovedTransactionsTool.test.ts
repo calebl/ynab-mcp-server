@@ -85,6 +85,7 @@ describe('GetUnapprovedTransactionsTool', () => {
 
       const input = {
         budgetId: 'custom-budget-id',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -105,7 +106,7 @@ describe('GetUnapprovedTransactionsTool', () => {
       expect(parsedResult.transactions[0]).toEqual({
         id: 'transaction-1',
         date: '2023-01-01',
-        amount: '-50.00',
+        amount: -50,
         memo: 'Test memo 1',
         approved: false,
         account_name: 'Test Account',
@@ -119,7 +120,7 @@ describe('GetUnapprovedTransactionsTool', () => {
       expect(parsedResult.transactions[1]).toEqual({
         id: 'transaction-2',
         date: '2023-01-02',
-        amount: '-25.00',
+        amount: -25,
         memo: 'Test memo 2',
         approved: false,
         account_name: 'Test Account 2',
@@ -138,7 +139,9 @@ describe('GetUnapprovedTransactionsTool', () => {
         data: { transactions: mockTransactionData },
       });
 
-      const input = {};
+      const input = {
+        response_format: 'json' as const,
+      };
 
       const result = await tool.execute(input);
 
@@ -162,6 +165,7 @@ describe('GetUnapprovedTransactionsTool', () => {
 
       const input = {
         budgetId: 'test-budget-id',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -196,12 +200,13 @@ describe('GetUnapprovedTransactionsTool', () => {
 
       const input = {
         budgetId: 'test-budget-id',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
 
       const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult.transactions[0].amount).toBe('-123.46');
+      expect(parsedResult.transactions[0].amount).toBe(-123.456);
     });
 
     it('should handle positive amounts correctly', async () => {
@@ -229,12 +234,13 @@ describe('GetUnapprovedTransactionsTool', () => {
 
       const input = {
         budgetId: 'test-budget-id',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
 
       const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult.transactions[0].amount).toBe('50.00');
+      expect(parsedResult.transactions[0].amount).toBe(50);
     });
 
     it('should handle empty transaction list', async () => {
@@ -244,6 +250,7 @@ describe('GetUnapprovedTransactionsTool', () => {
 
       const input = {
         budgetId: 'test-budget-id',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -263,14 +270,9 @@ describe('GetUnapprovedTransactionsTool', () => {
 
       const result = await tool.execute(input);
 
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable. Use the ListBudgets tool to get a list of available budgets.",
-          },
-        ],
-      });
+      expect(result).toHaveProperty('isError', true);
+      expect(result.content[0].text).toContain('Error getting unapproved transactions:');
+      expect(result.content[0].text).toContain('Budget ID is required');
     });
 
     it('should handle API error', async () => {
@@ -283,6 +285,7 @@ describe('GetUnapprovedTransactionsTool', () => {
 
       const result = await tool.execute(input);
 
+      expect(result).toHaveProperty('isError', true);
       expect(result.content[0].text).toBe('Error getting unapproved transactions: API Error: Budget not found');
     });
 
@@ -296,6 +299,7 @@ describe('GetUnapprovedTransactionsTool', () => {
 
       const result = await tool.execute(input);
 
+      expect(result).toHaveProperty('isError', true);
       expect(result.content[0].text).toBe('Error getting unapproved transactions: {"message":"Custom error object","code":500}');
     });
 
@@ -324,6 +328,7 @@ describe('GetUnapprovedTransactionsTool', () => {
 
       const input = {
         budgetId: 'test-budget-id',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
@@ -332,7 +337,7 @@ describe('GetUnapprovedTransactionsTool', () => {
       expect(parsedResult.transactions[0]).toEqual({
         id: 'transaction-1',
         date: '2023-01-01',
-        amount: '-25.00',
+        amount: -25,
         memo: null,
         approved: false,
         account_name: 'Test Account',
@@ -370,19 +375,20 @@ describe('GetUnapprovedTransactionsTool', () => {
 
       const input = {
         budgetId: 'test-budget-id',
+        response_format: 'json' as const,
       };
 
       const result = await tool.execute(input);
 
       const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult.transactions[0].amount).toBe('0.00');
+      expect(parsedResult.transactions[0].amount).toBe(0);
     });
   });
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       const toolDef = tool.getToolDefinition();
-      expect(toolDef.name).toBe('get_unapproved_transactions');
+      expect(toolDef.name).toBe('ynab_get_unapproved_transactions');
       expect(toolDef.description).toBe(
         'Gets unapproved transactions from a budget. First time pulls last 3 days, subsequent pulls use server knowledge to get only changes.'
       );

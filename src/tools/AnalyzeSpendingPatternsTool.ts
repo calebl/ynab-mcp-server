@@ -1,11 +1,13 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { truncateResponse, CHARACTER_LIMIT, getBudgetId, milliUnitsToAmount, formatCurrency } from "../utils/commonUtils.js";
 
 interface AnalyzeSpendingPatternsInput {
   budgetId?: string;
   months?: number;
   categoryId?: string;
   includeInsights?: boolean;
+  response_format?: "json" | "markdown";
 }
 
 interface SpendingPattern {
@@ -59,7 +61,7 @@ export default class AnalyzeSpendingPatternsTool {
 
   getToolDefinition(): Tool {
     return {
-      name: "analyze_spending_patterns",
+      name: "ynab_analyze_spending_patterns",
       description: "Analyze spending patterns across categories to detect trends, anomalies, and provide insights about spending behavior over time.",
       inputSchema: {
         type: "object",
@@ -82,29 +84,29 @@ export default class AnalyzeSpendingPatternsTool {
             default: true,
             description: "Whether to include AI-generated insights and recommendations",
           },
+          response_format: {
+            type: "string",
+            enum: ["json", "markdown"],
+            description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
+          },
         },
-        required: [],
+        additionalProperties: false,
+      },
+      annotations: {
+        title: "Analyze Spending Patterns",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     };
   }
 
   async execute(input: AnalyzeSpendingPatternsInput) {
-    const budgetId = input.budgetId || this.budgetId;
-    if (!budgetId) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable. Use the ListBudgets tool to get a list of available budgets.",
-          },
-        ],
-      };
-    }
-
-    const monthsToAnalyze = Math.min(input.months || 6, 12);
-    const includeInsights = input.includeInsights !== false;
-
     try {
+      const budgetId = getBudgetId(input.budgetId || this.budgetId);
+      const monthsToAnalyze = Math.min(input.months || 6, 12);
+      const includeInsights = input.includeInsights !== false;
       console.error(`Analyzing spending patterns for budget ${budgetId} over ${monthsToAnalyze} months`);
       
       // Get categories
@@ -212,14 +214,14 @@ export default class AnalyzeSpendingPatternsTool {
           spendingPatterns.push({
             category_id: category.id,
             category_name: category.name,
-            average_monthly_spending: Math.round(averageSpending / 1000 * 100) / 100,
+            average_monthly_spending: Math.round(milliUnitsToAmount(averageSpending) * 100) / 100,
             spending_trend: trend,
             trend_percentage: Math.round(trendPercentage * 100) / 100,
             months_analyzed: monthsWithData,
-            total_spent: Math.round(totalSpent / 1000 * 100) / 100,
-            highest_month: Math.round(highestMonth / 1000 * 100) / 100,
-            lowest_month: Math.round(lowestMonth / 1000 * 100) / 100,
-            variance: Math.round(variance / 1000 * 100) / 100,
+            total_spent: Math.round(milliUnitsToAmount(totalSpent) * 100) / 100,
+            highest_month: Math.round(milliUnitsToAmount(highestMonth) * 100) / 100,
+            lowest_month: Math.round(milliUnitsToAmount(lowestMonth) * 100) / 100,
+            variance: Math.round(milliUnitsToAmount(variance) * 100) / 100,
           });
 
           // Generate insights if requested
@@ -229,7 +231,7 @@ export default class AnalyzeSpendingPatternsTool {
               insights.push({
                 type: 'anomaly',
                 category: category.name,
-                message: `High spending spike detected: $${(highestMonth / 1000).toFixed(2)} in one month (avg: $${(averageSpending / 1000).toFixed(2)})`,
+                message: `High spending spike detected: ${formatCurrency(milliUnitsToAmount(highestMonth))} in one month (avg: ${formatCurrency(milliUnitsToAmount(averageSpending))})`,
                 severity: 'high',
                 data: { highest_month: highestMonth, average: averageSpending }
               });
@@ -295,11 +297,22 @@ export default class AnalyzeSpendingPatternsTool {
         note: "All amounts are in dollars. Positive trend_percentage indicates increasing spending, negative indicates decreasing spending. Analysis based on actual transaction data from YNAB.",
       };
 
+      const format = input.response_format || "markdown";
+      let responseText: string;
+
+      if (format === "json") {
+        responseText = JSON.stringify(result, null, 2);
+      } else {
+        responseText = this.formatMarkdown(result);
+      }
+
+      const { text, wasTruncated } = truncateResponse(responseText, CHARACTER_LIMIT);
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(result, null, 2),
+            text,
           },
         ],
       };
@@ -307,6 +320,7 @@ export default class AnalyzeSpendingPatternsTool {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {
+        isError: true,
         content: [
           {
             type: "text",
@@ -315,5 +329,44 @@ export default class AnalyzeSpendingPatternsTool {
         ],
       };
     }
+  }
+
+  private formatMarkdown(result: AnalyzeSpendingPatternsResult): string {
+    let output = "# Spending Patterns Analysis\n\n";
+
+    output += "## Summary\n";
+    output += `- **Analysis Period**: ${result.analysis_period}\n`;
+    output += `- **Categories Analyzed**: ${result.total_categories_analyzed}\n`;
+    output += `- **Total Spending**: ${formatCurrency(result.summary.total_spending)}\n`;
+    output += `- **Average Monthly Spending**: ${formatCurrency(result.summary.average_monthly_spending)}\n`;
+    output += `- **Most Volatile Category**: ${result.summary.most_volatile_category}\n`;
+    output += `- **Fastest Growing Category**: ${result.summary.fastest_growing_category}\n`;
+    output += `- **Most Stable Category**: ${result.summary.most_stable_category}\n\n`;
+
+    if (result.spending_patterns.length > 0) {
+      output += "## Spending Patterns by Category\n\n";
+      for (const pattern of result.spending_patterns) {
+        output += `### ${pattern.category_name}\n`;
+        output += `- **Total Spent**: ${formatCurrency(pattern.total_spent)}\n`;
+        output += `- **Average Monthly**: ${formatCurrency(pattern.average_monthly_spending)}\n`;
+        output += `- **Trend**: ${pattern.spending_trend} (${pattern.trend_percentage > 0 ? '+' : ''}${pattern.trend_percentage.toFixed(1)}%)\n`;
+        output += `- **Highest Month**: ${formatCurrency(pattern.highest_month)}\n`;
+        output += `- **Lowest Month**: ${formatCurrency(pattern.lowest_month)}\n`;
+        output += `- **Variance**: ${formatCurrency(pattern.variance)}\n`;
+        output += `- **Months Analyzed**: ${pattern.months_analyzed}\n\n`;
+      }
+    }
+
+    if (result.insights.length > 0) {
+      output += "## Insights\n\n";
+      for (const insight of result.insights) {
+        const emoji = insight.type === 'anomaly' ? '⚠️' : insight.type === 'trend' ? '📈' : '💡';
+        output += `${emoji} **${insight.category}** (${insight.severity}): ${insight.message}\n\n`;
+      }
+    }
+
+    output += `## Note\n${result.note}\n`;
+
+    return output;
   }
 }
