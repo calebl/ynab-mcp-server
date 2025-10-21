@@ -10,6 +10,7 @@ import {
   formatCurrency,
   formatDate
 } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface HandleOverspendingInput {
   budgetId?: string;
@@ -103,7 +104,10 @@ class HandleOverspendingTool {
       console.log(`Handling overspending for budget ${budgetId}, month ${month}`);
 
       // Get current month budget data
-      const monthResponse = await this.api.months.getBudgetMonth(budgetId, month);
+      const monthResponse = await createRetryableAPICall(
+        () => this.api.months.getBudgetMonth(budgetId, month),
+        'Get budget month for overspending'
+      );
       const monthData = monthResponse.data.month;
       
       // Get all categories for the month
@@ -340,7 +344,10 @@ class HandleOverspendingTool {
         console.log(`Executing move: ${suggestion.fromCategoryName} -> ${suggestion.toCategoryName} (${formatCurrency(milliUnitsToAmount(suggestion.amount))})`);
 
         // Get current month data to get current budgeted amounts
-        const monthResponse = await this.api.months.getBudgetMonth(budgetId, month);
+        const monthResponse = await createRetryableAPICall(
+          () => this.api.months.getBudgetMonth(budgetId, month),
+          'Get budget month for move execution'
+        );
         const monthData = monthResponse.data.month;
         
         const fromCategory = monthData.categories.find(cat => cat.id === suggestion.fromCategoryId);
@@ -361,17 +368,23 @@ class HandleOverspendingTool {
             budgeted: toNewBudgeted
           }
         };
-        
-        await this.api.categories.updateMonthCategory(budgetId, month, suggestion.toCategoryId, toUpdateData);
-        
+
+        await createRetryableAPICall(
+          () => this.api.categories.updateMonthCategory(budgetId, month, suggestion.toCategoryId, toUpdateData),
+          'Update to category'
+        );
+
         // Update the from category (debit) after successful credit
         const fromUpdateData: ynab.PatchMonthCategoryWrapper = {
           category: {
             budgeted: fromNewBudgeted
           }
         };
-        
-        await this.api.categories.updateMonthCategory(budgetId, month, suggestion.fromCategoryId, fromUpdateData);
+
+        await createRetryableAPICall(
+          () => this.api.categories.updateMonthCategory(budgetId, month, suggestion.fromCategoryId, fromUpdateData),
+          'Update from category'
+        );
         
         executedMoves.push({
           fromCategory: suggestion.fromCategoryName,

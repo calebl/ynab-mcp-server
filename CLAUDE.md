@@ -202,11 +202,12 @@ export default NewTool;
 - Use `getBudgetId()` utility which throws descriptive errors for missing budget IDs
 
 ### Testing
-- Tests run with Vitest (69 tests currently passing)
+- Tests run with Vitest (274 tests, 251 passing - 91.6% pass rate)
 - Test files follow pattern: `**/*.{test,spec}.{ts,js}`
 - Coverage reports available via `npm run test:coverage`
 - Tests should be put into the `src/tests` folder
-- All tests updated to work with new MCP SDK content array format
+- All 17 tools have test coverage
+- Test files: 17 total (12 fully passing, 5 with partial failures in complex tools)
 - When any code is modified, update the test coverage to account for the change
 
 ### TypeScript Configuration
@@ -250,9 +251,11 @@ This server follows all MCP best practices:
 - ✅ **Type Safety**: Proper TypeScript types throughout (with documented `as any` usage in MCP handler)
 
 ## Project Status
-- **Version**: 0.1.2
+- **Version**: 0.1.3
 - **Status**: Production ready with 17 comprehensive tools
 - **Framework**: Official @modelcontextprotocol/sdk v1.20.1
-- **Test Coverage**: 69 tests passing across 5 test files
+- **Test Coverage**: 274 tests (251 passing, 91.6% pass rate) across 17 test files
 - **MCP Compliance**: Fully compliant with MCP best practices
+- **Pagination**: Supported on 6 list-type tools
+- **Error Handling**: apiErrorHandler with retry logic on all 17 tools
 - **Architecture**: Manual tool registration with proper MCP protocol handling

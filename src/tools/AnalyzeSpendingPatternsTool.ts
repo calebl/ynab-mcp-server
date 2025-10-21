@@ -1,6 +1,7 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { truncateResponse, CHARACTER_LIMIT, getBudgetId, milliUnitsToAmount, formatCurrency } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface AnalyzeSpendingPatternsInput {
   budgetId?: string;
@@ -8,6 +9,8 @@ interface AnalyzeSpendingPatternsInput {
   categoryId?: string;
   includeInsights?: boolean;
   response_format?: "json" | "markdown";
+  limit?: number;
+  offset?: number;
 }
 
 interface SpendingPattern {
@@ -42,6 +45,14 @@ interface AnalyzeSpendingPatternsResult {
     most_volatile_category: string;
     fastest_growing_category: string;
     most_stable_category: string;
+  };
+  pagination: {
+    total: number;
+    count: number;
+    offset: number;
+    limit: number;
+    has_more: boolean;
+    next_offset: number | null;
   };
   note: string;
 }
@@ -89,6 +100,16 @@ export default class AnalyzeSpendingPatternsTool {
             enum: ["json", "markdown"],
             description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
           },
+          limit: {
+            type: "number",
+            default: 50,
+            description: "Maximum number of spending patterns to return (default: 50, max: 100)",
+          },
+          offset: {
+            type: "number",
+            default: 0,
+            description: "Number of spending patterns to skip (default: 0)",
+          },
         },
         additionalProperties: false,
       },
@@ -110,11 +131,14 @@ export default class AnalyzeSpendingPatternsTool {
       console.error(`Analyzing spending patterns for budget ${budgetId} over ${monthsToAnalyze} months`);
       
       // Get categories
-      const categoriesResponse = await this.api.categories.getCategories(budgetId);
+      const categoriesResponse = await createRetryableAPICall(
+        () => this.api.categories.getCategories(budgetId),
+        'Get categories for spending analysis'
+      );
       const categories = categoriesResponse.data.category_groups
         .flatMap(group => group.categories)
-        .filter(category => 
-          category.deleted === false && 
+        .filter(category =>
+          category.deleted === false &&
           category.hidden === false &&
           !category.name.includes("Inflow:") &&
           category.name !== "Uncategorized"
@@ -148,10 +172,13 @@ export default class AnalyzeSpendingPatternsTool {
       for (const category of targetCategories) {
         try {
           // Get transactions for this category
-          const transactionsResponse = await this.api.transactions.getTransactionsByCategory(
-            budgetId,
-            category.id,
-            startDate.toISOString().split('T')[0]
+          const transactionsResponse = await createRetryableAPICall(
+            () => this.api.transactions.getTransactionsByCategory(
+              budgetId,
+              category.id,
+              startDate.toISOString().split('T')[0]
+            ),
+            `Get transactions for category ${category.name}`
           );
 
           const transactions = transactionsResponse.data.transactions.filter(
@@ -269,23 +296,31 @@ export default class AnalyzeSpendingPatternsTool {
       // Sort patterns by total spending
       spendingPatterns.sort((a, b) => b.total_spent - a.total_spent);
 
-      // Calculate summary statistics
+      // Apply pagination
+      const limit = Math.min(input.limit || 50, 100);
+      const offset = input.offset || 0;
+      const total = spendingPatterns.length;
+      const paginatedPatterns = spendingPatterns.slice(offset, offset + limit);
+      const hasMore = offset + limit < total;
+      const nextOffset = hasMore ? offset + limit : null;
+
+      // Calculate summary statistics (based on all patterns, not just paginated)
       const totalSpending = spendingPatterns.reduce((sum, pattern) => sum + pattern.total_spent, 0);
       const averageMonthlySpending = spendingPatterns.reduce((sum, pattern) => sum + pattern.average_monthly_spending, 0);
-      
-      const mostVolatileCategory = spendingPatterns.reduce((max, pattern) => 
+
+      const mostVolatileCategory = spendingPatterns.reduce((max, pattern) =>
         pattern.variance > max.variance ? pattern : max, spendingPatterns[0] || { variance: 0, category_name: 'None' });
-      
-      const fastestGrowingCategory = spendingPatterns.reduce((max, pattern) => 
+
+      const fastestGrowingCategory = spendingPatterns.reduce((max, pattern) =>
         pattern.trend_percentage > max.trend_percentage ? pattern : max, spendingPatterns[0] || { trend_percentage: 0, category_name: 'None' });
-      
-      const mostStableCategory = spendingPatterns.reduce((min, pattern) => 
+
+      const mostStableCategory = spendingPatterns.reduce((min, pattern) =>
         Math.abs(pattern.trend_percentage) < Math.abs(min.trend_percentage) ? pattern : min, spendingPatterns[0] || { trend_percentage: 100, category_name: 'None' });
 
       const result: AnalyzeSpendingPatternsResult = {
         analysis_period: `${monthsToAnalyze} months ending ${endDate.toISOString().split('T')[0]}`,
-        total_categories_analyzed: spendingPatterns.length,
-        spending_patterns: spendingPatterns,
+        total_categories_analyzed: total,
+        spending_patterns: paginatedPatterns,
         insights: insights,
         summary: {
           total_spending: Math.round(totalSpending * 100) / 100,
@@ -293,6 +328,14 @@ export default class AnalyzeSpendingPatternsTool {
           most_volatile_category: mostVolatileCategory.category_name,
           fastest_growing_category: fastestGrowingCategory.category_name,
           most_stable_category: mostStableCategory.category_name,
+        },
+        pagination: {
+          total,
+          count: paginatedPatterns.length,
+          offset,
+          limit,
+          has_more: hasMore,
+          next_offset: nextOffset,
         },
         note: "All amounts are in dollars. Positive trend_percentage indicates increasing spending, negative indicates decreasing spending. Analysis based on actual transaction data from YNAB.",
       };
@@ -336,7 +379,8 @@ export default class AnalyzeSpendingPatternsTool {
 
     output += "## Summary\n";
     output += `- **Analysis Period**: ${result.analysis_period}\n`;
-    output += `- **Categories Analyzed**: ${result.total_categories_analyzed}\n`;
+    output += `- **Categories Analyzed (Total)**: ${result.total_categories_analyzed}\n`;
+    output += `- **Showing**: ${result.pagination.count} categories (offset: ${result.pagination.offset}, limit: ${result.pagination.limit})\n`;
     output += `- **Total Spending**: ${formatCurrency(result.summary.total_spending)}\n`;
     output += `- **Average Monthly Spending**: ${formatCurrency(result.summary.average_monthly_spending)}\n`;
     output += `- **Most Volatile Category**: ${result.summary.most_volatile_category}\n`;
@@ -364,6 +408,19 @@ export default class AnalyzeSpendingPatternsTool {
         output += `${emoji} **${insight.category}** (${insight.severity}): ${insight.message}\n\n`;
       }
     }
+
+    // Add pagination info
+    output += "---\n\n";
+    output += "## Pagination\n";
+    output += `- **Total**: ${result.pagination.total}\n`;
+    output += `- **Count**: ${result.pagination.count}\n`;
+    output += `- **Offset**: ${result.pagination.offset}\n`;
+    output += `- **Limit**: ${result.pagination.limit}\n`;
+    output += `- **Has More**: ${result.pagination.has_more}\n`;
+    if (result.pagination.next_offset !== null) {
+      output += `- **Next Offset**: ${result.pagination.next_offset}\n`;
+    }
+    output += "\n";
 
     output += `## Note\n${result.note}\n`;
 

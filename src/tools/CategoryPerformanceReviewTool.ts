@@ -8,6 +8,7 @@ import {
   milliUnitsToAmount,
   formatCurrency
 } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface CategoryPerformanceReviewInput {
   budgetId?: string;
@@ -15,6 +16,8 @@ interface CategoryPerformanceReviewInput {
   includeInsights?: boolean;
   performanceThreshold?: number;
   response_format?: "json" | "markdown";
+  limit?: number;
+  offset?: number;
 }
 
 interface CategoryPerformance {
@@ -52,6 +55,14 @@ interface CategoryPerformanceReviewResult {
     most_overspent_category: string;
     most_underspent_category: string;
     categories_needing_attention: number;
+  };
+  pagination: {
+    total: number;
+    count: number;
+    offset: number;
+    limit: number;
+    has_more: boolean;
+    next_offset: number | null;
   };
   note: string;
 }
@@ -100,6 +111,16 @@ export default class CategoryPerformanceReviewTool {
             enum: ["json", "markdown"],
             description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
           },
+          limit: {
+            type: "number",
+            default: 50,
+            description: "Maximum number of category performance items to return (default: 50, max: 100)",
+          },
+          offset: {
+            type: "number",
+            default: 0,
+            description: "Number of category performance items to skip (default: 0)",
+          },
         },
         required: [],
         additionalProperties: false,
@@ -133,11 +154,14 @@ export default class CategoryPerformanceReviewTool {
       const insights: PerformanceInsight[] = [];
 
       // Get current categories for reference
-      const categoriesResponse = await this.api.categories.getCategories(budgetId);
+      const categoriesResponse = await createRetryableAPICall(
+        () => this.api.categories.getCategories(budgetId),
+        'Get categories for performance review'
+      );
       const allCategories = categoriesResponse.data.category_groups
         .flatMap(group => group.categories)
-        .filter(category => 
-          category.deleted === false && 
+        .filter(category =>
+          category.deleted === false &&
           category.hidden === false &&
           !category.name.includes("Inflow:") &&
           category.name !== "Uncategorized" &&
@@ -170,7 +194,10 @@ export default class CategoryPerformanceReviewTool {
             const monthKey = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-01`;
 
             try {
-              const monthBudget = await this.api.months.getBudgetMonth(budgetId, monthKey);
+              const monthBudget = await createRetryableAPICall(
+                () => this.api.months.getBudgetMonth(budgetId, monthKey),
+                `Get budget month ${monthKey}`
+              );
               const monthCategory = monthBudget.data.month.categories.find(
                 cat => cat.id === category.id
               );
@@ -376,27 +403,35 @@ export default class CategoryPerformanceReviewTool {
       // Sort by performance score (best first)
       categoryPerformance.sort((a, b) => b.performance_score - a.performance_score);
 
-      // Calculate summary statistics
-      const averagePerformanceScore = categoryPerformance.length > 0 ? 
+      // Apply pagination
+      const limit = Math.min(input.limit || 50, 100);
+      const offset = input.offset || 0;
+      const total = categoryPerformance.length;
+      const paginatedCategoryPerformance = categoryPerformance.slice(offset, offset + limit);
+      const hasMore = offset + limit < total;
+      const nextOffset = hasMore ? offset + limit : null;
+
+      // Calculate summary statistics (based on all categories, not just paginated)
+      const averagePerformanceScore = categoryPerformance.length > 0 ?
         categoryPerformance.reduce((sum, cat) => sum + cat.performance_score, 0) / categoryPerformance.length : 0;
-      
+
       const bestPerformingCategory = categoryPerformance[0]?.category_name || 'None';
       const worstPerformingCategory = categoryPerformance[categoryPerformance.length - 1]?.category_name || 'None';
-      
-      const mostOverspentCategory = categoryPerformance.reduce((max, cat) => 
-        cat.overspend_frequency > max.overspend_frequency ? cat : max, 
+
+      const mostOverspentCategory = categoryPerformance.reduce((max, cat) =>
+        cat.overspend_frequency > max.overspend_frequency ? cat : max,
         categoryPerformance[0] || { overspend_frequency: 0, category_name: 'None' });
-      
-      const mostUnderspentCategory = categoryPerformance.reduce((max, cat) => 
-        cat.underspend_frequency > max.underspend_frequency ? cat : max, 
+
+      const mostUnderspentCategory = categoryPerformance.reduce((max, cat) =>
+        cat.underspend_frequency > max.underspend_frequency ? cat : max,
         categoryPerformance[0] || { underspend_frequency: 0, category_name: 'None' });
-      
+
       const categoriesNeedingAttention = categoryPerformance.filter(cat => cat.performance_rating === 'poor').length;
 
       const result: CategoryPerformanceReviewResult = {
         review_period: `${monthsToAnalyze} months ending ${currentDate.toISOString().substring(0, 7)}`,
-        total_categories_reviewed: categoryPerformance.length,
-        category_performance: categoryPerformance,
+        total_categories_reviewed: total,
+        category_performance: paginatedCategoryPerformance,
         insights: insights,
         summary: {
           average_performance_score: Math.round(averagePerformanceScore * 100) / 100,
@@ -405,6 +440,14 @@ export default class CategoryPerformanceReviewTool {
           most_overspent_category: mostOverspentCategory.category_name,
           most_underspent_category: mostUnderspentCategory.category_name,
           categories_needing_attention: categoriesNeedingAttention,
+        },
+        pagination: {
+          total,
+          count: paginatedCategoryPerformance.length,
+          offset,
+          limit,
+          has_more: hasMore,
+          next_offset: nextOffset,
         },
         note: "All amounts are in dollars. Performance score (0-100) based on budget adherence, utilization, and consistency. Budget utilization = average spent / average budgeted. Overspend frequency = percentage of months over budget.",
       };
@@ -451,6 +494,7 @@ export default class CategoryPerformanceReviewTool {
 
     output += `## Summary\n`;
     output += `- **Total Categories Reviewed**: ${result.total_categories_reviewed}\n`;
+    output += `- **Showing**: ${result.pagination.count} categories (offset: ${result.pagination.offset}, limit: ${result.pagination.limit})\n`;
     output += `- **Average Performance Score**: ${result.summary.average_performance_score}/100\n`;
     output += `- **Best Performing Category**: ${result.summary.best_performing_category}\n`;
     output += `- **Worst Performing Category**: ${result.summary.worst_performing_category}\n`;
@@ -531,6 +575,19 @@ export default class CategoryPerformanceReviewTool {
       }
       output += "\n";
     }
+
+    // Add pagination info
+    output += `---\n\n`;
+    output += "## Pagination\n";
+    output += `- **Total**: ${result.pagination.total}\n`;
+    output += `- **Count**: ${result.pagination.count}\n`;
+    output += `- **Offset**: ${result.pagination.offset}\n`;
+    output += `- **Limit**: ${result.pagination.limit}\n`;
+    output += `- **Has More**: ${result.pagination.has_more}\n`;
+    if (result.pagination.next_offset !== null) {
+      output += `- **Next Offset**: ${result.pagination.next_offset}\n`;
+    }
+    output += "\n";
 
     output += `---\n\n`;
     output += `${result.note}\n`;

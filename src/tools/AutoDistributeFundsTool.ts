@@ -10,6 +10,7 @@ import {
   formatCurrency,
   formatDate
 } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface AutoDistributeFundsInput {
   budgetId?: string;
@@ -99,7 +100,10 @@ class AutoDistributeFundsTool {
       console.log(`Auto-distributing funds for budget ${budgetId}, month ${month}`);
 
       // Get current month budget data
-      const monthResponse = await this.api.months.getBudgetMonth(budgetId, month);
+      const monthResponse = await createRetryableAPICall(
+        () => this.api.months.getBudgetMonth(budgetId, month),
+        'Get budget month for auto distribute'
+      );
       const monthData = monthResponse.data.month;
       
       // Check available funds
@@ -401,7 +405,10 @@ class AutoDistributeFundsTool {
         console.log(`Distributing ${formatCurrency(milliUnitsToAmount(item.proposedAmount))} to ${item.categoryName} (${item.reason})`);
 
         // Get current month data to get current budgeted amounts
-        const monthResponse = await this.api.months.getBudgetMonth(budgetId, month);
+        const monthResponse = await createRetryableAPICall(
+          () => this.api.months.getBudgetMonth(budgetId, month),
+          'Get budget month for distribution'
+        );
         const monthData = monthResponse.data.month;
         
         const category = monthData.categories.find(cat => cat.id === item.categoryId);
@@ -419,8 +426,11 @@ class AutoDistributeFundsTool {
             budgeted: newBudgeted
           }
         };
-        
-        await this.api.categories.updateMonthCategory(budgetId, month, item.categoryId, updateData);
+
+        await createRetryableAPICall(
+          () => this.api.categories.updateMonthCategory(budgetId, month, item.categoryId, updateData),
+          'Update category budget'
+        );
         
         executedDistributions.push({
           category: item.categoryName,

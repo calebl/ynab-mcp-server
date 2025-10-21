@@ -9,6 +9,7 @@ import {
   milliUnitsToAmount,
   formatCurrency,
 } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface MoveFundsBetweenCategoriesInput {
   budgetId?: string;
@@ -130,7 +131,10 @@ class MoveFundsBetweenCategoriesTool {
 
       // Get current month budget data
       const month = normalizeMonth(input.month);
-      const monthResponse = await this.api.months.getBudgetMonth(budgetId, month);
+      const monthResponse = await createRetryableAPICall(
+        () => this.api.months.getBudgetMonth(budgetId, month),
+        'Get budget month for move funds'
+      );
       const monthData = monthResponse.data.month;
       
       // Get all categories for the month
@@ -393,7 +397,10 @@ class MoveFundsBetweenCategoriesTool {
     console.log(`Moving ${formatCurrency(milliUnitsToAmount(amountMilliunits))} from category ${fromCategoryId} to ${toCategoryId} in month ${month}`);
 
     // Get current month data to get current budgeted amounts
-    const monthResponse = await this.api.months.getBudgetMonth(budgetId, month);
+    const monthResponse = await createRetryableAPICall(
+      () => this.api.months.getBudgetMonth(budgetId, month),
+      'Get budget month for execute move'
+    );
     const monthData = monthResponse.data.month;
 
     const fromCategory = monthData.categories.find(cat => cat.id === fromCategoryId);
@@ -415,7 +422,10 @@ class MoveFundsBetweenCategoriesTool {
       }
     };
 
-    await this.api.categories.updateMonthCategory(budgetId, month, toCategoryId, toUpdateData);
+    await createRetryableAPICall(
+      () => this.api.categories.updateMonthCategory(budgetId, month, toCategoryId, toUpdateData),
+      'Update to category for move'
+    );
 
     // Update the from category (debit) after successful credit
     const fromUpdateData: ynab.PatchMonthCategoryWrapper = {
@@ -424,7 +434,10 @@ class MoveFundsBetweenCategoriesTool {
       }
     };
 
-    await this.api.categories.updateMonthCategory(budgetId, month, fromCategoryId, fromUpdateData);
+    await createRetryableAPICall(
+      () => this.api.categories.updateMonthCategory(budgetId, month, fromCategoryId, fromUpdateData),
+      'Update from category for move'
+    );
 
     console.log(`Successfully moved ${formatCurrency(milliUnitsToAmount(amountMilliunits))} from ${fromCategory.name} to ${toCategory.name}`);
   }

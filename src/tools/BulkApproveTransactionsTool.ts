@@ -9,6 +9,7 @@ import {
   milliUnitsToAmount,
   formatCurrency,
 } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface BulkApproveTransactionsInput {
   budgetId?: string;
@@ -24,6 +25,8 @@ interface BulkApproveTransactionsInput {
   };
   dryRun?: boolean;
   response_format?: "json" | "markdown";
+  limit?: number;
+  offset?: number;
 }
 
 interface TransactionFilter {
@@ -106,6 +109,16 @@ class BulkApproveTransactionsTool {
             enum: ["json", "markdown"],
             description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
           },
+          limit: {
+            type: "number",
+            default: 50,
+            description: "Maximum number of transactions to return (default: 50, max: 100)",
+          },
+          offset: {
+            type: "number",
+            default: 0,
+            description: "Number of transactions to skip (default: 0)",
+          },
         },
         additionalProperties: false,
       },
@@ -126,23 +139,32 @@ class BulkApproveTransactionsTool {
       console.log(`Bulk approving transactions for budget ${budgetId}`);
 
       // Get all transactions for the budget
-      const transactionsResponse = await this.api.transactions.getTransactions(budgetId);
+      const transactionsResponse = await createRetryableAPICall(
+        () => this.api.transactions.getTransactions(budgetId),
+        'Get transactions for bulk approve'
+      );
       const allTransactions = transactionsResponse.data.transactions.filter(t => !t.deleted);
-      
+
       // Get accounts and categories for name resolution
-      const accountsResponse = await this.api.accounts.getAccounts(budgetId);
+      const accountsResponse = await createRetryableAPICall(
+        () => this.api.accounts.getAccounts(budgetId),
+        'Get accounts for bulk approve'
+      );
       const accounts = accountsResponse.data.accounts;
-      
-      const categoriesResponse = await this.api.categories.getCategories(budgetId);
+
+      const categoriesResponse = await createRetryableAPICall(
+        () => this.api.categories.getCategories(budgetId),
+        'Get categories for bulk approve'
+      );
       const categories = categoriesResponse.data.category_groups.flatMap(group => group.categories);
 
       // Filter transactions based on criteria
       const filteredTransactions = this.filterTransactions(allTransactions, accounts, categories, input.filters || {});
-      
-      // Filter to only unapproved transactions
-      const unapprovedTransactions = filteredTransactions.filter(t => !t.approved);
 
-      if (unapprovedTransactions.length === 0) {
+      // Filter to only unapproved transactions
+      const allUnapprovedTransactions = filteredTransactions.filter(t => !t.approved);
+
+      if (allUnapprovedTransactions.length === 0) {
         return {
           isError: false,
           content: [
@@ -154,29 +176,45 @@ class BulkApproveTransactionsTool {
         };
       }
 
-      // Execute approval if not dry run
+      // Apply pagination
+      const limit = Math.min(input.limit || 50, 100);
+      const offset = input.offset || 0;
+      const total = allUnapprovedTransactions.length;
+      const paginatedUnapprovedTransactions = allUnapprovedTransactions.slice(offset, offset + limit);
+      const hasMore = offset + limit < total;
+      const nextOffset = hasMore ? offset + limit : null;
+
+      // Execute approval if not dry run (only on paginated results)
       let approvedTransactions: any[] = [];
       if (!input.dryRun) {
-        approvedTransactions = await this.approveTransactions(budgetId, unapprovedTransactions);
+        approvedTransactions = await this.approveTransactions(budgetId, paginatedUnapprovedTransactions);
       }
 
       // Calculate totals
-      const totalAmount = unapprovedTransactions.reduce((sum, t) => sum + t.amount, 0);
-      const totalCount = unapprovedTransactions.length;
+      const totalAmount = paginatedUnapprovedTransactions.reduce((sum, t) => sum + t.amount, 0);
+      const totalCount = paginatedUnapprovedTransactions.length;
 
       const result = {
         budgetId: budgetId,
         totalTransactionsChecked: allTransactions.length,
         matchingTransactions: filteredTransactions.length,
-        unapprovedTransactions: unapprovedTransactions.length,
+        unapprovedTransactions: total,
         totalAmount: milliUnitsToAmount(totalAmount),
         filters: input.filters || {},
-        transactions: optimizeTransactions(unapprovedTransactions.map(t => ({
+        transactions: optimizeTransactions(paginatedUnapprovedTransactions.map(t => ({
           ...t,
           account_name: accounts.find(a => a.id === t.account_id)?.name || "Unknown"
         })), { includeDetails: true }),
         approvedTransactions: approvedTransactions,
-        dryRun: input.dryRun || false
+        dryRun: input.dryRun || false,
+        pagination: {
+          total,
+          count: paginatedUnapprovedTransactions.length,
+          offset,
+          limit,
+          has_more: hasMore,
+          next_offset: nextOffset,
+        },
       };
 
       const format = input.response_format || "markdown";
@@ -219,8 +257,9 @@ class BulkApproveTransactionsTool {
     output += `## Summary\n\n`;
     output += `- **Total Transactions Checked:** ${result.totalTransactionsChecked}\n`;
     output += `- **Matching Transactions:** ${result.matchingTransactions}\n`;
-    output += `- **Unapproved Transactions:** ${result.unapprovedTransactions}\n`;
-    output += `- **Total Amount:** ${formatCurrency(result.totalAmount)}\n`;
+    output += `- **Unapproved Transactions (Total):** ${result.unapprovedTransactions}\n`;
+    output += `- **Showing:** ${result.pagination.count} transactions (offset: ${result.pagination.offset}, limit: ${result.pagination.limit})\n`;
+    output += `- **Total Amount (Current Page):** ${formatCurrency(result.totalAmount)}\n`;
 
     if (result.dryRun) {
       output += `\n*This was a dry run - no actual changes were made.*\n`;
@@ -259,6 +298,18 @@ class BulkApproveTransactionsTool {
       if (transactions.length > 20) {
         output += `\n*... and ${transactions.length - 20} more transactions*\n`;
       }
+    }
+
+    // Add pagination info
+    output += "\n---\n\n";
+    output += "## Pagination\n";
+    output += `- **Total**: ${result.pagination.total}\n`;
+    output += `- **Count**: ${result.pagination.count}\n`;
+    output += `- **Offset**: ${result.pagination.offset}\n`;
+    output += `- **Limit**: ${result.pagination.limit}\n`;
+    output += `- **Has More**: ${result.pagination.has_more}\n`;
+    if (result.pagination.next_offset !== null) {
+      output += `- **Next Offset**: ${result.pagination.next_offset}\n`;
     }
 
     return output;
@@ -363,7 +414,10 @@ class BulkApproveTransactionsTool {
           }
         };
 
-        await this.api.transactions.updateTransaction(budgetId, transaction.id, updateData);
+        await createRetryableAPICall(
+          () => this.api.transactions.updateTransaction(budgetId, transaction.id, updateData),
+          'Update transaction for bulk approve'
+        );
 
         approvedTransactions.push({
           id: transaction.id,

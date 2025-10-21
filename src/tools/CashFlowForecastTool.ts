@@ -1,6 +1,7 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { truncateResponse, CHARACTER_LIMIT, getBudgetId, milliUnitsToAmount, formatCurrency } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface CashFlowForecastInput {
   budgetId?: string;
@@ -8,6 +9,8 @@ interface CashFlowForecastInput {
   accountId?: string;
   includeProjections?: boolean;
   response_format?: "json" | "markdown";
+  limit?: number;
+  offset?: number;
 }
 
 interface CashFlowProjection {
@@ -45,6 +48,14 @@ interface CashFlowForecastResult {
     net_cash_flow_total: number;
     months_until_negative: number | null;
     months_until_goal: number | null;
+  };
+  pagination: {
+    total: number;
+    count: number;
+    offset: number;
+    limit: number;
+    has_more: boolean;
+    next_offset: number | null;
   };
   note: string;
 }
@@ -92,6 +103,16 @@ export default class CashFlowForecastTool {
             enum: ["json", "markdown"],
             description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
           },
+          limit: {
+            type: "number",
+            default: 50,
+            description: "Maximum number of projections to return (default: 50, max: 100)",
+          },
+          offset: {
+            type: "number",
+            default: 0,
+            description: "Number of projections to skip (default: 0)",
+          },
         },
         additionalProperties: false,
       },
@@ -113,10 +134,13 @@ export default class CashFlowForecastTool {
       console.error(`Generating cash flow forecast for budget ${budgetId} for ${monthsToForecast} months`);
       
       // Get accounts
-      const accountsResponse = await this.api.accounts.getAccounts(budgetId);
+      const accountsResponse = await createRetryableAPICall(
+        () => this.api.accounts.getAccounts(budgetId),
+        'Get accounts for cash flow forecast'
+      );
       const accounts = accountsResponse.data.accounts.filter(
-        account => 
-          account.deleted === false && 
+        account =>
+          account.deleted === false &&
           account.closed === false &&
           account.on_budget === true
       );
@@ -157,10 +181,13 @@ export default class CashFlowForecastTool {
       const startDate = new Date();
       startDate.setMonth(endDate.getMonth() - 6);
 
-      const transactionsResponse = await this.api.transactions.getTransactionsByAccount(
-        budgetId,
-        targetAccount.id,
-        startDate.toISOString().split('T')[0]
+      const transactionsResponse = await createRetryableAPICall(
+        () => this.api.transactions.getTransactionsByAccount(
+          budgetId,
+          targetAccount.id,
+          startDate.toISOString().split('T')[0]
+        ),
+        'Get transactions for cash flow forecast'
       );
 
       const transactions = transactionsResponse.data.transactions.filter(
@@ -300,12 +327,20 @@ export default class CashFlowForecastTool {
         }
       }
 
+      // Apply pagination
+      const limit = Math.min(input.limit || 50, 100);
+      const offset = input.offset || 0;
+      const total = projections.length;
+      const paginatedProjections = projections.slice(offset, offset + limit);
+      const hasMore = offset + limit < total;
+      const nextOffset = hasMore ? offset + limit : null;
+
       const result: CashFlowForecastResult = {
         forecast_period: `${monthsToForecast} months starting ${new Date().toISOString().substring(0, 7)}`,
         account_analyzed: targetAccount.name,
         current_balance: targetAccount.balance,
         current_balance_dollars: Math.round(milliUnitsToAmount(targetAccount.balance) * 100) / 100,
-        projections: projections,
+        projections: paginatedProjections,
         insights: insights,
         summary: {
           projected_balance_end: Math.round(milliUnitsToAmount(currentBalance) * 100) / 100,
@@ -314,6 +349,14 @@ export default class CashFlowForecastTool {
           net_cash_flow_total: Math.round(milliUnitsToAmount(totalIncomeProjected - totalExpensesProjected) * 100) / 100,
           months_until_negative: monthsUntilNegative,
           months_until_goal: monthsUntilGoal,
+        },
+        pagination: {
+          total,
+          count: paginatedProjections.length,
+          offset,
+          limit,
+          has_more: hasMore,
+          next_offset: nextOffset,
         },
         note: "All amounts are in dollars. Projections based on historical patterns and may not account for irregular income, large purchases, or lifestyle changes. Confidence levels reflect historical variance in income and expenses.",
       };
@@ -358,6 +401,7 @@ export default class CashFlowForecastTool {
     output += "## Summary\n";
     output += `- **Forecast Period**: ${result.forecast_period}\n`;
     output += `- **Account Analyzed**: ${result.account_analyzed}\n`;
+    output += `- **Showing**: ${result.pagination.count} projections (offset: ${result.pagination.offset}, limit: ${result.pagination.limit})\n`;
     output += `- **Current Balance**: ${formatCurrency(result.current_balance_dollars)}\n`;
     output += `- **Projected Balance (End)**: ${formatCurrency(result.summary.projected_balance_end)}\n`;
     output += `- **Total Income Projected**: ${formatCurrency(result.summary.total_income_projected)}\n`;
@@ -397,6 +441,19 @@ export default class CashFlowForecastTool {
         output += "\n";
       }
     }
+
+    // Add pagination info
+    output += "---\n\n";
+    output += "## Pagination\n";
+    output += `- **Total**: ${result.pagination.total}\n`;
+    output += `- **Count**: ${result.pagination.count}\n`;
+    output += `- **Offset**: ${result.pagination.offset}\n`;
+    output += `- **Limit**: ${result.pagination.limit}\n`;
+    output += `- **Has More**: ${result.pagination.has_more}\n`;
+    if (result.pagination.next_offset !== null) {
+      output += `- **Next Offset**: ${result.pagination.next_offset}\n`;
+    }
+    output += "\n";
 
     output += `## Note\n${result.note}\n`;
 

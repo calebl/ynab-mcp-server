@@ -259,6 +259,14 @@ describe('GetUnapprovedTransactionsTool', () => {
       expect(parsedResult).toEqual({
         transactions: [],
         transaction_count: 0,
+        pagination: {
+          total: 0,
+          count: 0,
+          offset: 0,
+          limit: 50,
+          has_more: false,
+          next_offset: null,
+        },
       });
     });
 

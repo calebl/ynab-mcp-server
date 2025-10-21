@@ -2,6 +2,7 @@ import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { optimizeCategories, optimizeAccounts, withContextOptimization } from "../utils/contextOptimizer.js";
 import { truncateResponse, CHARACTER_LIMIT, getBudgetId, milliUnitsToAmount, formatCurrency } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface BudgetSummaryInput {
   budgetId?: string;
@@ -57,16 +58,22 @@ class BudgetSummaryTool {
     try {
       const budgetId = getBudgetId(input.budgetId || this.budgetId);
       console.error(`Getting accounts and categories for budget ${budgetId} and month ${input.month}`);
-      const accountsResponse = await this.api.accounts.getAccounts(budgetId);
+      const accountsResponse = await createRetryableAPICall(
+        () => this.api.accounts.getAccounts(budgetId),
+        'Get accounts for budget summary'
+      );
       // Filter accounts: only include open, non-deleted accounts that are on-budget
       const accounts = accountsResponse.data.accounts.filter(
-        (account) => 
-          account.deleted === false && 
+        (account) =>
+          account.deleted === false &&
           account.closed === false &&
           account.on_budget === true
       );
 
-      const monthBudget = await this.api.months.getBudgetMonth(budgetId, input.month);
+      const monthBudget = await createRetryableAPICall(
+        () => this.api.months.getBudgetMonth(budgetId, input.month),
+        'Get budget month'
+      );
 
       // Filter categories: only include active, non-hidden categories
       // Also exclude internal categories like "Inflow: Ready to Assign" and "Uncategorized"

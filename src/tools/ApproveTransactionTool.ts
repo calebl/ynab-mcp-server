@@ -1,6 +1,7 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { truncateResponse, CHARACTER_LIMIT, getBudgetId } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface UpdateTransactionInput {
   budgetId?: string;
@@ -62,7 +63,10 @@ class ApproveTransactionTool {
       const budgetId = getBudgetId(input.budgetId || this.budgetId);
 
       // First, get the existing transaction to ensure we don't lose any data
-      const existingTransaction = await this.api.transactions.getTransactionById(budgetId, input.transactionId);
+      const existingTransaction = await createRetryableAPICall(
+        () => this.api.transactions.getTransactionById(budgetId, input.transactionId),
+        'Get transaction by ID'
+      );
 
       if (!existingTransaction.data.transaction) {
         throw new Error("Transaction not found");
@@ -87,10 +91,13 @@ class ApproveTransactionTool {
         }
       };
 
-      const response = await this.api.transactions.updateTransaction(
-        budgetId,
-        existingTransactionData.id,
-        transaction
+      const response = await createRetryableAPICall(
+        () => this.api.transactions.updateTransaction(
+          budgetId,
+          existingTransactionData.id,
+          transaction
+        ),
+        'Update transaction'
       );
 
       if (!response.data.transaction) {

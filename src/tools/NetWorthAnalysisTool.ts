@@ -1,6 +1,7 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { truncateResponse, CHARACTER_LIMIT, getBudgetId, milliUnitsToAmount, formatCurrency } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface NetWorthAnalysisInput {
   budgetId?: string;
@@ -71,9 +72,12 @@ class NetWorthAnalysisTool {
     try {
       const budgetId = getBudgetId(input.budgetId || this.budgetId);
       console.error(`Getting current net worth for budget ${budgetId}`);
-      
+
       // Get all accounts (both on-budget and tracking)
-      const accountsResponse = await this.api.accounts.getAccounts(budgetId);
+      const accountsResponse = await createRetryableAPICall(
+        () => this.api.accounts.getAccounts(budgetId),
+        'Get accounts for net worth'
+      );
       const allAccounts = accountsResponse.data.accounts.filter(
         (account) => account.deleted === false
       );

@@ -1,6 +1,7 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { truncateResponse, CHARACTER_LIMIT } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface ListBudgetsInput {
   response_format?: "json" | "markdown";
@@ -53,7 +54,10 @@ class ListBudgetsTool {
       }
 
       console.error("Listing budgets");
-      const budgetsResponse = await this.api.budgets.getBudgets();
+      const budgetsResponse = await createRetryableAPICall(
+        () => this.api.budgets.getBudgets(),
+        'List budgets'
+      );
       console.error(`Found ${budgetsResponse.data.budgets.length} budgets`);
 
       const budgets = budgetsResponse.data.budgets.map((budget) => ({

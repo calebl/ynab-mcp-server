@@ -1,6 +1,7 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { truncateResponse, CHARACTER_LIMIT, getBudgetId, normalizeMonth, milliUnitsToAmount, formatCurrency } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface GoalProgressReportInput {
   budgetId?: string;
@@ -8,6 +9,8 @@ interface GoalProgressReportInput {
   includeCompleted?: boolean;
   includeInsights?: boolean;
   response_format?: "json" | "markdown";
+  limit?: number;
+  offset?: number;
 }
 
 interface GoalProgress {
@@ -50,6 +53,14 @@ interface GoalProgressReportResult {
     most_urgent_goal: string;
     most_progress_made: string;
     goals_needing_attention: number;
+  };
+  pagination: {
+    total: number;
+    count: number;
+    offset: number;
+    limit: number;
+    has_more: boolean;
+    next_offset: number | null;
   };
   note: string;
 }
@@ -97,6 +108,16 @@ export default class GoalProgressReportTool {
             enum: ["json", "markdown"],
             description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
           },
+          limit: {
+            type: "number",
+            default: 50,
+            description: "Maximum number of goal progress items to return (default: 50, max: 100)",
+          },
+          offset: {
+            type: "number",
+            default: 0,
+            description: "Number of goal progress items to skip (default: 0)",
+          },
         },
         additionalProperties: false,
       },
@@ -119,10 +140,13 @@ export default class GoalProgressReportTool {
       console.error(`Generating goal progress report for budget ${budgetId} for month ${targetMonth}`);
       
       // Get budget month data
-      const monthBudget = await this.api.months.getBudgetMonth(budgetId, targetMonth);
+      const monthBudget = await createRetryableAPICall(
+        () => this.api.months.getBudgetMonth(budgetId, targetMonth),
+        'Get budget month for goal progress'
+      );
       const categories = monthBudget.data.month.categories.filter(
-        category => 
-          category.deleted === false && 
+        category =>
+          category.deleted === false &&
           category.hidden === false &&
           !category.name.includes("Inflow:") &&
           category.name !== "Uncategorized"
@@ -301,16 +325,24 @@ export default class GoalProgressReportTool {
         return b.remaining_amount - a.remaining_amount;
       });
 
-      // Calculate summary statistics
+      // Apply pagination
+      const limit = Math.min(input.limit || 50, 100);
+      const offset = input.offset || 0;
+      const total = goalProgress.length;
+      const paginatedGoalProgress = goalProgress.slice(offset, offset + limit);
+      const hasMore = offset + limit < total;
+      const nextOffset = hasMore ? offset + limit : null;
+
+      // Calculate summary statistics (based on all goals, not just paginated)
       const totalBudgetedForGoals = goalProgress.reduce((sum, goal) => sum + goal.budgeted_this_month_dollars, 0);
-      const averageProgress = goalProgress.length > 0 ? 
+      const averageProgress = goalProgress.length > 0 ?
         goalProgress.reduce((sum, goal) => sum + goal.progress_percentage, 0) / goalProgress.length : 0;
-      
+
       const mostUrgentGoal = goalProgress.find(goal => goal.priority === 'high')?.category_name || 'None';
-      const mostProgressMade = goalProgress.reduce((max, goal) => 
-        goal.progress_percentage > max.progress_percentage ? goal : max, 
+      const mostProgressMade = goalProgress.reduce((max, goal) =>
+        goal.progress_percentage > max.progress_percentage ? goal : max,
         goalProgress[0] || { progress_percentage: 0, category_name: 'None' });
-      
+
       const goalsNeedingAttention = goalProgress.filter(goal => goal.status === 'behind').length;
 
       const result: GoalProgressReportResult = {
@@ -319,7 +351,7 @@ export default class GoalProgressReportTool {
         completed_goals: completedGoals,
         on_track_goals: onTrackGoals,
         behind_goals: behindGoals,
-        goal_progress: goalProgress,
+        goal_progress: paginatedGoalProgress,
         insights: insights,
         summary: {
           total_budgeted_for_goals: Math.round(totalBudgetedForGoals * 100) / 100,
@@ -327,6 +359,14 @@ export default class GoalProgressReportTool {
           most_urgent_goal: mostUrgentGoal,
           most_progress_made: mostProgressMade.category_name,
           goals_needing_attention: goalsNeedingAttention,
+        },
+        pagination: {
+          total,
+          count: paginatedGoalProgress.length,
+          offset,
+          limit,
+          has_more: hasMore,
+          next_offset: nextOffset,
         },
         note: "All amounts are in dollars. Goal types: TB=Target Balance, TBD=Target Balance by Date, MF=Monthly Funding. Status indicates if you're on track to meet your goal based on current budgeting patterns.",
       };
@@ -371,6 +411,7 @@ export default class GoalProgressReportTool {
     output += "## Summary\n";
     output += `- **Report Month**: ${result.report_month}\n`;
     output += `- **Total Goals**: ${result.total_goals}\n`;
+    output += `- **Showing**: ${result.pagination.count} goals (offset: ${result.pagination.offset}, limit: ${result.pagination.limit})\n`;
     output += `- **Completed Goals**: ${result.completed_goals}\n`;
     output += `- **On Track Goals**: ${result.on_track_goals}\n`;
     output += `- **Behind Goals**: ${result.behind_goals}\n`;
@@ -413,6 +454,19 @@ export default class GoalProgressReportTool {
         output += `${emoji} **${insight.category}** (${insight.severity}): ${insight.message}\n\n`;
       }
     }
+
+    // Add pagination info
+    output += "---\n\n";
+    output += "## Pagination\n";
+    output += `- **Total**: ${result.pagination.total}\n`;
+    output += `- **Count**: ${result.pagination.count}\n`;
+    output += `- **Offset**: ${result.pagination.offset}\n`;
+    output += `- **Limit**: ${result.pagination.limit}\n`;
+    output += `- **Has More**: ${result.pagination.has_more}\n`;
+    if (result.pagination.next_offset !== null) {
+      output += `- **Next Offset**: ${result.pagination.next_offset}\n`;
+    }
+    output += "\n";
 
     output += `## Note\n${result.note}\n`;
 

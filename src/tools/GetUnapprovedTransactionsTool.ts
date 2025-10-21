@@ -1,10 +1,13 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { truncateResponse, CHARACTER_LIMIT, getBudgetId, milliUnitsToAmount, formatCurrency, formatDate } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface GetUnapprovedTransactionsInput {
   budgetId?: string;
   response_format?: "json" | "markdown";
+  limit?: number;
+  offset?: number;
 }
 
 class GetUnapprovedTransactionsTool {
@@ -32,6 +35,16 @@ class GetUnapprovedTransactionsTool {
             enum: ["json", "markdown"],
             description: "Response format: 'json' for machine-readable output, 'markdown' for human-readable output (default: markdown)",
           },
+          limit: {
+            type: "number",
+            default: 50,
+            description: "Maximum number of transactions to return (default: 50, max: 100)",
+          },
+          offset: {
+            type: "number",
+            default: 0,
+            description: "Number of transactions to skip (default: 0)",
+          },
         },
         additionalProperties: false,
       },
@@ -51,20 +64,39 @@ class GetUnapprovedTransactionsTool {
 
       console.error(`Getting unapproved transactions for budget ${budgetId}`);
 
-      const response = await this.api.transactions.getTransactions(
-        budgetId,
-        undefined,
-        ynab.GetTransactionsTypeEnum.Unapproved
+      const response = await createRetryableAPICall(
+        () => this.api.transactions.getTransactions(
+          budgetId,
+          undefined,
+          ynab.GetTransactionsTypeEnum.Unapproved
+        ),
+        'Get unapproved transactions'
       );
 
       // Transform the transactions to a more readable format
-      const transactions = this.transformTransactions(
+      const allTransactions = this.transformTransactions(
         response.data.transactions
       );
 
+      // Apply pagination
+      const limit = Math.min(input.limit || 50, 100);
+      const offset = input.offset || 0;
+      const total = allTransactions.length;
+      const paginatedTransactions = allTransactions.slice(offset, offset + limit);
+      const hasMore = offset + limit < total;
+      const nextOffset = hasMore ? offset + limit : null;
+
       const result = {
-        transactions,
-        transaction_count: transactions.length,
+        transactions: paginatedTransactions,
+        pagination: {
+          total,
+          count: paginatedTransactions.length,
+          offset,
+          limit,
+          has_more: hasMore,
+          next_offset: nextOffset,
+        },
+        transaction_count: paginatedTransactions.length,
       };
 
       const format = input.response_format || "markdown";
@@ -124,9 +156,10 @@ class GetUnapprovedTransactionsTool {
       }));
   }
 
-  private formatMarkdown(result: { transactions: any[]; transaction_count: number }): string {
+  private formatMarkdown(result: { transactions: any[]; transaction_count: number; pagination: any }): string {
     let output = "# Unapproved Transactions\n\n";
-    output += `Found ${result.transaction_count} unapproved transaction(s)\n\n`;
+    output += `Found ${result.pagination.total} unapproved transaction(s) total\n`;
+    output += `Showing ${result.transaction_count} transactions (offset: ${result.pagination.offset}, limit: ${result.pagination.limit})\n\n`;
 
     if (result.transaction_count === 0) {
       output += "No unapproved transactions found. Great job staying on top of your budget!\n";
@@ -146,6 +179,18 @@ class GetUnapprovedTransactionsTool {
       }
       output += `- **Transaction ID:** \`${txn.id}\`\n`;
       output += "\n";
+    }
+
+    // Add pagination info
+    output += "---\n\n";
+    output += "## Pagination\n";
+    output += `- **Total**: ${result.pagination.total}\n`;
+    output += `- **Count**: ${result.pagination.count}\n`;
+    output += `- **Offset**: ${result.pagination.offset}\n`;
+    output += `- **Limit**: ${result.pagination.limit}\n`;
+    output += `- **Has More**: ${result.pagination.has_more}\n`;
+    if (result.pagination.next_offset !== null) {
+      output += `- **Next Offset**: ${result.pagination.next_offset}\n`;
     }
 
     return output;

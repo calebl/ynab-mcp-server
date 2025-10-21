@@ -1,6 +1,7 @@
 import * as ynab from "ynab";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { getBudgetId, amountToMilliUnits, truncateResponse, CHARACTER_LIMIT } from "../utils/commonUtils.js";
+import { createRetryableAPICall } from "../utils/apiErrorHandler.js";
 
 interface CreateTransactionInput {
   budgetId?: string;
@@ -129,9 +130,9 @@ class CreateTransactionTool {
         }
       };
 
-      const response = await this.api.transactions.createTransaction(
-        budgetId,
-        transaction
+      const response = await createRetryableAPICall(
+        () => this.api.transactions.createTransaction(budgetId, transaction),
+        'Create transaction'
       );
 
       if (!response.data.transaction) {
