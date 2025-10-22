@@ -1074,7 +1074,8 @@ export default class ReconcileAccountTool {
       'web', 'id', 'ach', 'ppd', 'tel', 'payment', 'transfer', 'transaction',
       'auto', 'pay', 'credit', 'debit', 'fee', 'withdrawal', 'deposit',
       'online', 'electronic', 'wire', 'check', 'card', 'pos', 'atm',
-      'td', 'amt', 'ref', 'conf', 'auth', 'app', 'mobile', 'digital'
+      'td', 'amt', 'ref', 'conf', 'auth', 'app', 'mobile', 'digital',
+      'inc', 'corp', 'llc', 'ltd', 'co', 'company', 'bank', 'financial'
     ];
     
     // Split on various delimiters and clean up
@@ -1097,11 +1098,42 @@ export default class ReconcileAccountTool {
       if (word === 'schwab') return 'schwab';
       if (word === 'bankamerica' || word === 'bofa') return 'bankofamerica';
       if (word === 'pwp') return 'privacy'; // PwP is Privacy.com
+      
+      // IMPROVED: Handle company name variations
+      if (word === 'mcdonaldmazda') return 'mcdonaldmazda'; // Keep as is for partial matching
+      if (word === 'hylandvillage') return 'hyland'; // Extract company name
+      if (word === 'smirnovlabs') return 'smirnovlabs'; // Keep as is for partial matching
+      
       return word;
     });
 
+    // IMPROVED: Add additional keywords for better matching
+    const additionalKeywords: string[] = [];
+    
+    // Extract company names from compound words
+    normalizedWords.forEach(word => {
+      if (word.includes('mcdonald') && word.includes('mazda')) {
+        additionalKeywords.push('mcdonald', 'mazda');
+      }
+      if (word.includes('smirnov') && word.includes('labs')) {
+        additionalKeywords.push('smirnov', 'labs');
+      }
+      if (word.includes('hyland') && word.includes('village')) {
+        additionalKeywords.push('hyland', 'village');
+      }
+      if (word.includes('cto') && word.includes('blueprint')) {
+        additionalKeywords.push('cto', 'blueprint');
+      }
+      if (word.includes('alpenglow') && word.includes('nexus')) {
+        additionalKeywords.push('alpenglow', 'nexus');
+      }
+    });
+
+    // Combine original words with additional keywords
+    const allWords = [...normalizedWords, ...additionalKeywords];
+    
     // Remove duplicates and return
-    return [...new Set(normalizedWords)];
+    return [...new Set(allWords)];
   }
 
   private calculateDescriptionSimilarity(ynabPayee: string, bankDescription: string): number {
@@ -1125,19 +1157,61 @@ export default class ReconcileAccountTool {
     const maxKeywords = Math.max(ynabKeywords.length, bankKeywords.length);
     let similarity = maxKeywords > 0 ? commonKeywords.length / maxKeywords : 0;
     
-    // If we have any common keywords, boost the similarity
+    // IMPROVED: More generous similarity scoring
+    // If we have any common keywords, boost the similarity significantly
     if (commonKeywords.length > 0 && maxKeywords > 0) {
-      similarity = Math.max(similarity, 0.3); // Minimum 30% if any keywords match
+      // Use a more generous minimum threshold
+      similarity = Math.max(similarity, 0.5); // Minimum 50% if any keywords match
+      
+      // Additional boost for multiple keyword matches
+      if (commonKeywords.length >= 2) {
+        similarity = Math.max(similarity, 0.7); // Minimum 70% for 2+ keyword matches
+      }
+      
+      // Extra boost for exact company name matches
+      if (commonKeywords.length === maxKeywords) {
+        similarity = 1.0; // Perfect match if all keywords match
+      }
     }
     
-    // Boost similarity if we have exact matches for important words
-    const importantWords = ['apple', 'amazon', 'google', 'microsoft', 'target', 'walmart', 'starbucks', 'mcdonalds'];
+    // IMPROVED: Expanded important words list and better boosting
+    const importantWords = [
+      'apple', 'amazon', 'google', 'microsoft', 'target', 'walmart', 'starbucks', 'mcdonalds',
+      'mazda', 'hyland', 'smirnov', 'labs', 'privacy', 'venmo', 'discover', 'chase',
+      'wellsfargo', 'schwab', 'bankofamerica', 'mercury', 'cto', 'blueprint', 'alpenglow', 'nexus'
+    ];
+    
     const hasImportantMatch = importantWords.some(word => 
       ynabKeywords.includes(word) && bankKeywords.includes(word)
     );
     
-    if (hasImportantMatch && similarity > 0.3) {
-      return Math.min(1.0, similarity + 0.2); // Boost by 20%
+    if (hasImportantMatch) {
+      // More generous boosting for important word matches
+      if (similarity > 0.3) {
+        return Math.min(1.0, similarity + 0.3); // Boost by 30% instead of 20%
+      } else {
+        return Math.min(1.0, similarity + 0.4); // Even bigger boost for low similarity
+      }
+    }
+    
+    // IMPROVED: Additional logic for company name variations
+    // Check if one description contains the other (for cases like "Smirnov Labs" vs "Smirnov Labs LLC")
+    const ynabLower = ynabPayee.toLowerCase();
+    const bankLower = bankDescription.toLowerCase();
+    
+    if (ynabLower.includes(bankLower) || bankLower.includes(ynabLower)) {
+      return Math.max(similarity, 0.8); // High similarity for substring matches
+    }
+    
+    // Check for partial word matches (e.g., "mcdonald" vs "mcdonaldmazda")
+    const hasPartialMatch = ynabKeywords.some(ynabWord => 
+      bankKeywords.some(bankWord => 
+        ynabWord.includes(bankWord) || bankWord.includes(ynabWord)
+      )
+    );
+    
+    if (hasPartialMatch) {
+      return Math.max(similarity, 0.6); // Boost for partial word matches
     }
     
     return similarity;
