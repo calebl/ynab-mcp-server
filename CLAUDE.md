@@ -32,26 +32,26 @@ npm test:coverage
 
 ## Architecture Overview
 
-This is a **Model Context Protocol (MCP) server** that provides AI tools for interacting with YNAB (You Need A Budget) budgets. The architecture follows a simple pattern:
+This is a **Model Context Protocol (MCP) server** that provides AI tools for interacting with YNAB (You Need A Budget) budgets. The architecture follows the official MCP SDK pattern:
 
 ### Core Structure
-- **Entry Point**: `src/index.ts` - Minimal server setup using `mcp-framework`
-- **Tools Directory**: `src/tools/` - Contains all MCP tools as individual TypeScript classes
-- **Framework**: Built with `mcp-framework` which auto-discovers tools and handles MCP protocol
+- **Entry Point**: `src/index.ts` - Complete server implementation using `@modelcontextprotocol/sdk`
+- **Framework**: Built with the official `@modelcontextprotocol/sdk` TypeScript SDK
+- **All Tools**: Registered directly in the main server file for simplicity
 
 ### Tool Architecture Pattern
-Each tool in `src/tools/` follows this pattern:
-- Extends `MCPTool<InputType>` from `mcp-framework`
-- Defines `name`, `description`, and `schema` properties
-- Implements `execute()` method for tool logic
+Each tool is registered using the SDK's `registerTool()` method:
+- Direct function-based registration with the server
+- Defines `title`, `description`, and `inputSchema` properties
+- Implements async handler function for tool logic
 - Uses YNAB SDK client initialized with `process.env.YNAB_API_TOKEN`
 
 ### Available Tools
-- **ListBudgetsTool**: Lists available YNAB budgets
-- **BudgetSummaryTool**: Provides budget month summaries with categories and accounts
-- **GetUnapprovedTransactionsTool**: Retrieves pending transactions
-- **CreateTransactionTool**: Creates new transactions
-- **ApproveTransactionTool**: Approves existing transactions
+- **list_budgets**: Lists available YNAB budgets
+- **budget_summary**: Provides budget month summaries with categories and accounts
+- **get_unapproved_transactions**: Retrieves pending transactions
+- **create_transaction**: Creates new transactions
+- **approve_transaction**: Approves existing transactions
 
 ### Environment Variables
 - `YNAB_API_TOKEN` (required) - Personal Access Token from YNAB API
@@ -60,55 +60,56 @@ Each tool in `src/tools/` follows this pattern:
 ## Development Guidelines
 
 ### Adding New Tools
-1. Create new tool class in `src/tools/` extending `MCPTool`
+1. Add tool registration directly in `src/index.ts`
 2. Reference YNAB SDK types from `node_modules/ynab/dist/index.d.ts`
 3. Use YNAB OpenAPI spec at `https://api.ynab.com/papi/open_api_spec.yaml` for API reference
-4. Follow existing pattern: initialize YNAB API client in constructor
-5. Framework auto-discovers new tools - no manual registration needed
-6. Add a test coverage file to `src/tools`
+4. Use the existing `api` instance (YNAB API client) available in the main file
+5. Follow the tool registration pattern used by existing tools
+6. Add test coverage in the `src/tests` folder
 
 ### Tool Development Pattern
 ```typescript
-import { MCPTool, logger } from "mcp-framework";
-import * as ynab from "ynab";
-import { z } from "zod";
+// Register new tool in src/index.ts
+server.registerTool("tool_name", {
+  title: "Tool Title",
+  description: "Tool description",
+  inputSchema: {
+    type: "object",
+    properties: {
+      budgetId: {
+        type: "string",
+        description: "Budget ID (optional)"
+      },
+      // other properties
+    },
+    required: ["requiredParam1", "requiredParam2"], // optional
+    additionalProperties: false,
+  },
+}, async (input) => {
+  try {
+    const budgetId = getBudgetId(input.budgetId);
 
-interface ToolInput {
-  budgetId?: string;
-  // other parameters
-}
+    // Tool implementation using the global `api` instance
+    const result = await api.someYnabMethod(budgetId, input.someParam);
 
-class NewTool extends MCPTool<ToolInput> {
-  name = "tool_name";
-  description = "Tool description";
-  
-  schema = {
-    budgetId: {
-      type: z.string().optional(),
-      description: "Budget ID (optional)"
-    }
-  };
-
-  private api: ynab.API;
-
-  constructor() {
-    super();
-    this.api = new ynab.API(process.env.YNAB_API_TOKEN || "");
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  } catch (error) {
+    console.error("Error in tool_name:", error);
+    return {
+      content: [{ type: "text", text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` }]
+    };
   }
-
-  async execute(input: ToolInput) {
-    // Implementation
-  }
-}
-
-export default NewTool;
+});
 ```
 
 ### Error Handling
 - Check for `YNAB_API_TOKEN` presence
 - Use try/catch blocks for YNAB API calls
-- Use `logger` from `mcp-framework` for logging
-- Return descriptive error messages to users
+- Use `console.log`/`console.error` for logging (logs to stderr)
+- Return descriptive error messages in MCP response format
+- All tools should return `{ content: [{ type: "text", text: "..." }] }` format
 
 ### Testing
 - Tests run with Vitest

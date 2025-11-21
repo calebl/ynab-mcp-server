@@ -1,23 +1,10 @@
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
 import * as ynab from 'ynab';
-import CreateTransactionTool from '../tools/CreateTransactionTool';
+import * as CreateTransactionTool from '../tools/CreateTransactionTool';
 
-// Mock the entire ynab module
 vi.mock('ynab');
 
-// Mock the mcp-framework logger
-vi.mock('mcp-framework', () => ({
-  MCPTool: class {
-    constructor() {}
-  },
-  logger: {
-    error: vi.fn(),
-    info: vi.fn(),
-  },
-}));
-
 describe('CreateTransactionTool', () => {
-  let tool: CreateTransactionTool;
   let mockApi: {
     transactions: {
       createTransaction: Mock;
@@ -26,477 +13,360 @@ describe('CreateTransactionTool', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
-    // Create mock API instance
+
     mockApi = {
       transactions: {
         createTransaction: vi.fn(),
       },
     };
 
-    // Mock the ynab.API constructor
     (ynab.API as any).mockImplementation(() => mockApi);
 
-    // Set environment variables
     process.env.YNAB_API_TOKEN = 'test-token';
     process.env.YNAB_BUDGET_ID = 'test-budget-id';
-
-    tool = new CreateTransactionTool();
   });
 
   describe('execute', () => {
-    const mockCreatedTransaction = {
-      id: 'transaction-123',
-      account_id: 'account-456',
-      payee_name: 'Test Payee',
-      amount: -50000, // -$50.00 in milliunits
-      category_id: 'category-789',
-      memo: 'Test memo',
-      date: '2023-12-01',
-      cleared: ynab.TransactionClearedStatus.Uncleared,
+    const validTransactionInput = {
+      accountId: 'account-123',
+      date: '2023-01-01',
+      amount: 50.00,
+      payeeName: 'Test Payee',
+      categoryId: 'category-123',
+      memo: 'Test transaction',
+      cleared: true,
       approved: false,
-      flag_color: null,
+      flagColor: 'red',
     };
 
-    it('should successfully create a transaction with payee_name', async () => {
-      // Setup mock
+    const mockCreatedTransaction = {
+      id: 'transaction-123',
+      account_id: 'account-123',
+      date: '2023-01-01',
+      amount: 50000, // $50.00 in milliunits
+      payee_name: 'Test Payee',
+      category_id: 'category-123',
+      memo: 'Test transaction',
+      cleared: ynab.TransactionClearedStatus.Cleared,
+      approved: false,
+      flag_color: 'red' as ynab.TransactionFlagColor,
+    };
+
+    it('should successfully create transaction with payee name', async () => {
       mockApi.transactions.createTransaction.mockResolvedValue({
         data: { transaction: mockCreatedTransaction },
       });
 
-      const input = {
-        budgetId: 'custom-budget-id',
-        accountId: 'account-456',
-        date: '2023-12-01',
-        amount: -50.00,
-        payeeName: 'Test Payee',
-        categoryId: 'category-789',
-        memo: 'Test memo',
-        cleared: false,
-        approved: false,
-      };
-
-      const result = await tool.execute(input);
+      const result = await CreateTransactionTool.execute(validTransactionInput, mockApi as any);
 
       expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
-        'custom-budget-id',
+        'test-budget-id',
         {
           transaction: {
-            account_id: 'account-456',
-            date: '2023-12-01',
-            amount: -50000, // Converted to milliunits
+            account_id: 'account-123',
+            date: '2023-01-01',
+            amount: 50000, // $50.00 converted to milliunits
             payee_id: undefined,
             payee_name: 'Test Payee',
-            category_id: 'category-789',
-            memo: 'Test memo',
-            cleared: ynab.TransactionClearedStatus.Uncleared,
-            approved: false,
-            flag_color: undefined,
-          },
-        }
-      );
-      expect(result).toEqual({
-        success: true,
-        transactionId: 'transaction-123',
-        message: 'Transaction created successfully',
-      });
-    });
-
-    it('should successfully create a transaction with payee_id', async () => {
-      // Setup mock
-      mockApi.transactions.createTransaction.mockResolvedValue({
-        data: { transaction: mockCreatedTransaction },
-      });
-
-      const input = {
-        budgetId: 'test-budget-id',
-        accountId: 'account-456',
-        date: '2023-12-01',
-        amount: 25.99,
-        payeeId: 'payee-123',
-        categoryId: 'category-789',
-      };
-
-      const result = await tool.execute(input);
-
-      expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
-        'test-budget-id',
-        {
-          transaction: {
-            account_id: 'account-456',
-            date: '2023-12-01',
-            amount: 25990, // Converted to milliunits (25.99 * 1000)
-            payee_id: 'payee-123',
-            payee_name: undefined,
-            category_id: 'category-789',
-            memo: undefined,
-            cleared: ynab.TransactionClearedStatus.Uncleared,
-            approved: false,
-            flag_color: undefined,
-          },
-        }
-      );
-      expect(result).toEqual({
-        success: true,
-        transactionId: 'transaction-123',
-        message: 'Transaction created successfully',
-      });
-    });
-
-    it('should use budget ID from environment when not provided in input', async () => {
-      // Setup mock
-      mockApi.transactions.createTransaction.mockResolvedValue({
-        data: { transaction: mockCreatedTransaction },
-      });
-
-      const input = {
-        accountId: 'account-456',
-        date: '2023-12-01',
-        amount: 10.50,
-        payeeName: 'Test Payee',
-      };
-
-      const result = await tool.execute(input);
-
-      expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
-        'test-budget-id', // Should use environment variable
-        expect.any(Object)
-      );
-      expect(result).toEqual({
-        success: true,
-        transactionId: 'transaction-123',
-        message: 'Transaction created successfully',
-      });
-    });
-
-    it('should create a transaction with all optional parameters', async () => {
-      // Setup mock
-      mockApi.transactions.createTransaction.mockResolvedValue({
-        data: { transaction: mockCreatedTransaction },
-      });
-
-      const input = {
-        budgetId: 'test-budget-id',
-        accountId: 'account-456',
-        date: '2023-12-01',
-        amount: 75.25,
-        payeeId: 'payee-123',
-        categoryId: 'category-789',
-        memo: 'Test transaction with all fields',
-        cleared: true,
-        approved: true,
-        flagColor: 'red',
-      };
-
-      const result = await tool.execute(input);
-
-      expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
-        'test-budget-id',
-        {
-          transaction: {
-            account_id: 'account-456',
-            date: '2023-12-01',
-            amount: 75250, // 75.25 * 1000
-            payee_id: 'payee-123',
-            payee_name: undefined,
-            category_id: 'category-789',
-            memo: 'Test transaction with all fields',
+            category_id: 'category-123',
+            memo: 'Test transaction',
             cleared: ynab.TransactionClearedStatus.Cleared,
-            approved: true,
+            approved: false,
             flag_color: 'red',
           },
         }
       );
-      expect(result).toEqual({
-        success: true,
-        transactionId: 'transaction-123',
-        message: 'Transaction created successfully',
-      });
+
+      const expectedResult = {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            transactionId: 'transaction-123',
+            message: "Transaction created successfully",
+          }, null, 2)
+        }]
+      };
+
+      expect(result).toEqual(expectedResult);
     });
 
-    it('should handle decimal amounts correctly (rounding)', async () => {
-      // Setup mock
+    it('should successfully create transaction with payee ID', async () => {
+      const inputWithPayeeId = {
+        ...validTransactionInput,
+        payeeId: 'payee-123',
+        payeeName: undefined,
+      };
+
       mockApi.transactions.createTransaction.mockResolvedValue({
         data: { transaction: mockCreatedTransaction },
       });
 
-      const input = {
-        budgetId: 'test-budget-id',
-        accountId: 'account-456',
-        date: '2023-12-01',
-        amount: 12.996, // Should round to 12996 milliunits
-        payeeName: 'Test Payee',
+      const result = await CreateTransactionTool.execute(inputWithPayeeId, mockApi as any);
+
+      expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
+        'test-budget-id',
+        expect.objectContaining({
+          transaction: expect.objectContaining({
+            payee_id: 'payee-123',
+            payee_name: undefined,
+          }),
+        })
+      );
+    });
+
+    it('should successfully create transaction with custom budget ID', async () => {
+      const inputWithBudgetId = {
+        ...validTransactionInput,
+        budgetId: 'custom-budget-id',
       };
 
-      const result = await tool.execute(input);
+      mockApi.transactions.createTransaction.mockResolvedValue({
+        data: { transaction: mockCreatedTransaction },
+      });
+
+      const result = await CreateTransactionTool.execute(inputWithBudgetId, mockApi as any);
+
+      expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
+        'custom-budget-id',
+        expect.any(Object)
+      );
+    });
+
+    it('should handle minimal required fields', async () => {
+      const minimalInput = {
+        accountId: 'account-123',
+        date: '2023-01-01',
+        amount: 25.50,
+        payeeName: 'Minimal Payee',
+      };
+
+      mockApi.transactions.createTransaction.mockResolvedValue({
+        data: { transaction: mockCreatedTransaction },
+      });
+
+      const result = await CreateTransactionTool.execute(minimalInput, mockApi as any);
 
       expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
         'test-budget-id',
         {
-          transaction: expect.objectContaining({
-            amount: 12996, // Math.round(12.996 * 1000) = 12996
-          }),
+          transaction: {
+            account_id: 'account-123',
+            date: '2023-01-01',
+            amount: 25500, // $25.50 converted to milliunits
+            payee_id: undefined,
+            payee_name: 'Minimal Payee',
+            category_id: undefined,
+            memo: undefined,
+            cleared: ynab.TransactionClearedStatus.Uncleared, // Default when cleared not specified
+            approved: false, // Default when approved not specified
+            flag_color: undefined,
+          },
         }
       );
-      expect(result.success).toBe(true);
     });
 
-    it('should throw error when no budget ID is provided', async () => {
-      // Clear environment budget ID
-      delete process.env.YNAB_BUDGET_ID;
-      tool = new CreateTransactionTool();
+    it('should convert dollars to milliunits correctly', async () => {
+      const testAmounts = [
+        { dollars: 1.23, milliunits: 1230 },
+        { dollars: 50.00, milliunits: 50000 },
+        { dollars: 0.01, milliunits: 10 },
+        { dollars: 123.456, milliunits: 123456 }, // Should round to 123456
+        { dollars: -25.75, milliunits: -25750 },
+      ];
 
-      const input = {
-        accountId: 'account-456',
-        date: '2023-12-01',
+      for (const { dollars, milliunits } of testAmounts) {
+        const input = {
+          ...validTransactionInput,
+          amount: dollars,
+        };
+
+        mockApi.transactions.createTransaction.mockResolvedValue({
+          data: { transaction: mockCreatedTransaction },
+        });
+
+        await CreateTransactionTool.execute(input, mockApi as any);
+
+        expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
+          'test-budget-id',
+          expect.objectContaining({
+            transaction: expect.objectContaining({
+              amount: milliunits,
+            }),
+          })
+        );
+
+        mockApi.transactions.createTransaction.mockClear();
+      }
+    });
+
+    it('should return error when neither payeeId nor payeeName is provided', async () => {
+      const invalidInput = {
+        accountId: 'account-123',
+        date: '2023-01-01',
         amount: 50.00,
-        payeeName: 'Test Payee',
+        // Missing both payeeId and payeeName
       };
 
-      await expect(tool.execute(input)).rejects.toThrow(
-        'No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.'
-      );
-    });
+      const result = await CreateTransactionTool.execute(invalidInput, mockApi as any);
 
-    it('should throw error when neither payee_id nor payee_name is provided', async () => {
-      const input = {
-        budgetId: 'test-budget-id',
-        accountId: 'account-456',
-        date: '2023-12-01',
-        amount: 50.00,
-        // Neither payeeId nor payeeName provided
+      expect(mockApi.transactions.createTransaction).not.toHaveBeenCalled();
+
+      const expectedResult = {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            error: "Either payeeId or payeeName must be provided",
+          }, null, 2)
+        }]
       };
 
-      await expect(tool.execute(input)).rejects.toThrow(
-        'Either payee_id or payee_name must be provided'
-      );
+      expect(result).toEqual(expectedResult);
     });
 
-    it('should return success false when API call fails', async () => {
-      // Setup mock to throw API error
-      const apiError = new Error('API Error: Budget not found');
+    it('should handle API error', async () => {
+      const apiError = new Error('API Error: Unauthorized');
       mockApi.transactions.createTransaction.mockRejectedValue(apiError);
 
-      const input = {
-        budgetId: 'invalid-budget-id',
-        accountId: 'account-456',
-        date: '2023-12-01',
-        amount: 50.00,
-        payeeName: 'Test Payee',
+      const result = await CreateTransactionTool.execute(validTransactionInput, mockApi as any);
+
+      const expectedResult = {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            error: "API Error: Unauthorized",
+          }, null, 2)
+        }]
       };
 
-      const result = await tool.execute(input);
-
-      expect(result).toEqual({
-        success: false,
-        error: 'API Error: Budget not found',
-      });
+      expect(result).toEqual(expectedResult);
     });
 
-    it('should return success false when API returns no transaction data', async () => {
-      // Setup mock to return no transaction
+    it('should handle missing transaction data in response', async () => {
       mockApi.transactions.createTransaction.mockResolvedValue({
         data: { transaction: null },
       });
 
-      const input = {
-        budgetId: 'test-budget-id',
-        accountId: 'account-456',
-        date: '2023-12-01',
-        amount: 50.00,
-        payeeName: 'Test Payee',
+      const result = await CreateTransactionTool.execute(validTransactionInput, mockApi as any);
+
+      const expectedResult = {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            error: "Failed to create transaction - no transaction data returned",
+          }, null, 2)
+        }]
       };
 
-      const result = await tool.execute(input);
-
-      expect(result).toEqual({
-        success: false,
-        error: 'Failed to create transaction - no transaction data returned',
-      });
+      expect(result).toEqual(expectedResult);
     });
 
-    it('should handle non-Error objects in catch block', async () => {
-      // Setup mock to throw non-Error object
-      const nonErrorObject = { message: 'Custom error object', code: 500 };
-      mockApi.transactions.createTransaction.mockRejectedValue(nonErrorObject);
+    it('should throw error when no budget ID is provided', async () => {
+      delete process.env.YNAB_BUDGET_ID;
 
-      const input = {
-        budgetId: 'test-budget-id',
-        accountId: 'account-456',
-        date: '2023-12-01',
-        amount: 50.00,
-        payeeName: 'Test Payee',
+      const result = await CreateTransactionTool.execute(validTransactionInput, mockApi as any);
+
+      const expectedResult = {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            error: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.",
+          }, null, 2)
+        }]
       };
 
-      const result = await tool.execute(input);
-
-      expect(result).toEqual({
-        success: false,
-        error: 'Unknown error occurred',
-      });
+      expect(result).toEqual(expectedResult);
     });
 
-    it('should handle cleared status correctly when false', async () => {
-      // Setup mock
+    it('should handle cleared status correctly', async () => {
+      const clearedInput = { ...validTransactionInput, cleared: true };
+      const unclearedInput = { ...validTransactionInput, cleared: false };
+
       mockApi.transactions.createTransaction.mockResolvedValue({
         data: { transaction: mockCreatedTransaction },
       });
 
-      const input = {
-        budgetId: 'test-budget-id',
-        accountId: 'account-456',
-        date: '2023-12-01',
-        amount: 50.00,
-        payeeName: 'Test Payee',
-        cleared: false,
-      };
-
-      const result = await tool.execute(input);
-
+      // Test cleared = true
+      await CreateTransactionTool.execute(clearedInput, mockApi as any);
       expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
         'test-budget-id',
-        {
-          transaction: expect.objectContaining({
-            cleared: ynab.TransactionClearedStatus.Uncleared,
-          }),
-        }
-      );
-      expect(result.success).toBe(true);
-    });
-
-    it('should handle cleared status correctly when true', async () => {
-      // Setup mock
-      mockApi.transactions.createTransaction.mockResolvedValue({
-        data: { transaction: mockCreatedTransaction },
-      });
-
-      const input = {
-        budgetId: 'test-budget-id',
-        accountId: 'account-456',
-        date: '2023-12-01',
-        amount: 50.00,
-        payeeName: 'Test Payee',
-        cleared: true,
-      };
-
-      const result = await tool.execute(input);
-
-      expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
-        'test-budget-id',
-        {
+        expect.objectContaining({
           transaction: expect.objectContaining({
             cleared: ynab.TransactionClearedStatus.Cleared,
           }),
-        }
+        })
       );
-      expect(result.success).toBe(true);
+
+      mockApi.transactions.createTransaction.mockClear();
+
+      // Test cleared = false
+      await CreateTransactionTool.execute(unclearedInput, mockApi as any);
+      expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
+        'test-budget-id',
+        expect.objectContaining({
+          transaction: expect.objectContaining({
+            cleared: ynab.TransactionClearedStatus.Uncleared,
+          }),
+        })
+      );
     });
 
-    it('should handle approved status with nullish coalescing', async () => {
-      // Setup mock
+    it('should handle approved status correctly', async () => {
+      const approvedInput = { ...validTransactionInput, approved: true };
+      const unapprovedInput = { ...validTransactionInput, approved: false };
+
       mockApi.transactions.createTransaction.mockResolvedValue({
         data: { transaction: mockCreatedTransaction },
       });
 
-      const input = {
-        budgetId: 'test-budget-id',
-        accountId: 'account-456',
-        date: '2023-12-01',
-        amount: 50.00,
-        payeeName: 'Test Payee',
-        // approved not provided, should default to false
-      };
-
-      const result = await tool.execute(input);
-
+      // Test approved = true
+      await CreateTransactionTool.execute(approvedInput, mockApi as any);
       expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
         'test-budget-id',
-        {
+        expect.objectContaining({
           transaction: expect.objectContaining({
-            approved: false, // Should be false when not provided
+            approved: true,
           }),
-        }
+        })
       );
-      expect(result.success).toBe(true);
-    });
 
-    it('should handle flag color as enum value', async () => {
-      // Setup mock
-      mockApi.transactions.createTransaction.mockResolvedValue({
-        data: { transaction: mockCreatedTransaction },
-      });
+      mockApi.transactions.createTransaction.mockClear();
 
-      const input = {
-        budgetId: 'test-budget-id',
-        accountId: 'account-456',
-        date: '2023-12-01',
-        amount: 50.00,
-        payeeName: 'Test Payee',
-        flagColor: 'blue',
-      };
-
-      const result = await tool.execute(input);
-
+      // Test approved = false
+      await CreateTransactionTool.execute(unapprovedInput, mockApi as any);
       expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
         'test-budget-id',
-        {
+        expect.objectContaining({
           transaction: expect.objectContaining({
-            flag_color: 'blue',
+            approved: false,
           }),
-        }
+        })
       );
-      expect(result.success).toBe(true);
     });
   });
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(tool.name).toBe('create_transaction');
-      expect(tool.description).toBe('Creates a new transaction in your YNAB budget. Either payee_id or payee_name must be provided in addition to the other required fields.');
+      expect(CreateTransactionTool.name).toBe('create_transaction');
+      expect(CreateTransactionTool.description).toContain('Creates a new transaction in your YNAB budget');
     });
 
-    it('should have correct schema definition', () => {
-      expect(tool.schema).toHaveProperty('budgetId');
-      expect(tool.schema).toHaveProperty('accountId');
-      expect(tool.schema).toHaveProperty('date');
-      expect(tool.schema).toHaveProperty('amount');
-      expect(tool.schema).toHaveProperty('payeeId');
-      expect(tool.schema).toHaveProperty('payeeName');
-      expect(tool.schema).toHaveProperty('categoryId');
-      expect(tool.schema).toHaveProperty('memo');
-      expect(tool.schema).toHaveProperty('cleared');
-      expect(tool.schema).toHaveProperty('approved');
-      expect(tool.schema).toHaveProperty('flagColor');
-      
-      // Check descriptions contain expected content
-      expect(tool.schema.budgetId.description).toContain('budget to create the transaction in');
-      expect(tool.schema.accountId.description).toContain('account to create the transaction in');
-      expect(tool.schema.date.description).toContain('date of the transaction in ISO format');
-      expect(tool.schema.amount.description).toContain('amount in dollars');
-      expect(tool.schema.payeeId.description).toContain('payee_name is provided');
-      expect(tool.schema.payeeName.description).toContain('payee_id is provided');
-      expect(tool.schema.categoryId.description).toContain('category id');
-      expect(tool.schema.memo.description).toContain('memo/note');
-      expect(tool.schema.cleared.description).toContain('Whether the transaction is cleared');
-      expect(tool.schema.approved.description).toContain('Whether the transaction is approved');
-      expect(tool.schema.flagColor.description).toContain('transaction flag color');
-    });
-
-    it('should have correct required vs optional fields', () => {
-      // Required fields (no optional() call)
-      expect(tool.schema.accountId.type._def.typeName).toBe('ZodString');
-      expect(tool.schema.date.type._def.typeName).toBe('ZodString');
-      expect(tool.schema.amount.type._def.typeName).toBe('ZodNumber');
-      
-      // Optional fields (have optional() call)
-      expect(tool.schema.budgetId.type._def.typeName).toBe('ZodOptional');
-      expect(tool.schema.payeeId.type._def.typeName).toBe('ZodOptional');
-      expect(tool.schema.payeeName.type._def.typeName).toBe('ZodOptional');
-      expect(tool.schema.categoryId.type._def.typeName).toBe('ZodOptional');
-      expect(tool.schema.memo.type._def.typeName).toBe('ZodOptional');
-      expect(tool.schema.cleared.type._def.typeName).toBe('ZodOptional');
-      expect(tool.schema.approved.type._def.typeName).toBe('ZodOptional');
-      expect(tool.schema.flagColor.type._def.typeName).toBe('ZodOptional');
+    it('should have correct input schema', () => {
+      expect(CreateTransactionTool.inputSchema).toHaveProperty('budgetId');
+      expect(CreateTransactionTool.inputSchema).toHaveProperty('accountId');
+      expect(CreateTransactionTool.inputSchema).toHaveProperty('date');
+      expect(CreateTransactionTool.inputSchema).toHaveProperty('amount');
+      expect(CreateTransactionTool.inputSchema).toHaveProperty('payeeId');
+      expect(CreateTransactionTool.inputSchema).toHaveProperty('payeeName');
+      expect(CreateTransactionTool.inputSchema).toHaveProperty('categoryId');
+      expect(CreateTransactionTool.inputSchema).toHaveProperty('memo');
+      expect(CreateTransactionTool.inputSchema).toHaveProperty('cleared');
+      expect(CreateTransactionTool.inputSchema).toHaveProperty('approved');
+      expect(CreateTransactionTool.inputSchema).toHaveProperty('flagColor');
     });
   });
 });

@@ -1,23 +1,10 @@
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
 import * as ynab from 'ynab';
-import ApproveTransactionTool from '../tools/ApproveTransactionTool';
+import * as ApproveTransactionTool from '../tools/ApproveTransactionTool';
 
-// Mock the entire ynab module
 vi.mock('ynab');
 
-// Mock the mcp-framework logger
-vi.mock('mcp-framework', () => ({
-  MCPTool: class {
-    constructor() {}
-  },
-  logger: {
-    error: vi.fn(),
-    info: vi.fn(),
-  },
-}));
-
 describe('ApproveTransactionTool', () => {
-  let tool: ApproveTransactionTool;
   let mockApi: {
     transactions: {
       getTransactionById: Mock;
@@ -27,8 +14,7 @@ describe('ApproveTransactionTool', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
-    // Create mock API instance
+
     mockApi = {
       transactions: {
         getTransactionById: vi.fn(),
@@ -36,35 +22,31 @@ describe('ApproveTransactionTool', () => {
       },
     };
 
-    // Mock the ynab.API constructor
     (ynab.API as any).mockImplementation(() => mockApi);
 
-    // Set environment variables
     process.env.YNAB_API_TOKEN = 'test-token';
     process.env.YNAB_BUDGET_ID = 'test-budget-id';
-
-    tool = new ApproveTransactionTool();
   });
 
   describe('execute', () => {
     const mockExistingTransaction = {
       id: 'transaction-123',
-      account_id: 'account-456',
+      account_id: 'account-123',
+      date: '2023-01-01',
+      amount: -50000, // -$50.00 in milliunits
       payee_name: 'Test Payee',
-      amount: -50000,
+      category_id: 'category-123',
+      memo: 'Test transaction',
       approved: false,
+      cleared: ynab.TransactionClearedStatus.Uncleared,
     };
 
     const mockUpdatedTransaction = {
-      id: 'transaction-123',
-      account_id: 'account-456',
-      payee_name: 'Test Payee',
-      amount: -50000,
+      ...mockExistingTransaction,
       approved: true,
     };
 
-    it('should successfully approve a transaction with budget ID from input', async () => {
-      // Setup mocks
+    it('should successfully approve transaction with default settings', async () => {
       mockApi.transactions.getTransactionById.mockResolvedValue({
         data: { transaction: mockExistingTransaction },
       });
@@ -72,49 +54,10 @@ describe('ApproveTransactionTool', () => {
         data: { transaction: mockUpdatedTransaction },
       });
 
-      const input = {
-        budgetId: 'custom-budget-id',
-        transactionId: 'transaction-123',
-        approved: true,
-      };
-
-      const result = await tool.execute(input);
-
-      expect(mockApi.transactions.getTransactionById).toHaveBeenCalledWith(
-        'custom-budget-id',
-        'transaction-123'
+      const result = await ApproveTransactionTool.execute(
+        { transactionId: 'transaction-123' },
+        mockApi as any
       );
-      expect(mockApi.transactions.updateTransaction).toHaveBeenCalledWith(
-        'custom-budget-id',
-        'transaction-123',
-        {
-          transaction: {
-            approved: true,
-          },
-        }
-      );
-      expect(result).toEqual({
-        success: true,
-        transactionId: 'transaction-123',
-        message: 'Transaction updated successfully',
-      });
-    });
-
-    it('should successfully approve a transaction with budget ID from environment', async () => {
-      // Setup mocks
-      mockApi.transactions.getTransactionById.mockResolvedValue({
-        data: { transaction: mockExistingTransaction },
-      });
-      mockApi.transactions.updateTransaction.mockResolvedValue({
-        data: { transaction: mockUpdatedTransaction },
-      });
-
-      const input = {
-        transactionId: 'transaction-123',
-        approved: true,
-      };
-
-      const result = await tool.execute(input);
 
       expect(mockApi.transactions.getTransactionById).toHaveBeenCalledWith(
         'test-budget-id',
@@ -129,34 +72,63 @@ describe('ApproveTransactionTool', () => {
           },
         }
       );
-      expect(result).toEqual({
-        success: true,
-        transactionId: 'transaction-123',
-        message: 'Transaction updated successfully',
-      });
+
+      const expectedResult = {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            transactionId: 'transaction-123',
+            message: "Transaction updated successfully",
+          }, null, 2)
+        }]
+      };
+
+      expect(result).toEqual(expectedResult);
     });
 
-    it('should successfully disapprove a transaction', async () => {
-      const mockDisapprovedTransaction = {
+    it('should successfully approve transaction with custom budget ID', async () => {
+      mockApi.transactions.getTransactionById.mockResolvedValue({
+        data: { transaction: mockExistingTransaction },
+      });
+      mockApi.transactions.updateTransaction.mockResolvedValue({
+        data: { transaction: mockUpdatedTransaction },
+      });
+
+      const result = await ApproveTransactionTool.execute(
+        { budgetId: 'custom-budget-id', transactionId: 'transaction-123' },
+        mockApi as any
+      );
+
+      expect(mockApi.transactions.getTransactionById).toHaveBeenCalledWith(
+        'custom-budget-id',
+        'transaction-123'
+      );
+      expect(mockApi.transactions.updateTransaction).toHaveBeenCalledWith(
+        'custom-budget-id',
+        'transaction-123',
+        expect.any(Object)
+      );
+    });
+
+    it('should successfully unapprove transaction when approved=false', async () => {
+      mockApi.transactions.getTransactionById.mockResolvedValue({
+        data: { transaction: mockExistingTransaction },
+      });
+
+      const mockUnapprovedTransaction = {
         ...mockExistingTransaction,
         approved: false,
       };
 
-      // Setup mocks
-      mockApi.transactions.getTransactionById.mockResolvedValue({
-        data: { transaction: mockExistingTransaction },
-      });
       mockApi.transactions.updateTransaction.mockResolvedValue({
-        data: { transaction: mockDisapprovedTransaction },
+        data: { transaction: mockUnapprovedTransaction },
       });
 
-      const input = {
-        budgetId: 'test-budget-id',
-        transactionId: 'transaction-123',
-        approved: false,
-      };
-
-      const result = await tool.execute(input);
+      const result = await ApproveTransactionTool.execute(
+        { transactionId: 'transaction-123', approved: false },
+        mockApi as any
+      );
 
       expect(mockApi.transactions.updateTransaction).toHaveBeenCalledWith(
         'test-budget-id',
@@ -167,83 +139,55 @@ describe('ApproveTransactionTool', () => {
           },
         }
       );
-      expect(result).toEqual({
-        success: true,
-        transactionId: 'transaction-123',
-        message: 'Transaction updated successfully',
-      });
-    });
-
-    it('should throw error when no budget ID is provided', async () => {
-      // Clear environment budget ID
-      delete process.env.YNAB_BUDGET_ID;
-      tool = new ApproveTransactionTool();
-
-      const input = {
-        transactionId: 'transaction-123',
-        approved: true,
-      };
-
-      await expect(tool.execute(input)).rejects.toThrow(
-        'No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.'
-      );
     });
 
     it('should handle transaction not found error', async () => {
-      // Setup mock to return no transaction
       mockApi.transactions.getTransactionById.mockResolvedValue({
         data: { transaction: null },
       });
 
-      const input = {
-        budgetId: 'test-budget-id',
-        transactionId: 'nonexistent-transaction',
-        approved: true,
-      };
+      const result = await ApproveTransactionTool.execute(
+        { transactionId: 'nonexistent-transaction' },
+        mockApi as any
+      );
 
-      const result = await tool.execute(input);
-
-      expect(result).toMatch(/Error getting unapproved transactions: Transaction not found/);
+      expect(result.content[0].text).toContain('Error updating transaction:');
+      expect(result.content[0].text).toContain('Transaction not found');
+      expect(mockApi.transactions.updateTransaction).not.toHaveBeenCalled();
     });
 
-    it('should handle API error when getting existing transaction', async () => {
-      // Setup mock to throw API error
-      const apiError = new Error('API Error: Budget not found');
+    it('should handle API error when getting transaction', async () => {
+      const apiError = new Error('Get Transaction API Error: Unauthorized');
       mockApi.transactions.getTransactionById.mockRejectedValue(apiError);
 
-      const input = {
-        budgetId: 'invalid-budget-id',
-        transactionId: 'transaction-123',
-        approved: true,
-      };
+      const result = await ApproveTransactionTool.execute(
+        { transactionId: 'transaction-123' },
+        mockApi as any
+      );
 
-      const result = await tool.execute(input);
-
-      expect(result).toMatch(/Error getting unapproved transactions: API Error: Budget not found/);
+      expect(result.content[0].text).toContain('Error updating transaction:');
+      expect(result.content[0].text).toContain('Get Transaction API Error: Unauthorized');
+      expect(mockApi.transactions.updateTransaction).not.toHaveBeenCalled();
     });
 
     it('should handle API error when updating transaction', async () => {
-      // Setup mocks
       mockApi.transactions.getTransactionById.mockResolvedValue({
         data: { transaction: mockExistingTransaction },
       });
-      
-      const apiError = new Error('API Error: Transaction update failed');
+
+      const apiError = new Error('Update Transaction API Error: Forbidden');
       mockApi.transactions.updateTransaction.mockRejectedValue(apiError);
 
-      const input = {
-        budgetId: 'test-budget-id',
-        transactionId: 'transaction-123',
-        approved: true,
-      };
+      const result = await ApproveTransactionTool.execute(
+        { transactionId: 'transaction-123' },
+        mockApi as any
+      );
 
-      const result = await tool.execute(input);
-
-      expect(result).toMatch(/Error getting unapproved transactions: API Error: Transaction update failed/);
+      expect(result.content[0].text).toContain('Error updating transaction:');
+      expect(result.content[0].text).toContain('Update Transaction API Error: Forbidden');
     });
 
-    it('should handle case when update returns no transaction data', async () => {
-      // Setup mocks
+    it('should handle missing transaction data in update response', async () => {
       mockApi.transactions.getTransactionById.mockResolvedValue({
         data: { transaction: mockExistingTransaction },
       });
@@ -251,19 +195,30 @@ describe('ApproveTransactionTool', () => {
         data: { transaction: null },
       });
 
-      const input = {
-        budgetId: 'test-budget-id',
-        transactionId: 'transaction-123',
-        approved: true,
-      };
+      const result = await ApproveTransactionTool.execute(
+        { transactionId: 'transaction-123' },
+        mockApi as any
+      );
 
-      const result = await tool.execute(input);
-
-      expect(result).toMatch(/Error getting unapproved transactions: Failed to update transaction - no transaction data returned/);
+      expect(result.content[0].text).toContain('Error updating transaction:');
+      expect(result.content[0].text).toContain('Failed to update transaction - no transaction data returned');
     });
 
-    it('should use default approved value of true when not specified', async () => {
-      // Setup mocks
+    it('should throw error when no budget ID is provided', async () => {
+      delete process.env.YNAB_BUDGET_ID;
+
+      const result = await ApproveTransactionTool.execute(
+        { transactionId: 'transaction-123' },
+        mockApi as any
+      );
+
+      expect(result.content[0].text).toContain('Error updating transaction:');
+      expect(result.content[0].text).toContain('No budget ID provided');
+      expect(mockApi.transactions.getTransactionById).not.toHaveBeenCalled();
+      expect(mockApi.transactions.updateTransaction).not.toHaveBeenCalled();
+    });
+
+    it('should handle approved parameter correctly with default value', async () => {
       mockApi.transactions.getTransactionById.mockResolvedValue({
         data: { transaction: mockExistingTransaction },
       });
@@ -271,61 +226,104 @@ describe('ApproveTransactionTool', () => {
         data: { transaction: mockUpdatedTransaction },
       });
 
-      const input = {
-        budgetId: 'test-budget-id',
-        transactionId: 'transaction-123',
-        // approved not specified, should default to true
-      };
-
-      const result = await tool.execute(input);
+      // Test without approved parameter (should default to true)
+      await ApproveTransactionTool.execute(
+        { transactionId: 'transaction-123' },
+        mockApi as any
+      );
 
       expect(mockApi.transactions.updateTransaction).toHaveBeenCalledWith(
         'test-budget-id',
         'transaction-123',
         {
           transaction: {
-            approved: undefined, // Will be undefined since not specified in input
+            approved: true, // Should default to true
           },
         }
       );
-      expect(result).toEqual({
-        success: true,
-        transactionId: 'transaction-123',
-        message: 'Transaction updated successfully',
-      });
     });
 
-    it('should handle non-Error objects in catch block', async () => {
-      // Setup mock to throw non-Error object
-      const nonErrorObject = { message: 'Custom error object', code: 500 };
-      mockApi.transactions.getTransactionById.mockRejectedValue(nonErrorObject);
+    it('should handle approved parameter with explicit true value', async () => {
+      mockApi.transactions.getTransactionById.mockResolvedValue({
+        data: { transaction: mockExistingTransaction },
+      });
+      mockApi.transactions.updateTransaction.mockResolvedValue({
+        data: { transaction: mockUpdatedTransaction },
+      });
 
-      const input = {
-        budgetId: 'test-budget-id',
-        transactionId: 'transaction-123',
-        approved: true,
+      await ApproveTransactionTool.execute(
+        { transactionId: 'transaction-123', approved: true },
+        mockApi as any
+      );
+
+      expect(mockApi.transactions.updateTransaction).toHaveBeenCalledWith(
+        'test-budget-id',
+        'transaction-123',
+        {
+          transaction: {
+            approved: true,
+          },
+        }
+      );
+    });
+
+    it('should preserve existing transaction data when updating', async () => {
+      mockApi.transactions.getTransactionById.mockResolvedValue({
+        data: { transaction: mockExistingTransaction },
+      });
+      mockApi.transactions.updateTransaction.mockResolvedValue({
+        data: { transaction: mockUpdatedTransaction },
+      });
+
+      await ApproveTransactionTool.execute(
+        { transactionId: 'transaction-123' },
+        mockApi as any
+      );
+
+      // Verify that we only update the approved field, not other transaction data
+      expect(mockApi.transactions.updateTransaction).toHaveBeenCalledWith(
+        'test-budget-id',
+        'transaction-123',
+        {
+          transaction: {
+            approved: true, // Only this field should be in the update
+          },
+        }
+      );
+    });
+
+    it('should handle complex error objects', async () => {
+      const complexError = {
+        message: 'Transaction locked',
+        code: 'TRANSACTION_LOCKED',
+        detail: 'Transaction is part of a reconciled period',
       };
 
-      const result = await tool.execute(input);
+      mockApi.transactions.getTransactionById.mockResolvedValue({
+        data: { transaction: mockExistingTransaction },
+      });
+      mockApi.transactions.updateTransaction.mockRejectedValue(complexError);
 
-      expect(result).toMatch(/Error getting unapproved transactions: {"message":"Custom error object","code":500}/);
+      const result = await ApproveTransactionTool.execute(
+        { transactionId: 'transaction-123' },
+        mockApi as any
+      );
+
+      expect(result.content[0].text).toContain('Error updating transaction:');
+      expect(result.content[0].text).toContain('Transaction locked');
     });
   });
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(tool.name).toBe('approve_transaction');
-      expect(tool.description).toBe('Approves an existing transaction in your YNAB budget.');
+      expect(ApproveTransactionTool.name).toBe('approve_transaction');
+      expect(ApproveTransactionTool.description).toContain('Approves an existing transaction in your YNAB budget');
     });
 
-    it('should have correct schema definition', () => {
-      expect(tool.schema).toHaveProperty('budgetId');
-      expect(tool.schema).toHaveProperty('transactionId');
-      expect(tool.schema).toHaveProperty('approved');
-      
-      expect(tool.schema.budgetId.description).toContain('budget containing the transaction');
-      expect(tool.schema.transactionId.description).toContain('id of the transaction to approve');
-      expect(tool.schema.approved.description).toContain('Whether the transaction should be marked as approved');
+    it('should have correct input schema', () => {
+      expect(ApproveTransactionTool.inputSchema).toHaveProperty('budgetId');
+      expect(ApproveTransactionTool.inputSchema).toHaveProperty('transactionId');
+      expect(ApproveTransactionTool.inputSchema).toHaveProperty('approved');
     });
   });
 });

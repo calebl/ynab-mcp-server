@@ -1,45 +1,24 @@
-import { MCPTool, logger } from "mcp-framework";
-import * as ynab from "ynab";
 import { z } from "zod";
-class GetUnapprovedTransactionsTool extends MCPTool {
-    name = "get_unapproved_transactions";
-    description = "Gets unapproved transactions from a budget. First time pulls last 3 days, subsequent pulls use server knowledge to get only changes.";
-    schema = {
-        budgetId: {
-            type: z.string().optional(),
-            description: "The ID of the budget to fetch transactions for (optional, defaults to the budget set in the YNAB_BUDGET_ID environment variable)",
-        },
-    };
-    api;
-    budgetId;
-    constructor() {
-        super();
-        this.api = new ynab.API(process.env.YNAB_API_TOKEN || "");
-        this.budgetId = process.env.YNAB_BUDGET_ID || "";
+import * as ynab from "ynab";
+export const name = "get_unapproved_transactions";
+export const description = "Gets unapproved transactions from a budget. First time pulls last 3 days, subsequent pulls use server knowledge to get only changes.";
+export const inputSchema = {
+    budgetId: z.string().optional().describe("The ID of the budget to fetch transactions for (optional, defaults to the budget set in the YNAB_BUDGET_ID environment variable)"),
+};
+function getBudgetId(inputBudgetId) {
+    const budgetId = inputBudgetId || process.env.YNAB_BUDGET_ID || "";
+    if (!budgetId) {
+        throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.");
     }
-    async execute(input) {
-        const budgetId = input.budgetId || this.budgetId;
-        if (!budgetId) {
-            return "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable. Use the ListBudgets tool to get a list of available budgets.";
-        }
-        try {
-            logger.info(`Getting unapproved transactions for budget ${budgetId}`);
-            const response = await this.api.transactions.getTransactions(budgetId, undefined, ynab.GetTransactionsTypeEnum.Unapproved);
-            // Transform the transactions to a more readable format
-            const transactions = this.transformTransactions(response.data.transactions);
-            return {
-                transactions,
-                transaction_count: transactions.length,
-            };
-        }
-        catch (error) {
-            logger.error(`Error getting unapproved transactions for budget ${budgetId}:`);
-            logger.error(JSON.stringify(error, null, 2));
-            return `Error getting unapproved transactions: ${error instanceof Error ? error.message : JSON.stringify(error)}`;
-        }
-    }
-    transformTransactions(transactions) {
-        return transactions
+    return budgetId;
+}
+export async function execute(input, api) {
+    try {
+        const budgetId = getBudgetId(input.budgetId);
+        console.log(`Getting unapproved transactions for budget ${budgetId}`);
+        const response = await api.transactions.getTransactions(budgetId, undefined, ynab.GetTransactionsTypeEnum.Unapproved);
+        // Transform the transactions to a more readable format
+        const transactions = response.data.transactions
             .filter((transaction) => !transaction.deleted)
             .map((transaction) => ({
             id: transaction.id,
@@ -55,6 +34,18 @@ class GetUnapprovedTransactionsTool extends MCPTool {
             matched_transaction_id: transaction.matched_transaction_id,
             import_id: transaction.import_id,
         }));
+        return {
+            content: [{ type: "text", text: JSON.stringify({
+                        transactions,
+                        transaction_count: transactions.length,
+                    }, null, 2) }]
+        };
+    }
+    catch (error) {
+        console.error(`Error getting unapproved transactions for budget ${input.budgetId || process.env.YNAB_BUDGET_ID}:`);
+        console.error(JSON.stringify(error, null, 2));
+        return {
+            content: [{ type: "text", text: `Error getting unapproved transactions: ${error instanceof Error ? error.message : JSON.stringify(error)}` }]
+        };
     }
 }
-export default GetUnapprovedTransactionsTool;
