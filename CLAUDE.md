@@ -15,6 +15,10 @@ npm run test:watch   # Run tests with file watching
 npm run test:coverage # Run tests with coverage report
 ```
 
+## Git Best Practices
+
+ALWAYS use conventional commits format (Refer to https://www.conventionalcommits.org/en/v1.0.0/) when creating git commit messages.
+
 ## Architecture Overview
 
 This is a **Model Context Protocol (MCP) server** that provides AI tools for interacting with YNAB (You Need A Budget) budgets. Built with `@modelcontextprotocol/sdk`.
