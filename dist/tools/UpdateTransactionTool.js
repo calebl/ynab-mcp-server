@@ -1,5 +1,6 @@
 import { z } from "zod";
 import * as ynab from "ynab";
+import { getErrorMessage } from "./errorUtils.js";
 export const name = "update_transaction";
 export const description = "Updates an existing transaction. All fields except transactionId are optional - only provide fields you want to change.";
 export const inputSchema = {
@@ -102,7 +103,7 @@ export async function execute(input, api) {
                     type: "text",
                     text: JSON.stringify({
                         success: false,
-                        error: error instanceof Error ? error.message : "Unknown error occurred",
+                        error: getErrorMessage(error),
                     }, null, 2),
                 }],
         };

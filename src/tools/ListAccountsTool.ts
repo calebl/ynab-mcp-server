@@ -1,5 +1,6 @@
 import { z } from "zod";
 import * as ynab from "ynab";
+import { getErrorMessage } from "./errorUtils.js";
 
 export const name = "list_accounts";
 export const description = "Lists all accounts in a budget. Useful for finding account IDs when creating transactions.";
@@ -26,7 +27,7 @@ export async function execute(input: ListAccountsInput, api: ynab.API) {
     const budgetId = getBudgetId(input.budgetId);
     const includeClosedAccounts = input.includeClosedAccounts ?? false;
 
-    console.log(`Listing accounts for budget ${budgetId}`);
+    console.error(`Listing accounts for budget ${budgetId}`);
     const response = await api.accounts.getAccounts(budgetId);
 
     // Filter and format accounts
@@ -60,7 +61,7 @@ export async function execute(input: ListAccountsInput, api: ynab.API) {
         type: "text" as const,
         text: JSON.stringify({
           success: false,
-          error: error instanceof Error ? error.message : "Unknown error occurred",
+          error: getErrorMessage(error),
         }, null, 2),
       }],
     };

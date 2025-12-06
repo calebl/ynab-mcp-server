@@ -234,8 +234,9 @@ describe('BudgetSummaryTool', () => {
 
       const result = await BudgetSummaryTool.execute({}, mockApi as any);
 
-      expect(result.content[0].text).toContain('Error getting budget');
-      expect(result.content[0].text).toContain('test-budget-id');
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('Accounts API Error');
     });
 
     it('should handle API error for month data', async () => {
@@ -247,7 +248,9 @@ describe('BudgetSummaryTool', () => {
 
       const result = await BudgetSummaryTool.execute({}, mockApi as any);
 
-      expect(result.content[0].text).toContain('Error getting budget');
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('Month API Error');
     });
 
     it('should throw error when no budget ID is provided', async () => {
@@ -255,8 +258,9 @@ describe('BudgetSummaryTool', () => {
 
       const result = await BudgetSummaryTool.execute({}, mockApi as any);
 
-      expect(result.content[0].text).toContain('Error getting budget');
-      expect(result.content[0].text).toContain('No budget ID provided');
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('No budget ID provided');
     });
 
     it('should validate month format with regex', () => {

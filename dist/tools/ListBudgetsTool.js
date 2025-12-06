@@ -1,3 +1,4 @@
+import { getErrorMessage } from "./errorUtils.js";
 export const name = "list_budgets";
 export const description = "Lists all available budgets from YNAB API";
 export const inputSchema = {};
@@ -8,9 +9,9 @@ export async function execute(_input, api) {
                 content: [{ type: "text", text: "YNAB API Token is not set" }]
             };
         }
-        console.log("Listing budgets");
+        console.error("Listing budgets");
         const budgetsResponse = await api.budgets.getBudgets();
-        console.log(`Found ${budgetsResponse.data.budgets.length} budgets`);
+        console.error(`Found ${budgetsResponse.data.budgets.length} budgets`);
         const budgets = budgetsResponse.data.budgets.map((budget) => ({
             id: budget.id,
             name: budget.name,
@@ -20,9 +21,12 @@ export async function execute(_input, api) {
         };
     }
     catch (error) {
-        console.error(`Error listing budgets: ${JSON.stringify(error)}`);
+        console.error("Error listing budgets:", error);
         return {
-            content: [{ type: "text", text: `Error listing budgets: ${JSON.stringify(error)}` }]
+            content: [{ type: "text", text: JSON.stringify({
+                        success: false,
+                        error: getErrorMessage(error),
+                    }, null, 2) }]
         };
     }
 }

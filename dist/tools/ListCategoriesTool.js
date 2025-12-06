@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getErrorMessage } from "./errorUtils.js";
 export const name = "list_categories";
 export const description = "Lists all categories in a budget, grouped by category group. Useful for finding category IDs when creating transactions or updating budgets.";
 export const inputSchema = {
@@ -14,7 +15,7 @@ function getBudgetId(inputBudgetId) {
 export async function execute(input, api) {
     try {
         const budgetId = getBudgetId(input.budgetId);
-        console.log(`Listing categories for budget ${budgetId}`);
+        console.error(`Listing categories for budget ${budgetId}`);
         const response = await api.categories.getCategories(budgetId);
         // Format the response with category groups and their categories
         const categoryGroups = response.data.category_groups
@@ -55,7 +56,7 @@ export async function execute(input, api) {
                     type: "text",
                     text: JSON.stringify({
                         success: false,
-                        error: error instanceof Error ? error.message : "Unknown error occurred",
+                        error: getErrorMessage(error),
                     }, null, 2),
                 }],
         };

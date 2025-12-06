@@ -1,5 +1,6 @@
 import { z } from "zod";
 import * as ynab from "ynab";
+import { getErrorMessage } from "./errorUtils.js";
 
 export const name = "approve_transaction";
 export const description = "Approves an existing transaction in your YNAB budget.";
@@ -60,12 +61,12 @@ export async function execute(input: ApproveTransactionInput, api: ynab.API) {
       }, null, 2) }]
     };
   } catch (error) {
-    console.error(`Error updating transaction for budget ${input.budgetId || process.env.YNAB_BUDGET_ID}:`);
-    console.error(JSON.stringify(error, null, 2));
+    console.error("Error approving transaction:", error);
     return {
-      content: [{ type: "text" as const, text: `Error updating transaction: ${
-        error instanceof Error ? error.message : JSON.stringify(error)
-      }` }]
+      content: [{ type: "text" as const, text: JSON.stringify({
+        success: false,
+        error: getErrorMessage(error),
+      }, null, 2) }]
     };
   }
 }

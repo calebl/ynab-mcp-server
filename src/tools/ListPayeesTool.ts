@@ -1,5 +1,6 @@
 import { z } from "zod";
 import * as ynab from "ynab";
+import { getErrorMessage } from "./errorUtils.js";
 
 export const name = "list_payees";
 export const description = "Lists all payees in a budget. Useful for finding payee IDs when creating transactions.";
@@ -23,7 +24,7 @@ export async function execute(input: ListPayeesInput, api: ynab.API) {
   try {
     const budgetId = getBudgetId(input.budgetId);
 
-    console.log(`Listing payees for budget ${budgetId}`);
+    console.error(`Listing payees for budget ${budgetId}`);
     const response = await api.payees.getPayees(budgetId);
 
     // Filter out deleted payees and format the response
@@ -51,7 +52,7 @@ export async function execute(input: ListPayeesInput, api: ynab.API) {
         type: "text" as const,
         text: JSON.stringify({
           success: false,
-          error: error instanceof Error ? error.message : "Unknown error occurred",
+          error: getErrorMessage(error),
         }, null, 2),
       }],
     };

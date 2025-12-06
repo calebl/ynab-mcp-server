@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getErrorMessage } from "./errorUtils.js";
 export const name = "list_scheduled_transactions";
 export const description = "Lists all scheduled (recurring) transactions in a budget.";
 export const inputSchema = {
@@ -14,7 +15,7 @@ function getBudgetId(inputBudgetId) {
 export async function execute(input, api) {
     try {
         const budgetId = getBudgetId(input.budgetId);
-        console.log(`Listing scheduled transactions for budget ${budgetId}`);
+        console.error(`Listing scheduled transactions for budget ${budgetId}`);
         const response = await api.scheduledTransactions.getScheduledTransactions(budgetId);
         // Filter and format scheduled transactions
         const scheduledTransactions = response.data.scheduled_transactions
@@ -52,7 +53,7 @@ export async function execute(input, api) {
                     type: "text",
                     text: JSON.stringify({
                         success: false,
-                        error: error instanceof Error ? error.message : "Unknown error occurred",
+                        error: getErrorMessage(error),
                     }, null, 2),
                 }],
         };

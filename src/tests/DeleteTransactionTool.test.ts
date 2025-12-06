@@ -150,7 +150,8 @@ describe('DeleteTransactionTool', () => {
 
       const response = JSON.parse(result.content[0].text);
       expect(response.success).toBe(false);
-      expect(response.error).toBe('Unknown error occurred');
+      // getErrorMessage will stringify the string error
+      expect(response.error).toBe('"String error"');
     });
   });
 

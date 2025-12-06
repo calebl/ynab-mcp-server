@@ -184,7 +184,9 @@ describe('ListBudgetsTool', () => {
 
       const result = await ListBudgetsTool.execute({}, mockApi as any);
 
-      expect(result.content[0].text).toContain('Error listing budgets:');
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('API Error: Unauthorized');
     });
 
     it('should handle budgets with special characters in names', async () => {

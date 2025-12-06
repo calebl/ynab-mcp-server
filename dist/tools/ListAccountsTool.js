@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getErrorMessage } from "./errorUtils.js";
 export const name = "list_accounts";
 export const description = "Lists all accounts in a budget. Useful for finding account IDs when creating transactions.";
 export const inputSchema = {
@@ -16,7 +17,7 @@ export async function execute(input, api) {
     try {
         const budgetId = getBudgetId(input.budgetId);
         const includeClosedAccounts = input.includeClosedAccounts ?? false;
-        console.log(`Listing accounts for budget ${budgetId}`);
+        console.error(`Listing accounts for budget ${budgetId}`);
         const response = await api.accounts.getAccounts(budgetId);
         // Filter and format accounts
         const accounts = response.data.accounts
@@ -49,7 +50,7 @@ export async function execute(input, api) {
                     type: "text",
                     text: JSON.stringify({
                         success: false,
-                        error: error instanceof Error ? error.message : "Unknown error occurred",
+                        error: getErrorMessage(error),
                     }, null, 2),
                 }],
         };

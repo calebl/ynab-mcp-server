@@ -151,8 +151,9 @@ describe('ApproveTransactionTool', () => {
         mockApi as any
       );
 
-      expect(result.content[0].text).toContain('Error updating transaction:');
-      expect(result.content[0].text).toContain('Transaction not found');
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('Transaction not found');
       expect(mockApi.transactions.updateTransaction).not.toHaveBeenCalled();
     });
 
@@ -165,8 +166,9 @@ describe('ApproveTransactionTool', () => {
         mockApi as any
       );
 
-      expect(result.content[0].text).toContain('Error updating transaction:');
-      expect(result.content[0].text).toContain('Get Transaction API Error: Unauthorized');
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('Get Transaction API Error: Unauthorized');
       expect(mockApi.transactions.updateTransaction).not.toHaveBeenCalled();
     });
 
@@ -183,8 +185,9 @@ describe('ApproveTransactionTool', () => {
         mockApi as any
       );
 
-      expect(result.content[0].text).toContain('Error updating transaction:');
-      expect(result.content[0].text).toContain('Update Transaction API Error: Forbidden');
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('Update Transaction API Error: Forbidden');
     });
 
     it('should handle missing transaction data in update response', async () => {
@@ -200,8 +203,9 @@ describe('ApproveTransactionTool', () => {
         mockApi as any
       );
 
-      expect(result.content[0].text).toContain('Error updating transaction:');
-      expect(result.content[0].text).toContain('Failed to update transaction - no transaction data returned');
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('Failed to update transaction - no transaction data returned');
     });
 
     it('should throw error when no budget ID is provided', async () => {
@@ -212,8 +216,9 @@ describe('ApproveTransactionTool', () => {
         mockApi as any
       );
 
-      expect(result.content[0].text).toContain('Error updating transaction:');
-      expect(result.content[0].text).toContain('No budget ID provided');
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('No budget ID provided');
       expect(mockApi.transactions.getTransactionById).not.toHaveBeenCalled();
       expect(mockApi.transactions.updateTransaction).not.toHaveBeenCalled();
     });
@@ -309,8 +314,10 @@ describe('ApproveTransactionTool', () => {
         mockApi as any
       );
 
-      expect(result.content[0].text).toContain('Error updating transaction:');
-      expect(result.content[0].text).toContain('Transaction locked');
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(false);
+      // The getErrorMessage utility will extract "Transaction locked" from the message property
+      expect(response.error).toContain('Transaction locked');
     });
   });
 

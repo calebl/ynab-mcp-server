@@ -1,5 +1,6 @@
 import { z } from "zod";
 import * as ynab from "ynab";
+import { getErrorMessage } from "./errorUtils.js";
 
 export const name = "list_months";
 export const description = "Lists all budget months. Each month contains summary information about budgeting status.";
@@ -23,7 +24,7 @@ export async function execute(input: ListMonthsInput, api: ynab.API) {
   try {
     const budgetId = getBudgetId(input.budgetId);
 
-    console.log(`Listing months for budget ${budgetId}`);
+    console.error(`Listing months for budget ${budgetId}`);
     const response = await api.months.getBudgetMonths(budgetId);
 
     // Format the months
@@ -53,7 +54,7 @@ export async function execute(input: ListMonthsInput, api: ynab.API) {
         type: "text" as const,
         text: JSON.stringify({
           success: false,
-          error: error instanceof Error ? error.message : "Unknown error occurred",
+          error: getErrorMessage(error),
         }, null, 2),
       }],
     };

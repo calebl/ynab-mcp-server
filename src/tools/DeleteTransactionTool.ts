@@ -1,5 +1,6 @@
 import { z } from "zod";
 import * as ynab from "ynab";
+import { getErrorMessage } from "./errorUtils.js";
 
 export const name = "delete_transaction";
 export const description = "Deletes a transaction from the budget. This action cannot be undone.";
@@ -51,7 +52,7 @@ export async function execute(input: DeleteTransactionInput, api: ynab.API) {
         type: "text" as const,
         text: JSON.stringify({
           success: false,
-          error: error instanceof Error ? error.message : "Unknown error occurred",
+          error: getErrorMessage(error),
         }, null, 2),
       }],
     };

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getErrorMessage } from "./errorUtils.js";
 export const name = "delete_transaction";
 export const description = "Deletes a transaction from the budget. This action cannot be undone.";
 export const inputSchema = {
@@ -37,7 +38,7 @@ export async function execute(input, api) {
                     type: "text",
                     text: JSON.stringify({
                         success: false,
-                        error: error instanceof Error ? error.message : "Unknown error occurred",
+                        error: getErrorMessage(error),
                     }, null, 2),
                 }],
         };

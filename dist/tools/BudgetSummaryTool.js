@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getErrorMessage } from "./errorUtils.js";
 export const name = "budget_summary";
 export const description = "Get a summary of the budget for a specific month highlighting overspent categories that need attention and categories with a positive balance that are doing well.";
 export const inputSchema = {
@@ -16,7 +17,7 @@ export async function execute(input, api) {
     try {
         const budgetId = getBudgetId(input.budgetId);
         const month = input.month || "current";
-        console.log(`Getting accounts and categories for budget ${budgetId} and month ${month}`);
+        console.error(`Getting accounts and categories for budget ${budgetId} and month ${month}`);
         const accountsResponse = await api.accounts.getAccounts(budgetId);
         const accounts = accountsResponse.data.accounts.filter((account) => account.deleted === false && account.closed === false);
         const monthBudget = await api.months.getBudgetMonth(budgetId, month);
@@ -31,10 +32,12 @@ export async function execute(input, api) {
         };
     }
     catch (error) {
-        console.error(`Error getting budget ${input.budgetId || process.env.YNAB_BUDGET_ID}:`);
-        console.error(JSON.stringify(error, null, 2));
+        console.error("Error getting budget summary:", error);
         return {
-            content: [{ type: "text", text: `Error getting budget ${input.budgetId || process.env.YNAB_BUDGET_ID}: ${error instanceof Error ? error.message : JSON.stringify(error)}` }]
+            content: [{ type: "text", text: JSON.stringify({
+                        success: false,
+                        error: getErrorMessage(error),
+                    }, null, 2) }]
         };
     }
 }

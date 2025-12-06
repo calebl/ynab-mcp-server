@@ -1,5 +1,6 @@
 import { z } from "zod";
 import * as ynab from "ynab";
+import { getErrorMessage } from "./errorUtils.js";
 
 export const name = "bulk_approve_transactions";
 export const description = "Approves multiple transactions at once. Provide an array of transaction IDs to approve them all in a single API call.";
@@ -69,7 +70,7 @@ export async function execute(input: BulkApproveTransactionsInput, api: ynab.API
         type: "text" as const,
         text: JSON.stringify({
           success: false,
-          error: error instanceof Error ? error.message : "Unknown error occurred",
+          error: getErrorMessage(error),
         }, null, 2),
       }],
     };

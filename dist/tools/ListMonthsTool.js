@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getErrorMessage } from "./errorUtils.js";
 export const name = "list_months";
 export const description = "Lists all budget months. Each month contains summary information about budgeting status.";
 export const inputSchema = {
@@ -14,7 +15,7 @@ function getBudgetId(inputBudgetId) {
 export async function execute(input, api) {
     try {
         const budgetId = getBudgetId(input.budgetId);
-        console.log(`Listing months for budget ${budgetId}`);
+        console.error(`Listing months for budget ${budgetId}`);
         const response = await api.months.getBudgetMonths(budgetId);
         // Format the months
         const months = response.data.months.map((month) => ({
@@ -43,7 +44,7 @@ export async function execute(input, api) {
                     type: "text",
                     text: JSON.stringify({
                         success: false,
-                        error: error instanceof Error ? error.message : "Unknown error occurred",
+                        error: getErrorMessage(error),
                     }, null, 2),
                 }],
         };

@@ -206,8 +206,9 @@ describe('GetUnapprovedTransactionsTool', () => {
 
       const result = await GetUnapprovedTransactionsTool.execute({}, mockApi as any);
 
-      expect(result.content[0].text).toContain('Error getting unapproved transactions:');
-      expect(result.content[0].text).toContain('API Error: Unauthorized');
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('API Error: Unauthorized');
     });
 
     it('should throw error when no budget ID is provided', async () => {
@@ -215,8 +216,9 @@ describe('GetUnapprovedTransactionsTool', () => {
 
       const result = await GetUnapprovedTransactionsTool.execute({}, mockApi as any);
 
-      expect(result.content[0].text).toContain('Error getting unapproved transactions:');
-      expect(result.content[0].text).toContain('No budget ID provided');
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('No budget ID provided');
     });
 
     it('should convert milliunits to dollars correctly', async () => {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import * as ynab from "ynab";
+import { getErrorMessage } from "./errorUtils.js";
 
 export const name = "list_scheduled_transactions";
 export const description = "Lists all scheduled (recurring) transactions in a budget.";
@@ -23,7 +24,7 @@ export async function execute(input: ListScheduledTransactionsInput, api: ynab.A
   try {
     const budgetId = getBudgetId(input.budgetId);
 
-    console.log(`Listing scheduled transactions for budget ${budgetId}`);
+    console.error(`Listing scheduled transactions for budget ${budgetId}`);
     const response = await api.scheduledTransactions.getScheduledTransactions(budgetId);
 
     // Filter and format scheduled transactions
@@ -62,7 +63,7 @@ export async function execute(input: ListScheduledTransactionsInput, api: ynab.A
         type: "text" as const,
         text: JSON.stringify({
           success: false,
-          error: error instanceof Error ? error.message : "Unknown error occurred",
+          error: getErrorMessage(error),
         }, null, 2),
       }],
     };

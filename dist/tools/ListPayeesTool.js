@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getErrorMessage } from "./errorUtils.js";
 export const name = "list_payees";
 export const description = "Lists all payees in a budget. Useful for finding payee IDs when creating transactions.";
 export const inputSchema = {
@@ -14,7 +15,7 @@ function getBudgetId(inputBudgetId) {
 export async function execute(input, api) {
     try {
         const budgetId = getBudgetId(input.budgetId);
-        console.log(`Listing payees for budget ${budgetId}`);
+        console.error(`Listing payees for budget ${budgetId}`);
         const response = await api.payees.getPayees(budgetId);
         // Filter out deleted payees and format the response
         const payees = response.data.payees
@@ -41,7 +42,7 @@ export async function execute(input, api) {
                     type: "text",
                     text: JSON.stringify({
                         success: false,
-                        error: error instanceof Error ? error.message : "Unknown error occurred",
+                        error: getErrorMessage(error),
                     }, null, 2),
                 }],
         };

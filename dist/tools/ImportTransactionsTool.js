@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getErrorMessage } from "./errorUtils.js";
 export const name = "import_transactions";
 export const description = "Imports available transactions on all linked accounts for the budget. This triggers an import from connected financial institutions (equivalent to clicking 'Import' in the YNAB app).";
 export const inputSchema = {
@@ -14,7 +15,7 @@ function getBudgetId(inputBudgetId) {
 export async function execute(input, api) {
     try {
         const budgetId = getBudgetId(input.budgetId);
-        console.log(`Importing transactions for budget ${budgetId}`);
+        console.error(`Importing transactions for budget ${budgetId}`);
         const response = await api.transactions.importTransactions(budgetId);
         return {
             content: [{
@@ -37,7 +38,7 @@ export async function execute(input, api) {
                     type: "text",
                     text: JSON.stringify({
                         success: false,
-                        error: error instanceof Error ? error.message : "Unknown error occurred",
+                        error: getErrorMessage(error),
                     }, null, 2),
                 }],
         };
