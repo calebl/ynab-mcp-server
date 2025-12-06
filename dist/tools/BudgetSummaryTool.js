@@ -34,7 +34,7 @@ export async function execute(input, api) {
         console.error(`Error getting budget ${input.budgetId || process.env.YNAB_BUDGET_ID}:`);
         console.error(JSON.stringify(error, null, 2));
         return {
-            content: [{ type: "text", text: `Error getting budget ${input.budgetId || process.env.YNAB_BUDGET_ID}: ${JSON.stringify(error)}` }]
+            content: [{ type: "text", text: `Error getting budget ${input.budgetId || process.env.YNAB_BUDGET_ID}: ${error instanceof Error ? error.message : JSON.stringify(error)}` }]
         };
     }
 }
