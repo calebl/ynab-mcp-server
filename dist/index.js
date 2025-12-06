@@ -14,6 +14,11 @@ import * as BulkApproveTransactionsTool from "./tools/BulkApproveTransactionsToo
 import * as ListPayeesTool from "./tools/ListPayeesTool.js";
 import * as GetTransactionsTool from "./tools/GetTransactionsTool.js";
 import * as DeleteTransactionTool from "./tools/DeleteTransactionTool.js";
+import * as ListCategoriesTool from "./tools/ListCategoriesTool.js";
+import * as ListAccountsTool from "./tools/ListAccountsTool.js";
+import * as ListScheduledTransactionsTool from "./tools/ListScheduledTransactionsTool.js";
+import * as ImportTransactionsTool from "./tools/ImportTransactionsTool.js";
+import * as ListMonthsTool from "./tools/ListMonthsTool.js";
 const server = new McpServer({
     name: "ynab-mcp-server",
     version: "0.1.2",
@@ -76,6 +81,31 @@ server.registerTool(DeleteTransactionTool.name, {
     description: DeleteTransactionTool.description,
     inputSchema: DeleteTransactionTool.inputSchema,
 }, async (input) => DeleteTransactionTool.execute(input, api));
+server.registerTool(ListCategoriesTool.name, {
+    title: "List Categories",
+    description: ListCategoriesTool.description,
+    inputSchema: ListCategoriesTool.inputSchema,
+}, async (input) => ListCategoriesTool.execute(input, api));
+server.registerTool(ListAccountsTool.name, {
+    title: "List Accounts",
+    description: ListAccountsTool.description,
+    inputSchema: ListAccountsTool.inputSchema,
+}, async (input) => ListAccountsTool.execute(input, api));
+server.registerTool(ListScheduledTransactionsTool.name, {
+    title: "List Scheduled Transactions",
+    description: ListScheduledTransactionsTool.description,
+    inputSchema: ListScheduledTransactionsTool.inputSchema,
+}, async (input) => ListScheduledTransactionsTool.execute(input, api));
+server.registerTool(ImportTransactionsTool.name, {
+    title: "Import Transactions",
+    description: ImportTransactionsTool.description,
+    inputSchema: ImportTransactionsTool.inputSchema,
+}, async (input) => ImportTransactionsTool.execute(input, api));
+server.registerTool(ListMonthsTool.name, {
+    title: "List Months",
+    description: ListMonthsTool.description,
+    inputSchema: ListMonthsTool.inputSchema,
+}, async (input) => ListMonthsTool.execute(input, api));
 // Start the server
 async function main() {
     const transport = new StdioServerTransport();
