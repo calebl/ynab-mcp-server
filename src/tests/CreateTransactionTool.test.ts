@@ -351,7 +351,7 @@ describe('CreateTransactionTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(CreateTransactionTool.name).toBe('create_transaction');
+      expect(CreateTransactionTool.name).toBe('ynab_create_transaction');
       expect(CreateTransactionTool.description).toContain('Creates a new transaction in your YNAB budget');
     });
 

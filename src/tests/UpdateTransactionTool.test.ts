@@ -206,7 +206,7 @@ describe('UpdateTransactionTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(UpdateTransactionTool.name).toBe('update_transaction');
+      expect(UpdateTransactionTool.name).toBe('ynab_update_transaction');
       expect(UpdateTransactionTool.description).toContain('Updates an existing transaction');
     });
 

@@ -2,7 +2,7 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 
-export const name = "delete_transaction";
+export const name = "ynab_delete_transaction";
 export const description = "Deletes a transaction from the budget. This action cannot be undone.";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),

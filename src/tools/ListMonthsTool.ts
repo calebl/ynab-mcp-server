@@ -2,7 +2,7 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 
-export const name = "list_months";
+export const name = "ynab_list_months";
 export const description = "Lists all budget months. Each month contains summary information about budgeting status.";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),

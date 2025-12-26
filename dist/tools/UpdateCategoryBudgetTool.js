@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getErrorMessage } from "./errorUtils.js";
-export const name = "update_category_budget";
+export const name = "ynab_update_category_budget";
 export const description = "Updates the budgeted amount for a category in a specific month. Use this to allocate funds to categories or move money between categories.";
 export const inputSchema = {
     budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),

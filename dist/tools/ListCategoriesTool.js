@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getErrorMessage } from "./errorUtils.js";
-export const name = "list_categories";
+export const name = "ynab_list_categories";
 export const description = "Lists all categories in a budget, grouped by category group. Useful for finding category IDs when creating transactions or updating budgets.";
 export const inputSchema = {
     budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),

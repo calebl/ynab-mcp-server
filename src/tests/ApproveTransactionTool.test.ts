@@ -323,7 +323,7 @@ describe('ApproveTransactionTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(ApproveTransactionTool.name).toBe('approve_transaction');
+      expect(ApproveTransactionTool.name).toBe('ynab_approve_transaction');
       expect(ApproveTransactionTool.description).toContain('Approves an existing transaction in your YNAB budget');
     });
 

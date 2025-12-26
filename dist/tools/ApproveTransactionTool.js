@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getErrorMessage } from "./errorUtils.js";
-export const name = "approve_transaction";
+export const name = "ynab_approve_transaction";
 export const description = "Approves an existing transaction in your YNAB budget.";
 export const inputSchema = {
     budgetId: z.string().optional().describe("The id of the budget containing the transaction (optional, defaults to the budget set in the YNAB_BUDGET_ID environment variable)"),

@@ -1,9 +1,0 @@
----
-description: directions for generating code for new tools
-globs: 
-alwaysApply: true
----
-
-# Rules for creating and update YNAB tools
-
-- check the type definition for the YNAB npm library here [index.d.ts](mdc:node_modules/ynab/dist/index.d.ts). Read from the imported types found in "models" subfolder if necessary

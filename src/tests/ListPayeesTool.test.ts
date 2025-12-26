@@ -175,7 +175,7 @@ describe('ListPayeesTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(ListPayeesTool.name).toBe('list_payees');
+      expect(ListPayeesTool.name).toBe('ynab_list_payees');
       expect(ListPayeesTool.description).toContain('Lists all payees');
     });
 

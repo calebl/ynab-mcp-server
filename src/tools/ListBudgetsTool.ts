@@ -2,7 +2,7 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 
-export const name = "list_budgets";
+export const name = "ynab_list_budgets";
 export const description = "Lists all available budgets from YNAB API";
 export const inputSchema = {};
 

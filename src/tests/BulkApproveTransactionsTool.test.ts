@@ -202,7 +202,7 @@ describe('BulkApproveTransactionsTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(BulkApproveTransactionsTool.name).toBe('bulk_approve_transactions');
+      expect(BulkApproveTransactionsTool.name).toBe('ynab_bulk_approve_transactions');
       expect(BulkApproveTransactionsTool.description).toContain('multiple transactions');
     });
 

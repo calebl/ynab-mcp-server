@@ -136,7 +136,7 @@ describe('ImportTransactionsTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(ImportTransactionsTool.name).toBe('import_transactions');
+      expect(ImportTransactionsTool.name).toBe('ynab_import_transactions');
       expect(ImportTransactionsTool.description).toContain('linked accounts');
     });
 

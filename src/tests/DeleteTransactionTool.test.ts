@@ -157,7 +157,7 @@ describe('DeleteTransactionTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(DeleteTransactionTool.name).toBe('delete_transaction');
+      expect(DeleteTransactionTool.name).toBe('ynab_delete_transaction');
       expect(DeleteTransactionTool.description).toContain('Deletes a transaction');
     });
 

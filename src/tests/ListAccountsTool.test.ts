@@ -202,7 +202,7 @@ describe('ListAccountsTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(ListAccountsTool.name).toBe('list_accounts');
+      expect(ListAccountsTool.name).toBe('ynab_list_accounts');
       expect(ListAccountsTool.description).toContain('Lists all accounts');
     });
 

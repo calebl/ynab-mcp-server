@@ -218,7 +218,7 @@ describe('ListScheduledTransactionsTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(ListScheduledTransactionsTool.name).toBe('list_scheduled_transactions');
+      expect(ListScheduledTransactionsTool.name).toBe('ynab_list_scheduled_transactions');
       expect(ListScheduledTransactionsTool.description).toContain('scheduled');
     });
 

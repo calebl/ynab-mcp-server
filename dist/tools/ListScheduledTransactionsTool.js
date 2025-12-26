@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getErrorMessage } from "./errorUtils.js";
-export const name = "list_scheduled_transactions";
+export const name = "ynab_list_scheduled_transactions";
 export const description = "Lists all scheduled (recurring) transactions in a budget.";
 export const inputSchema = {
     budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),

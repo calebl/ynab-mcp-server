@@ -280,7 +280,7 @@ describe('BudgetSummaryTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(BudgetSummaryTool.name).toBe('budget_summary');
+      expect(BudgetSummaryTool.name).toBe('ynab_budget_summary');
       expect(BudgetSummaryTool.description).toContain('Get a summary of the budget for a specific month');
     });
 
