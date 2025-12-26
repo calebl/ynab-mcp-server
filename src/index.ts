@@ -9,6 +9,17 @@ import * as GetUnapprovedTransactionsTool from "./tools/GetUnapprovedTransaction
 import * as BudgetSummaryTool from "./tools/BudgetSummaryTool.js";
 import * as CreateTransactionTool from "./tools/CreateTransactionTool.js";
 import * as ApproveTransactionTool from "./tools/ApproveTransactionTool.js";
+import * as UpdateCategoryBudgetTool from "./tools/UpdateCategoryBudgetTool.js";
+import * as UpdateTransactionTool from "./tools/UpdateTransactionTool.js";
+import * as BulkApproveTransactionsTool from "./tools/BulkApproveTransactionsTool.js";
+import * as ListPayeesTool from "./tools/ListPayeesTool.js";
+import * as GetTransactionsTool from "./tools/GetTransactionsTool.js";
+import * as DeleteTransactionTool from "./tools/DeleteTransactionTool.js";
+import * as ListCategoriesTool from "./tools/ListCategoriesTool.js";
+import * as ListAccountsTool from "./tools/ListAccountsTool.js";
+import * as ListScheduledTransactionsTool from "./tools/ListScheduledTransactionsTool.js";
+import * as ImportTransactionsTool from "./tools/ImportTransactionsTool.js";
+import * as ListMonthsTool from "./tools/ListMonthsTool.js";
 
 const server = new McpServer({
   name: "ynab-mcp-server",
@@ -48,6 +59,72 @@ server.registerTool(ApproveTransactionTool.name, {
   description: ApproveTransactionTool.description,
   inputSchema: ApproveTransactionTool.inputSchema,
 }, async (input) => ApproveTransactionTool.execute(input, api));
+
+server.registerTool(UpdateCategoryBudgetTool.name, {
+  title: "Update Category Budget",
+  description: UpdateCategoryBudgetTool.description,
+  inputSchema: UpdateCategoryBudgetTool.inputSchema,
+}, async (input) => UpdateCategoryBudgetTool.execute(input, api));
+
+server.registerTool(UpdateTransactionTool.name, {
+  title: "Update Transaction",
+  description: UpdateTransactionTool.description,
+  inputSchema: UpdateTransactionTool.inputSchema,
+}, async (input) => UpdateTransactionTool.execute(input, api));
+
+server.registerTool(BulkApproveTransactionsTool.name, {
+  title: "Bulk Approve Transactions",
+  description: BulkApproveTransactionsTool.description,
+  inputSchema: BulkApproveTransactionsTool.inputSchema,
+}, async (input) => BulkApproveTransactionsTool.execute(input, api));
+
+server.registerTool(ListPayeesTool.name, {
+  title: "List Payees",
+  description: ListPayeesTool.description,
+  inputSchema: ListPayeesTool.inputSchema,
+}, async (input) => ListPayeesTool.execute(input, api));
+
+server.registerTool(GetTransactionsTool.name, {
+  title: "Get Transactions",
+  description: GetTransactionsTool.description,
+  inputSchema: GetTransactionsTool.inputSchema,
+}, async (input) => GetTransactionsTool.execute(input, api));
+
+server.registerTool(DeleteTransactionTool.name, {
+  title: "Delete Transaction",
+  description: DeleteTransactionTool.description,
+  inputSchema: DeleteTransactionTool.inputSchema,
+}, async (input) => DeleteTransactionTool.execute(input, api));
+
+server.registerTool(ListCategoriesTool.name, {
+  title: "List Categories",
+  description: ListCategoriesTool.description,
+  inputSchema: ListCategoriesTool.inputSchema,
+}, async (input) => ListCategoriesTool.execute(input, api));
+
+server.registerTool(ListAccountsTool.name, {
+  title: "List Accounts",
+  description: ListAccountsTool.description,
+  inputSchema: ListAccountsTool.inputSchema,
+}, async (input) => ListAccountsTool.execute(input, api));
+
+server.registerTool(ListScheduledTransactionsTool.name, {
+  title: "List Scheduled Transactions",
+  description: ListScheduledTransactionsTool.description,
+  inputSchema: ListScheduledTransactionsTool.inputSchema,
+}, async (input) => ListScheduledTransactionsTool.execute(input, api));
+
+server.registerTool(ImportTransactionsTool.name, {
+  title: "Import Transactions",
+  description: ImportTransactionsTool.description,
+  inputSchema: ImportTransactionsTool.inputSchema,
+}, async (input) => ImportTransactionsTool.execute(input, api));
+
+server.registerTool(ListMonthsTool.name, {
+  title: "List Months",
+  description: ListMonthsTool.description,
+  inputSchema: ListMonthsTool.inputSchema,
+}, async (input) => ListMonthsTool.execute(input, api));
 
 // Start the server
 async function main() {
