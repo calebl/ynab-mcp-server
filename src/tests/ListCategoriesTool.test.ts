@@ -208,7 +208,7 @@ describe('ListCategoriesTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(ListCategoriesTool.name).toBe('list_categories');
+      expect(ListCategoriesTool.name).toBe('ynab_list_categories');
       expect(ListCategoriesTool.description).toContain('Lists all categories');
     });
 

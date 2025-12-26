@@ -2,7 +2,7 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 
-export const name = "import_transactions";
+export const name = "ynab_import_transactions";
 export const description = "Imports available transactions on all linked accounts for the budget. This triggers an import from connected financial institutions (equivalent to clicking 'Import' in the YNAB app).";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),

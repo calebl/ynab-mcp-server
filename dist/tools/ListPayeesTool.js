@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getErrorMessage } from "./errorUtils.js";
-export const name = "list_payees";
+export const name = "ynab_list_payees";
 export const description = "Lists all payees in a budget. Useful for finding payee IDs when creating transactions.";
 export const inputSchema = {
     budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),

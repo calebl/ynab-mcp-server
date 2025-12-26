@@ -1,7 +1,7 @@
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-export const name = "get_unapproved_transactions";
+export const name = "ynab_get_unapproved_transactions";
 export const description = "Gets unapproved transactions from a budget. First time pulls last 3 days, subsequent pulls use server knowledge to get only changes.";
 export const inputSchema = {
     budgetId: z.string().optional().describe("The ID of the budget to fetch transactions for (optional, defaults to the budget set in the YNAB_BUDGET_ID environment variable)"),

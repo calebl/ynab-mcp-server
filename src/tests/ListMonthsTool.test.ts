@@ -203,7 +203,7 @@ describe('ListMonthsTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(ListMonthsTool.name).toBe('list_months');
+      expect(ListMonthsTool.name).toBe('ynab_list_months');
       expect(ListMonthsTool.description).toContain('budget months');
     });
 

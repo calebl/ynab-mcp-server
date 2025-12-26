@@ -174,7 +174,7 @@ describe('UpdateCategoryBudgetTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(UpdateCategoryBudgetTool.name).toBe('update_category_budget');
+      expect(UpdateCategoryBudgetTool.name).toBe('ynab_update_category_budget');
       expect(UpdateCategoryBudgetTool.description).toContain('budgeted amount');
     });
 

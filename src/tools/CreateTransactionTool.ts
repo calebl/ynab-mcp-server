@@ -2,7 +2,7 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 
-export const name = "create_transaction";
+export const name = "ynab_create_transaction";
 export const description = "Creates a new transaction in your YNAB budget. Either payeeId or payeeName must be provided in addition to the other required fields.";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The id of the budget to create the transaction in (optional, defaults to the budget set in the YNAB_BUDGET_ID environment variable)"),

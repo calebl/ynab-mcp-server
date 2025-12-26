@@ -2,7 +2,7 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 
-export const name = "budget_summary";
+export const name = "ynab_budget_summary";
 export const description = "Get a summary of the budget for a specific month highlighting overspent categories that need attention and categories with a positive balance that are doing well.";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The ID of the budget to get a summary for (optional, defaults to the budget set in the YNAB_BUDGET_ID environment variable)"),

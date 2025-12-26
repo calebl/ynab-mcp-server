@@ -340,7 +340,7 @@ describe('GetTransactionsTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(GetTransactionsTool.name).toBe('get_transactions');
+      expect(GetTransactionsTool.name).toBe('ynab_get_transactions');
       expect(GetTransactionsTool.description).toContain('Gets transactions');
     });
 
