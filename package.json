@@ -1,9 +1,10 @@
 {
   "name": "ynab-mcp-server",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "ynab-mcp-server MCP server",
   "author": "Caleb LeNoir <caleb.lenoir@hey.com>",
   "type": "module",
+  "module": "./dist/index.js",
   "bin": {
     "ynab-mcp-server": "./dist/index.js"
   },
@@ -15,23 +16,36 @@
     "prepare": "npm run build",
     "watch": "tsc --watch",
     "start": "node dist/index.js",
+    "start:http": "node dist/index.js --http",
+    "start:http:custom": "node dist/index.js --http --port",
     "debug": "npm run build && npx @modelcontextprotocol/inspector dist/index.js",
     "test": "vitest",
     "test:watch": "vitest watch",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "docker:build": "docker build -t ynab-mcp-server .",
+    "docker:local": "docker run -d -p 9000:80 -e YNAB_API_TOKEN=$YNAB_API_TOKEN -e YNAB_BUDGET_ID=$YNAB_BUDGET_ID --name ynab-mcp ynab-mcp-server",
+    "docker:stop": "docker stop ynab-mcp",
+    "docker:remove": "docker rm ynab-mcp"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@types/axios": "^0.14.4",
     "axios": "^1.8.4",
     "commander": "^14.0.1",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
     "ynab": "^2.9.0",
-    "zod": "^3.23.8"
+    "zod": "^4"
   },
   "devDependencies": {
     "@modelcontextprotocol/inspector": "^0.16.5",
+    "@smithery/sdk": "^3.0.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^20.11.24",
+    "@types/supertest": "^6.0.3",
     "@vitest/coverage-v8": "^3.2.4",
+    "supertest": "^7.1.4",
     "typescript": "^5.3.3",
     "vitest": "^3.2.4"
   }

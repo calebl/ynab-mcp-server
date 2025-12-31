@@ -1,12 +1,10 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
 
+runtime: "container"
 startCommand:
-  type: stdio
+  type: "http"
   configSchema:
-    # JSON Schema defining the configuration options for the MCP.
-    type: object
-    required:
-      - ynabApiToken
+    type: "object"
     properties:
       ynabApiToken:
         type: string
@@ -14,17 +12,7 @@ startCommand:
       ynabBudgetId:
         type: string
         description: Optional budget id for the specific budget you want to interact with
-  commandFunction:
-    # A JS function that produces the CLI command based on the given config to start the MCP on stdio.
-    |-
-    (config) => ({
-      command: 'node',
-      args: ['dist/index.js'],
-      env: {
-        YNAB_API_TOKEN: config.ynabApiToken,
-        YNAB_BUDGET_ID: config.ynabBudgetId || ''
-      }
-    })
-  exampleConfig:
-    ynabApiToken: your-ynab-personal-access-token
-    ynabBudgetId: your-ynab-budget-id
+    required: ["ynabApiToken"]
+build:
+  dockerfile: "Dockerfile"
+  dockerBuildPath: "."

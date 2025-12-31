@@ -1,0 +1,41 @@
+# Dependencies
+node_modules
+npm-debug.log
+
+# Build output
+dist
+
+# Tests
+src/tests
+*.test.ts
+coverage
+
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# IDE
+.vscode
+.idea
+.cursor
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
+
+# Logs
+logs
+*.log
+
+# Temporary files
+tmp
+temp
+*.tmp

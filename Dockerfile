@@ -14,12 +14,8 @@ COPY . .
 # Build the project
 RUN npm run build
 
-# Expose any port if required (not strictly necessary for stdio based MCP)
+# Expose port 80 for HTTP server
+EXPOSE 80
 
-# Set environment variable placeholder (user should override these values in production)
-ENV YNAB_API_TOKEN=""
-# optional:
-# ENV YNAB_BUDGET_ID=""
-
-# Define the command to run your app using node
-CMD ["node", "dist/index.js"]
+# Run the HTTP server by default on port 80
+CMD ["node", "dist/index.js", "--http", "--port", "80"]
