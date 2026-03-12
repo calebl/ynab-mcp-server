@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 import { startHttpServer } from "./httpServer.js";
-import { assertBackendEnvironment, resolveRuntimeConfig } from "./runtimeConfig.js";
+import { resolveAppConfig } from "./config.js";
 import { startStdioServer } from "./stdioServer.js";
 
 // Start the server
 async function main() {
-  assertBackendEnvironment(process.env);
-  const config = resolveRuntimeConfig(process.argv.slice(2), process.env);
+  const config = resolveAppConfig(process.argv.slice(2), process.env);
 
-  if (config.transport === "http") {
-    const server = await startHttpServer(config);
+  if (config.runtime.transport === "http") {
+    const server = await startHttpServer(config.runtime);
     console.error(`YNAB MCP server running on ${server.url}`);
     return;
   }

@@ -1,5 +1,6 @@
 import * as ynab from "ynab";
 
+import { readYnabConfig } from "./config.js";
 import { SlidingWindowRateLimiter, createYnabRateLimiter } from "./ynabRateLimiter.js";
 
 declare module "ynab" {
@@ -68,7 +69,7 @@ function createRateLimitedFetchApi(
   };
 }
 
-export function createYnabApi(token = process.env.YNAB_API_TOKEN || "", options: CreateYnabApiOptions = {}) {
+export function createYnabApi(token = readYnabConfig(process.env).apiToken, options: CreateYnabApiOptions = {}) {
   const api = new ynab.API(token);
   const configuration = (api as any)._configuration;
 

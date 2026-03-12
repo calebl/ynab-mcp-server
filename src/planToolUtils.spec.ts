@@ -28,6 +28,25 @@ describe("planToolUtils", () => {
     expect(() => getPlanId()).toThrow("No plan ID provided. Please provide a plan ID or set YNAB_PLAN_ID.");
   });
 
+  it("ignores a whitespace-only YNAB_PLAN_ID", async () => {
+    process.env = { ...originalEnv, YNAB_PLAN_ID: "   " };
+    const api = {
+      plans: {
+        getPlans: async () => ({
+          data: {
+            plans: [
+              { id: "plan-1", name: "Home" },
+            ],
+            default_plan: null,
+          },
+        }),
+      },
+    };
+
+    expect(() => getPlanId()).toThrow("No plan ID provided. Please provide a plan ID or set YNAB_PLAN_ID.");
+    await expect(resolvePlanId(undefined, api as any)).resolves.toBe("plan-1");
+  });
+
   it("resolves the YNAB default plan when no planId is configured", async () => {
     process.env = { ...originalEnv };
     const api = {

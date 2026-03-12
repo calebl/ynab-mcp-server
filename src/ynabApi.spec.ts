@@ -4,13 +4,25 @@ import { createYnabApi } from "./ynabApi.js";
 import { SlidingWindowRateLimiter } from "./ynabRateLimiter.js";
 
 describe("createYnabApi rate limiting", () => {
+  const originalEnv = process.env;
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-10T12:00:00.000Z"));
+    process.env = { ...originalEnv };
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    process.env = { ...originalEnv };
+  });
+
+  it("uses the trimmed API token from environment when no token is passed", () => {
+    process.env = { ...originalEnv, YNAB_API_TOKEN: "  token-a  " };
+
+    const api = createYnabApi() as any;
+
+    expect(api._configuration.configuration.accessToken).toBe("token-a");
   });
 
   it("retries 429 responses using retry-after before succeeding", async () => {

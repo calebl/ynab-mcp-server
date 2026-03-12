@@ -70,10 +70,9 @@ interface MyToolInput {
 
 export async function execute(input: MyToolInput, api: ynab.API) {
   try {
-    const planId = input.planId || process.env.YNAB_PLAN_ID;
-    if (!planId) throw new Error("No plan ID provided");
-
-    const result = await api.someMethod(planId, input.requiredParam);
+    const result = await withResolvedPlan(input.planId, api as any, async (planId) =>
+      api.someMethod(planId, input.requiredParam)
+    );
 
     return {
       content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }]

@@ -1,4 +1,5 @@
 import * as ynab from "ynab";
+import { readYnabConfig } from "./config.js";
 import { createYnabRateLimiter } from "./ynabRateLimiter.js";
 const DEFAULT_RETRY_DELAY_MS = 5_000;
 const DEFAULT_RETRY_LIMIT = 1;
@@ -37,7 +38,7 @@ function createRateLimitedFetchApi(token, options) {
         }
     };
 }
-export function createYnabApi(token = process.env.YNAB_API_TOKEN || "", options = {}) {
+export function createYnabApi(token = readYnabConfig(process.env).apiToken, options = {}) {
     const api = new ynab.API(token);
     const configuration = api._configuration;
     configuration.config = {

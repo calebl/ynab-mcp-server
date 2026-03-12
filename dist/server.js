@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { readYnabConfig } from "./config.js";
 import { getPackageInfo } from "./packageInfo.js";
 import { createYnabApi as createSdkYnabApi } from "./ynabApi.js";
 import * as GetAccountTool from "./tools/GetAccountTool.js";
@@ -66,7 +67,7 @@ export const toolRegistrations = [
     { title: "Get Money Movement Groups", module: GetMoneyMovementGroupsTool },
     { title: "Get Money Movement Groups By Month", module: GetMoneyMovementGroupsByMonthTool },
 ];
-export function createYnabApi(token = process.env.YNAB_API_TOKEN || "") {
+export function createYnabApi(token = readYnabConfig(process.env).apiToken) {
     return createSdkYnabApi(token);
 }
 export function registerServerTools(registrar, api) {

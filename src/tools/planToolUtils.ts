@@ -1,9 +1,10 @@
+import { readYnabConfig } from "../config.js";
 import { getErrorMessage } from "./errorUtils.js";
 
 let runtimePlanIdOverride: string | undefined;
 
 export function getPlanId(inputPlanId?: string): string {
-  const planId = inputPlanId || process.env.YNAB_PLAN_ID || "";
+  const planId = inputPlanId?.trim() || readYnabConfig(process.env).planId || "";
   if (!planId) {
     throw new Error("No plan ID provided. Please provide a plan ID or set YNAB_PLAN_ID.");
   }
@@ -28,8 +29,10 @@ type ResolvePlanIdOptions = {
 };
 
 function getConfiguredPlanId(inputPlanId: string | undefined, options: ResolvePlanIdOptions) {
-  if (inputPlanId) {
-    return inputPlanId;
+  const explicitPlanId = inputPlanId?.trim();
+
+  if (explicitPlanId) {
+    return explicitPlanId;
   }
 
   if (!options.ignoreRuntimePlanIdOverride && runtimePlanIdOverride) {
@@ -37,7 +40,7 @@ function getConfiguredPlanId(inputPlanId: string | undefined, options: ResolvePl
   }
 
   if (!options.ignoreConfiguredPlanId) {
-    return process.env.YNAB_PLAN_ID || "";
+    return readYnabConfig(process.env).planId || "";
   }
 
   return "";

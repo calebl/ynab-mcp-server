@@ -64,5 +64,5 @@ Assumption: remaining budget-era tool names, inputs, env vars, and internal help
 ## Expected Breaking Changes
 
 - MCP tools and input fields may move from `budget` naming to `plan` naming.
-- `YNAB_BUDGET_ID` may be removed in favor of `YNAB_PLAN_ID`.
+- Legacy default-plan env naming may be removed in favor of `YNAB_PLAN_ID`.
 - Any clients or prompts using the old budget-era surface will need updating.
