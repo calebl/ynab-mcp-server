@@ -62,4 +62,19 @@ describe("pure v4 refactor", () => {
       "Do not open PRs, create commits for, push to, or take any other action against Caleb's repo (`calebl/ynab-mcp-server`) unless the user explicitly asks for that target repo.",
     );
   });
+
+  it("documents the SDK-native source layout and plan-based env naming", () => {
+    const claudeMd = readFileSync(path.join(projectRoot, "CLAUDE.md"), "utf8");
+
+    expect(claudeMd).toContain("Built with `@modelcontextprotocol/sdk`.");
+    expect(claudeMd).toContain("interacting with YNAB plans");
+    expect(claudeMd).toContain("`src/server.ts`");
+    expect(claudeMd).toContain("`src/httpServer.ts`");
+    expect(claudeMd).toContain("`src/stdioServer.ts`");
+    expect(claudeMd).toContain("`YNAB_PLAN_ID`");
+    expect(claudeMd).not.toContain("interacting with YNAB (You Need A Budget) budgets");
+    expect(claudeMd).not.toContain("`src/index.ts` - Server setup and tool registration");
+    expect(claudeMd).not.toContain("**Tests**: `src/tests/*.test.ts`");
+    expect(claudeMd).not.toContain("YNAB_BUDGET_ID");
+  });
 });

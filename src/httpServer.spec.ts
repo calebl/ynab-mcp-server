@@ -551,13 +551,17 @@ describe("startHttpServer", () => {
   });
 
   it("returns the same explicit method contract for unsupported MCP endpoint methods", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const httpServer = await startHttpServer({
       allowedOrigins: ["https://claude.ai"],
       host: "127.0.0.1",
       port: 0,
       path: "/mcp",
     });
-    cleanups.push(() => httpServer.close());
+    cleanups.push(async () => {
+      consoleErrorSpy.mockRestore();
+      await httpServer.close();
+    });
 
     const response = await fetch(httpServer.url, {
       method: "PUT",
@@ -576,6 +580,11 @@ describe("startHttpServer", () => {
       },
       id: null,
     });
+    expect(findLogCall(consoleErrorSpy, "request.rejected", (details) => (
+      details.reason === "method-not-allowed" &&
+      details.method === "PUT" &&
+      details.path === "/mcp"
+    ))).toBeTruthy();
   });
 
   it("accepts sessionless POST requests after initialization", async () => {
@@ -925,5 +934,16 @@ describe("startHttpServer", () => {
     expect(result.tools.map((tool) => tool.name)).toContain("ynab_list_plans");
 
     await client.close();
+  });
+
+  it("allows the started HTTP server to be closed more than once", async () => {
+    const httpServer = await startHttpServer({
+      host: "127.0.0.1",
+      port: 0,
+    });
+    cleanups.push(() => httpServer.close());
+
+    await expect(httpServer.close()).resolves.toBeUndefined();
+    await expect(httpServer.close()).resolves.toBeUndefined();
   });
 });

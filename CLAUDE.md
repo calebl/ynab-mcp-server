@@ -26,12 +26,15 @@ Do not open PRs, create commits for, push to, or take any other action against C
 
 ## Architecture Overview
 
-This is a **Model Context Protocol (MCP) server** that provides AI tools for interacting with YNAB (You Need A Budget) budgets. Built with `@modelcontextprotocol/sdk`.
+This is a **Model Context Protocol (MCP) server** that provides AI tools for interacting with YNAB plans. Built with `@modelcontextprotocol/sdk`.
 
 ### Core Structure
-- **Entry Point**: `src/index.ts` - Server setup and tool registration
+- **Server Factory**: `src/server.ts` - SDK-native `McpServer` creation and tool registration
+- **HTTP Transport**: `src/httpServer.ts` - Streamable HTTP transport wiring and request handling
+- **Stdio Transport**: `src/stdioServer.ts` - stdio transport wiring for local MCP clients
+- **CLI Entry Point**: `src/index.ts` - runtime config resolution and transport selection
 - **Tools**: `src/tools/*.ts` - Each tool is a separate module exporting `name`, `description`, `inputSchema`, and `execute` function
-- **Tests**: `src/tests/*.test.ts` - Vitest tests for each tool
+- **Tests**: `src/*.spec.ts` - Vitest specs colocated under `src/`
 
 ### Tool Module Pattern
 Each tool in `src/tools/` exports:
@@ -40,11 +43,11 @@ Each tool in `src/tools/` exports:
 - `inputSchema`: Zod schema object for input validation
 - `execute(input, api)`: Async handler receiving input and YNAB API client
 
-Tools are registered in `src/index.ts` which passes the shared YNAB `api` instance to each handler.
+Tools are registered in `src/server.ts`, which passes the shared YNAB `api` instance to each handler.
 
 ### Environment Variables
 - `YNAB_API_TOKEN` (required) - Personal Access Token from YNAB API
-- `YNAB_BUDGET_ID` (optional) - Default budget ID
+- `YNAB_PLAN_ID` (optional) - Default plan ID for tools that accept `planId`
 
 ## Adding New Tools
 
@@ -56,21 +59,21 @@ import * as ynab from "ynab";
 export const name = "my_tool";
 export const description = "What this tool does";
 export const inputSchema = {
-  budgetId: z.string().optional().describe("Budget ID (optional, uses YNAB_BUDGET_ID env var if not provided)"),
+  planId: z.string().optional().describe("Plan ID (optional, uses YNAB_PLAN_ID env var if not provided)"),
   requiredParam: z.string().describe("Description of required param"),
 };
 
 interface MyToolInput {
-  budgetId?: string;
+  planId?: string;
   requiredParam: string;
 }
 
 export async function execute(input: MyToolInput, api: ynab.API) {
   try {
-    const budgetId = input.budgetId || process.env.YNAB_BUDGET_ID;
-    if (!budgetId) throw new Error("No budget ID provided");
+    const planId = input.planId || process.env.YNAB_PLAN_ID;
+    if (!planId) throw new Error("No plan ID provided");
 
-    const result = await api.someMethod(budgetId, input.requiredParam);
+    const result = await api.someMethod(planId, input.requiredParam);
 
     return {
       content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }]
@@ -83,7 +86,7 @@ export async function execute(input: MyToolInput, api: ynab.API) {
 }
 ```
 
-2. Register in `src/index.ts`:
+2. Register in `src/server.ts`:
 ```typescript
 import * as MyTool from "./tools/MyTool.js";
 
@@ -94,7 +97,7 @@ server.registerTool(MyTool.name, {
 }, async (input) => MyTool.execute(input, api));
 ```
 
-3. Add test in `src/tests/MyTool.test.ts`
+3. Add test in `src/myTool.spec.ts`
 
 ## YNAB API Reference
 - YNAB SDK types: `node_modules/ynab/dist/index.d.ts`

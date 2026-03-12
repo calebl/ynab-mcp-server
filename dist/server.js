@@ -35,7 +35,7 @@ export const SERVER_INFO = {
     name: packageInfo.name,
     version: packageInfo.version,
 };
-const toolRegistrations = [
+export const toolRegistrations = [
     { title: "Get MCP Version", module: GetMcpVersionTool },
     { title: "Get User", module: GetUserTool },
     { title: "List Plans", module: ListPlansTool },
@@ -69,14 +69,20 @@ const toolRegistrations = [
 export function createYnabApi(token = process.env.YNAB_API_TOKEN || "") {
     return createSdkYnabApi(token);
 }
-export function createServer(api = createYnabApi()) {
-    const server = new McpServer(SERVER_INFO);
+export function registerServerTools(registrar, api) {
+    const registeredToolNames = [];
     for (const { title, module } of toolRegistrations) {
-        server.registerTool(module.name, {
+        registrar.registerTool(module.name, {
             title,
             description: module.description,
             inputSchema: module.inputSchema,
         }, async (input) => module.execute(input, api));
+        registeredToolNames.push(module.name);
     }
+    return registeredToolNames;
+}
+export function createServer(api = createYnabApi()) {
+    const server = new McpServer(SERVER_INFO);
+    registerServerTools(server, api);
     return server;
 }

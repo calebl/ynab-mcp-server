@@ -1,5 +1,4 @@
 import { createServer as createNodeServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -30,7 +29,6 @@ const CORS_HEADERS = {
   "access-control-expose-headers": "Mcp-Session-Id",
 } as const;
 
-const MCP_ROUTE_METHODS = ["POST"] as const;
 const HTTP_ALLOWED_METHODS = ["POST"] as const;
 
 type ManagedRequest = {
@@ -310,6 +308,24 @@ function writeRequestResolution(res: ServerResponse, resolution: Exclude<Request
   }
 }
 
+async function closeNodeServer(server: ReturnType<typeof createNodeServer>) {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        if ((error as NodeJS.ErrnoException).code === "ERR_SERVER_NOT_RUNNING") {
+          resolve();
+          return;
+        }
+
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
+}
+
 export async function startHttpServer(options: HttpServerOptions = {}): Promise<StartedHttpServer> {
   const allowedOrigins = new Set((options.allowedOrigins ?? []).map((origin) => normalizeOrigin(origin)));
   const host = options.host ?? "127.0.0.1";
@@ -345,10 +361,10 @@ export async function startHttpServer(options: HttpServerOptions = {}): Promise<
       return;
     }
 
-    if (!req.method || (!MCP_ROUTE_METHODS.includes(req.method as (typeof MCP_ROUTE_METHODS)[number]) && req.method !== "GET" && req.method !== "DELETE")) {
+    if (req.method !== "POST") {
       logHttpDebug("request.rejected", {
         ...getRequestDebugDetails(req),
-        reason: "unsupported-method",
+        reason: "method-not-allowed",
       });
       writeMethodNotAllowed(res, HTTP_ALLOWED_METHODS);
       return;
@@ -428,26 +444,21 @@ export async function startHttpServer(options: HttpServerOptions = {}): Promise<
   }
 
   const resolvedAddress = address as AddressInfo;
+  let closed = false;
 
   return {
     host,
-      path,
-      port: resolvedAddress.port,
-      url: `http://${host}:${resolvedAddress.port}${path}`,
-      close: async () => {
-        resetPlanResolutionState();
+    path,
+    port: resolvedAddress.port,
+    url: `http://${host}:${resolvedAddress.port}${path}`,
+    close: async () => {
+      if (closed) {
+        return;
+      }
 
-        await new Promise<void>((resolve, reject) => {
-        server.close((error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-
-          resolve();
-        });
-      });
-
-      },
-    };
+      closed = true;
+      resetPlanResolutionState();
+      await closeNodeServer(server);
+    },
+  };
 }

@@ -8,7 +8,6 @@ const CORS_HEADERS = {
     "access-control-allow-headers": "content-type, mcp-session-id, mcp-protocol-version, authorization",
     "access-control-expose-headers": "Mcp-Session-Id",
 };
-const MCP_ROUTE_METHODS = ["POST"];
 const HTTP_ALLOWED_METHODS = ["POST"];
 function applyCorsHeaders(res) {
     for (const [name, value] of Object.entries(CORS_HEADERS)) {
@@ -209,6 +208,21 @@ function writeRequestResolution(res, resolution) {
             return;
     }
 }
+async function closeNodeServer(server) {
+    await new Promise((resolve, reject) => {
+        server.close((error) => {
+            if (error) {
+                if (error.code === "ERR_SERVER_NOT_RUNNING") {
+                    resolve();
+                    return;
+                }
+                reject(error);
+                return;
+            }
+            resolve();
+        });
+    });
+}
 export async function startHttpServer(options = {}) {
     const allowedOrigins = new Set((options.allowedOrigins ?? []).map((origin) => normalizeOrigin(origin)));
     const host = options.host ?? "127.0.0.1";
@@ -239,10 +253,10 @@ export async function startHttpServer(options = {}) {
             writeNotFound(res);
             return;
         }
-        if (!req.method || (!MCP_ROUTE_METHODS.includes(req.method) && req.method !== "GET" && req.method !== "DELETE")) {
+        if (req.method !== "POST") {
             logHttpDebug("request.rejected", {
                 ...getRequestDebugDetails(req),
-                reason: "unsupported-method",
+                reason: "method-not-allowed",
             });
             writeMethodNotAllowed(res, HTTP_ALLOWED_METHODS);
             return;
@@ -310,22 +324,19 @@ export async function startHttpServer(options = {}) {
         throw new Error("HTTP server did not expose a TCP address");
     }
     const resolvedAddress = address;
+    let closed = false;
     return {
         host,
         path,
         port: resolvedAddress.port,
         url: `http://${host}:${resolvedAddress.port}${path}`,
         close: async () => {
+            if (closed) {
+                return;
+            }
+            closed = true;
             resetPlanResolutionState();
-            await new Promise((resolve, reject) => {
-                server.close((error) => {
-                    if (error) {
-                        reject(error);
-                        return;
-                    }
-                    resolve();
-                });
-            });
+            await closeNodeServer(server);
         },
     };
 }
