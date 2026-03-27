@@ -34,9 +34,9 @@ describe('CreateTransactionTool', () => {
       payeeName: 'Test Payee',
       categoryId: 'category-123',
       memo: 'Test transaction',
-      cleared: true,
+      cleared: 'cleared' as const,
       approved: false,
-      flagColor: 'red',
+      flagColor: 'red' as const,
     };
 
     const mockCreatedTransaction = {
@@ -283,14 +283,15 @@ describe('CreateTransactionTool', () => {
     });
 
     it('should handle cleared status correctly', async () => {
-      const clearedInput = { ...validTransactionInput, cleared: true };
-      const unclearedInput = { ...validTransactionInput, cleared: false };
+      const clearedInput = { ...validTransactionInput, cleared: 'cleared' as const };
+      const unclearedInput = { ...validTransactionInput, cleared: 'uncleared' as const };
+      const reconciledInput = { ...validTransactionInput, cleared: 'reconciled' as const };
 
       mockApi.transactions.createTransaction.mockResolvedValue({
         data: { transaction: mockCreatedTransaction },
       });
 
-      // Test cleared = true
+      // Test cleared = 'cleared'
       await CreateTransactionTool.execute(clearedInput, mockApi as any);
       expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
         'test-budget-id',
@@ -303,13 +304,26 @@ describe('CreateTransactionTool', () => {
 
       mockApi.transactions.createTransaction.mockClear();
 
-      // Test cleared = false
+      // Test cleared = 'uncleared'
       await CreateTransactionTool.execute(unclearedInput, mockApi as any);
       expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
         'test-budget-id',
         expect.objectContaining({
           transaction: expect.objectContaining({
             cleared: ynab.TransactionClearedStatus.Uncleared,
+          }),
+        })
+      );
+
+      mockApi.transactions.createTransaction.mockClear();
+
+      // Test cleared = 'reconciled'
+      await CreateTransactionTool.execute(reconciledInput, mockApi as any);
+      expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
+        'test-budget-id',
+        expect.objectContaining({
+          transaction: expect.objectContaining({
+            cleared: ynab.TransactionClearedStatus.Reconciled,
           }),
         })
       );
