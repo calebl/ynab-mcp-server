@@ -8,14 +8,14 @@ export const inputSchema = {
   budgetId: z.string().optional().describe("The id of the budget to create the transaction in (optional, defaults to the budget set in the YNAB_BUDGET_ID environment variable)"),
   accountId: z.string().describe("The id of the account to create the transaction in"),
   date: z.string().describe("The date of the transaction in ISO format (e.g. 2024-03-24)"),
-  amount: z.number().describe("The amount in dollars (e.g. 10.99)"),
+  amount: z.number().describe("The amount in dollars (e.g. -10.99 for outflow, 10.99 for inflow)"),
   payeeId: z.string().optional().describe("The id of the payee (optional if payeeName is provided)"),
   payeeName: z.string().optional().describe("The name of the payee (optional if payeeId is provided)"),
   categoryId: z.string().optional().describe("The category id for the transaction (optional)"),
   memo: z.string().optional().describe("A memo/note for the transaction (optional)"),
-  cleared: z.boolean().optional().describe("Whether the transaction is cleared (optional, defaults to false)"),
+  cleared: z.enum(["cleared", "uncleared", "reconciled"]).optional().describe("The cleared status of the transaction (optional, defaults to uncleared)"),
   approved: z.boolean().optional().describe("Whether the transaction is approved (optional, defaults to false)"),
-  flagColor: z.string().optional().describe("The transaction flag color (red, orange, yellow, green, blue, purple) (optional)"),
+  flagColor: z.enum(["red", "orange", "yellow", "green", "blue", "purple"]).optional().describe("The transaction flag color (optional)"),
 };
 
 interface CreateTransactionInput {
@@ -27,9 +27,20 @@ interface CreateTransactionInput {
   payeeName?: string;
   categoryId?: string;
   memo?: string;
-  cleared?: boolean;
+  cleared?: "cleared" | "uncleared" | "reconciled";
   approved?: boolean;
-  flagColor?: string;
+  flagColor?: "red" | "orange" | "yellow" | "green" | "blue" | "purple";
+}
+
+function mapClearedStatus(cleared?: string): ynab.TransactionClearedStatus {
+  switch (cleared) {
+    case "cleared":
+      return ynab.TransactionClearedStatus.Cleared;
+    case "reconciled":
+      return ynab.TransactionClearedStatus.Reconciled;
+    default:
+      return ynab.TransactionClearedStatus.Uncleared;
+  }
 }
 
 function getBudgetId(inputBudgetId?: string): string {
@@ -59,7 +70,7 @@ export async function execute(input: CreateTransactionInput, api: ynab.API) {
         payee_name: input.payeeName,
         category_id: input.categoryId,
         memo: input.memo,
-        cleared: input.cleared ? ynab.TransactionClearedStatus.Cleared : ynab.TransactionClearedStatus.Uncleared,
+        cleared: mapClearedStatus(input.cleared),
         approved: input.approved ?? false,
         flag_color: input.flagColor as ynab.TransactionFlagColor,
       }
