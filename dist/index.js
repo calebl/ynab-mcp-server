@@ -21,7 +21,7 @@ import * as ImportTransactionsTool from "./tools/ImportTransactionsTool.js";
 import * as ListMonthsTool from "./tools/ListMonthsTool.js";
 const server = new McpServer({
     name: "ynab-mcp-server",
-    version: "0.1.2",
+    version: "0.2.0",
 });
 // Initialize YNAB API
 const api = new ynab.API(process.env.YNAB_API_TOKEN || "");
