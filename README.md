@@ -3,7 +3,7 @@
 # ynab-mcp-server
 [![smithery badge](https://smithery.ai/badge/@calebl/ynab-mcp-server)](https://smithery.ai/server/@calebl/ynab-mcp-server)
 
-A Model Context Protocol (MCP) server built with mcp-framework. This MCP provides tools
+A Model Context Protocol (MCP) server built with `@modelcontextprotocol/sdk`. This MCP provides tools
 for interacting with your YNAB budgets setup at https://ynab.com
 
 <a href="https://glama.ai/mcp/servers/@calebl/ynab-mcp-server">
@@ -36,23 +36,39 @@ tool first, this prompt should happen asking you to set your default budget.
 ### Check total monthly spending vs total income
 ### Auto-distribute ready to assign funds based on category targets
 
-## Current state
-Available tools:
-* ListBudgets - lists available budgets on your account
-* BudgetSummary - provides a summary of categories that are underfunded and accounts that are low
-* GetUnapprovedTransactions - retrieve all unapproved transactions
-* CreateTransaction - creates a transaction for a specified budget and account.
-  * example prompt: `Add a transaction to my Ally account for $3.98 I spent at REI today`
-  * requires GetBudget to be called first so we know the account id
-* ApproveTransaction - approves an existing transaction in your YNAB budget
-  * requires a transaction ID to approve
-  * can be used in conjunction with GetUnapprovedTransactions to approve pending transactions
-  * After calling get unapproved transactions, prompt: `approve the transaction for $6.95 on the Apple Card`
+## Available Tools
 
-Next:
-* be able to approve multiple transactions with 1 call
-* updateCategory tool - or updateTransaction more general tool if I can get optional parameters to work correctly with zod & mcp framework
-* move off of mcp framework to use the model context protocol sdk directly?
+### Budget & Accounts (read)
+| Tool | Description |
+|------|-------------|
+| `ynab_list_budgets` | List all budgets on your account |
+| `ynab_list_accounts` | List accounts in a budget with balances |
+| `ynab_list_categories` | List categories grouped by category group |
+| `ynab_list_payees` | List all payees in a budget |
+| `ynab_list_months` | List all budget months with summary data |
+| `ynab_budget_summary` | Snapshot of budget health for a given month |
+
+### Transactions (read)
+| Tool | Description |
+|------|-------------|
+| `ynab_get_transactions` | Fetch transactions with optional filters (date, type, account, category, payee) |
+| `ynab_get_unapproved_transactions` | Get all unapproved transactions |
+| `ynab_list_scheduled_transactions` | List recurring/scheduled transactions |
+
+### Transactions (write)
+| Tool | Description |
+|------|-------------|
+| `ynab_create_transaction` | Create a new transaction — example: `Add a $3.98 transaction to my Ally account at REI today` |
+| `ynab_update_transaction` | Update any field on an existing transaction |
+| `ynab_delete_transaction` | Delete a transaction |
+| `ynab_approve_transaction` | Approve or unapprove a single transaction |
+| `ynab_bulk_approve_transactions` | Approve multiple transactions in one call |
+
+### Budget (write)
+| Tool | Description |
+|------|-------------|
+| `ynab_update_category_budget` | Set the budgeted amount for a category in a given month |
+| `ynab_import_transactions` | Trigger an import from connected bank accounts |
 
 
 ## Quick Start
@@ -71,10 +87,10 @@ npm run build
 ```
 ynab-mcp-server/
 ├── src/
-│   ├── tools/        # MCP Tools
-│   └── index.ts      # Server entry point
-├── .cursor/
-│   └── rules/        # Cursor AI rules for code generation
+│   ├── tools/        # MCP tool implementations (one file per tool)
+│   ├── tests/        # Vitest tests (one file per tool)
+│   └── index.ts      # Server entry point and tool registration
+├── dist/             # Compiled JavaScript output
 ├── package.json
 └── tsconfig.json
 ```
