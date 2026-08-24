@@ -11,9 +11,9 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && chmod +x dist/index.js",
+    "build": "tsup src/index.ts --format esm --outDir dist && chmod +x dist/index.js",
     "prepare": "npm run build",
-    "watch": "tsc --watch",
+    "watch": "tsup src/index.ts --format esm --outDir dist --watch",
     "start": "node dist/index.js",
     "debug": "npm run build && npx @modelcontextprotocol/inspector dist/index.js",
     "test": "vitest",
@@ -32,6 +32,7 @@
     "@modelcontextprotocol/inspector": "^0.16.5",
     "@types/node": "^20.11.24",
     "@vitest/coverage-v8": "^3.2.4",
+    "tsup": "^8.5.1",
     "typescript": "^5.3.3",
     "vitest": "^3.2.4"
   }
