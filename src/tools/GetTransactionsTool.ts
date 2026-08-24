@@ -43,6 +43,15 @@ function mapTransactionType(type?: string): ynab.GetTransactionsTypeEnum | undef
   }
 }
 
+interface SubtransactionData {
+  id: string;
+  amount: number;
+  category_id?: string | null;
+  category_name?: string | null;
+  memo?: string | null;
+  deleted: boolean;
+}
+
 interface TransactionData {
   id: string;
   date: string;
@@ -56,6 +65,7 @@ interface TransactionData {
   flag_color?: string | null;
   transfer_account_id?: string | null;
   deleted: boolean;
+  subtransactions?: SubtransactionData[];
 }
 
 export async function execute(input: GetTransactionsInput, api: ynab.API) {
@@ -115,6 +125,15 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
         category_name: txn.category_name,
         flag_color: txn.flag_color,
         transfer_account_id: txn.transfer_account_id,
+        subtransactions: txn.subtransactions
+          ?.filter((s) => !s.deleted)
+          .map((s) => ({
+            id: s.id,
+            amount: (s.amount / 1000).toFixed(2),
+            category_id: s.category_id,
+            category_name: s.category_name,
+            memo: s.memo,
+          })) ?? [],
       }));
 
     return {

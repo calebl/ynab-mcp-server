@@ -8,6 +8,7 @@ import * as ListBudgetsTool from "./tools/ListBudgetsTool.js";
 import * as GetUnapprovedTransactionsTool from "./tools/GetUnapprovedTransactionsTool.js";
 import * as BudgetSummaryTool from "./tools/BudgetSummaryTool.js";
 import * as CreateTransactionTool from "./tools/CreateTransactionTool.js";
+import * as CreateSplitTransactionTool from "./tools/CreateSplitTransactionTool.js";
 import * as ApproveTransactionTool from "./tools/ApproveTransactionTool.js";
 import * as UpdateCategoryBudgetTool from "./tools/UpdateCategoryBudgetTool.js";
 import * as UpdateTransactionTool from "./tools/UpdateTransactionTool.js";
@@ -53,6 +54,12 @@ server.registerTool(CreateTransactionTool.name, {
   description: CreateTransactionTool.description,
   inputSchema: CreateTransactionTool.inputSchema,
 }, async (input) => CreateTransactionTool.execute(input, api));
+
+server.registerTool(CreateSplitTransactionTool.name, {
+  title: "Create Split Transaction",
+  description: CreateSplitTransactionTool.description,
+  inputSchema: CreateSplitTransactionTool.inputSchema,
+}, async (input) => CreateSplitTransactionTool.execute(input, api));
 
 server.registerTool(ApproveTransactionTool.name, {
   title: "Approve Transaction",
