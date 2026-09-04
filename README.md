@@ -1,7 +1,7 @@
 [![MseeP.ai Security Assessment Badge](https://mseep.net/mseep-audited.png)](https://mseep.ai/app/calebl-ynab-mcp-server)
 
 # ynab-mcp-server
-[![smithery badge](https://smithery.ai/badge/@calebl/ynab-mcp-server)](https://smithery.ai/server/@calebl/ynab-mcp-server)
+[![LightNow](https://lightnow.ai/badge/io.github.calebl/ynab-mcp-server)](https://lightnow.ai/servers/io.github.calebl/ynab-mcp-server)
 
 A Model Context Protocol (MCP) server built with mcp-framework. This MCP provides tools
 for interacting with your YNAB budgets setup at https://ynab.com
