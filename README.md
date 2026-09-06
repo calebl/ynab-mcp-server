@@ -61,17 +61,49 @@ YNAB's milliunits; conversion happens in `src/tools/money.ts`.
 | `ynab_get_transactions` | Transactions filtered by `sinceDate`, `accountId`, `categoryId`, `payeeId`, `type` (`all`/`uncategorized`/`unapproved`) and `limit` (default 100). |
 | `ynab_get_unapproved_transactions` | Unapproved transactions, optionally from `sinceDate` onward. |
 
+### Reporting
+
+Splits are counted through their subtransactions and transfers between your own
+accounts are excluded, so these report spending rather than money movement.
+
+| Tool | What it does |
+| --- | --- |
+| `ynab_spending_by_category` | Total spend per category over a date range, biggest first, with share of total. Defaults to the last 30 days. |
+| `ynab_spending_by_payee` | The same, grouped by merchant. |
+| `ynab_cash_flow` | Income vs spending per month with the running net, from YNAB's own monthly totals. Defaults to the last 6 months. |
+
 ### Writing
 
 | Tool | What it does |
 | --- | --- |
-| `ynab_create_transaction` | Creates a transaction. Needs `accountId`, `date` and `amount`, plus either `payeeId` or `payeeName`. |
+| `ynab_create_transaction` | Creates a transaction. Needs `date`, `amount`, an account (`accountId` or `accountName`) and a payee (`payeeId` or `payeeName`); category optional as `categoryId` or `categoryName`. |
 | `ynab_update_transaction` | Updates any subset of an existing transaction's fields. |
 | `ynab_delete_transaction` | Deletes a transaction. Not undoable. |
 | `ynab_approve_transaction` | Approves (or un-approves) one transaction. |
 | `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call. |
 | `ynab_update_category_budget` | Sets the total budgeted amount for a category in a month. Not an increment. |
 | `ynab_import_transactions` | Triggers an import from linked institutions, the same as hitting Import in the YNAB app. |
+| `ynab_move_money` | Moves budgeted money between two categories in a month, for covering overspending. |
+| `ynab_auto_assign` | Spreads Ready to Assign over categories with unmet monthly goals, largest shortfall first. `dryRun` to preview, `maxTotal` to cap it. |
+
+#### Names instead of IDs
+
+`ynab_create_transaction` accepts `accountName` and `categoryName` and matches
+them loosely against the budget, so "ally checking" finds *Ally Checking*.
+Closed accounts and hidden categories are never matched. If a name is ambiguous
+or unrecognised the call fails and names the near misses rather than guessing,
+and successful calls echo back `matchedAccount` / `matchedCategory` so a wrong
+guess is visible.
+
+#### Writes that can half-succeed
+
+YNAB has no endpoint for moving money between categories, so `ynab_move_money`
+rewrites both categories' budgeted amounts in two calls. It takes from the
+source first, so a failure in between leaves the money in Ready to Assign rather
+than double-counted. When that happens the response sets `partial: true` and
+carries a `recovery` line with the original amount to restore. `ynab_auto_assign`
+behaves the same way: on failure it reports which categories were already funded
+and which were left alone.
 
 Tools never throw at the protocol level. Failures come back as
 `{ "success": false, "error": "..." }` in the text content.
