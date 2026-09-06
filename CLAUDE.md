@@ -94,4 +94,4 @@ server.registerTool(MyTool.name, {
 ## YNAB API Reference
 - YNAB SDK types: `node_modules/ynab/dist/index.d.ts`
 - OpenAPI spec: https://api.ynab.com/papi/open_api_spec.yaml
-- Amounts are in milliunits (multiply dollars by 1000)
+- The API works in milliunits; tools expose plain currency amounts instead. Convert with `toDollars`/`toMilliunits` from `src/tools/money.ts` rather than open-coding `* 1000`.

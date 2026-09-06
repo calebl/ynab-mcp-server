@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
+import { toMilliunits } from "./money.js";
 
 export const name = "ynab_create_transaction";
 export const description = "Creates a new transaction in your YNAB budget. Either payeeId or payeeName must be provided in addition to the other required fields.";
@@ -48,7 +49,7 @@ export async function execute(input: CreateTransactionInput, api: ynab.API) {
       throw new Error("Either payeeId or payeeName must be provided");
     }
 
-    const milliunitAmount = Math.round(input.amount * 1000);
+    const milliunitAmount = toMilliunits(input.amount);
 
     const transaction: ynab.PostTransactionsWrapper = {
       transaction: {

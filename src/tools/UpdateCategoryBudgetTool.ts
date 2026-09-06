@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
+import { toDollars, toMilliunits } from "./money.js";
 
 export const name = "ynab_update_category_budget";
 export const description = "Updates the budgeted amount for a category in a specific month. Use this to allocate funds to categories or move money between categories.";
@@ -29,7 +30,7 @@ function getBudgetId(inputBudgetId?: string): string {
 export async function execute(input: UpdateCategoryBudgetInput, api: ynab.API) {
   try {
     const budgetId = getBudgetId(input.budgetId);
-    const budgetedMilliunits = Math.round(input.budgeted * 1000);
+    const budgetedMilliunits = toMilliunits(input.budgeted);
 
     const response = await api.categories.updateMonthCategory(
       budgetId,
@@ -56,11 +57,11 @@ export async function execute(input: UpdateCategoryBudgetInput, api: ynab.API) {
           category: {
             id: category.id,
             name: category.name,
-            budgeted: (category.budgeted / 1000).toFixed(2),
-            activity: (category.activity / 1000).toFixed(2),
-            balance: (category.balance / 1000).toFixed(2),
+            budgeted: toDollars(category.budgeted),
+            activity: toDollars(category.activity),
+            balance: toDollars(category.balance),
           },
-          message: `Successfully updated ${category.name} budget to $${(category.budgeted / 1000).toFixed(2)}`,
+          message: `Successfully updated ${category.name} budget to $${toDollars(category.budgeted).toFixed(2)}`,
         }, null, 2),
       }],
     };
