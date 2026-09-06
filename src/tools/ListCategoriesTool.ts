@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
+import { toDollars } from "./money.js";
 
 export const name = "ynab_list_categories";
 export const description = "Lists all categories in a budget, grouped by category group. Useful for finding category IDs when creating transactions or updating budgets.";
@@ -39,11 +40,11 @@ export async function execute(input: ListCategoriesInput, api: ynab.API) {
           .map((cat) => ({
             id: cat.id,
             name: cat.name,
-            budgeted: (cat.budgeted / 1000).toFixed(2),
-            activity: (cat.activity / 1000).toFixed(2),
-            balance: (cat.balance / 1000).toFixed(2),
+            budgeted: toDollars(cat.budgeted),
+            activity: toDollars(cat.activity),
+            balance: toDollars(cat.balance),
             goal_type: cat.goal_type,
-            goal_target: cat.goal_target ? (cat.goal_target / 1000).toFixed(2) : null,
+            goal_target: cat.goal_target ? toDollars(cat.goal_target) : null,
             goal_percentage_complete: cat.goal_percentage_complete,
           })),
       }));

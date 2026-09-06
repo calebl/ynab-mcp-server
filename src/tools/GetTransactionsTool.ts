@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
+import { toDollars } from "./money.js";
 
 export const name = "ynab_get_transactions";
 export const description = "Gets transactions from a budget with optional filters. Can filter by date range, account, category, payee, or approval status.";
@@ -106,7 +107,7 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
       .map((txn) => ({
         id: txn.id,
         date: txn.date,
-        amount: (txn.amount / 1000).toFixed(2),
+        amount: toDollars(txn.amount),
         memo: txn.memo,
         approved: txn.approved,
         cleared: txn.cleared,

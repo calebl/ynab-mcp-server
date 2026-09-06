@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
+import { toDollars, toMilliunits } from "./money.js";
 
 export const name = "ynab_update_transaction";
 export const description = "Updates an existing transaction. All fields except transactionId are optional - only provide fields you want to change.";
@@ -67,7 +68,7 @@ export async function execute(input: UpdateTransactionInput, api: ynab.API) {
       transactionUpdate.date = input.date;
     }
     if (input.amount !== undefined) {
-      transactionUpdate.amount = Math.round(input.amount * 1000);
+      transactionUpdate.amount = toMilliunits(input.amount);
     }
     if (input.payeeId !== undefined) {
       transactionUpdate.payee_id = input.payeeId;
@@ -111,7 +112,7 @@ export async function execute(input: UpdateTransactionInput, api: ynab.API) {
           transaction: {
             id: txn.id,
             date: txn.date,
-            amount: (txn.amount / 1000).toFixed(2),
+            amount: toDollars(txn.amount),
             payee_name: txn.payee_name,
             category_name: txn.category_name,
             memo: txn.memo,

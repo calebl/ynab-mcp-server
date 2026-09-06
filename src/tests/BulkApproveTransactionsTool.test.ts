@@ -194,9 +194,9 @@ describe('BulkApproveTransactionsTool', () => {
       );
 
       const response = JSON.parse(result.content[0].text);
-      expect(response.transactions[0].amount).toBe('-25.99');
-      expect(response.transactions[1].amount).toBe('-15.00');
-      expect(response.transactions[2].amount).toBe('-8.50');
+      expect(response.transactions[0].amount).toBe(-25.99);
+      expect(response.transactions[1].amount).toBe(-15);
+      expect(response.transactions[2].amount).toBe(-8.5);
     });
   });
 

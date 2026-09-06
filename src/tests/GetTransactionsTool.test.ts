@@ -310,8 +310,8 @@ describe('GetTransactionsTool', () => {
       );
 
       const response = JSON.parse(result.content[0].text);
-      expect(response.transactions[0].amount).toBe('-25.99');
-      expect(response.transactions[1].amount).toBe('-15.00');
+      expect(response.transactions[0].amount).toBe(-25.99);
+      expect(response.transactions[1].amount).toBe(-15);
     });
 
     it('should return error when no budget ID available', async () => {

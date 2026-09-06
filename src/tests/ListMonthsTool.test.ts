@@ -87,10 +87,10 @@ describe('ListMonthsTool', () => {
       const response = JSON.parse(result.content[0].text);
       const januaryMonth = response.months.find((m: any) => m.month === '2024-01-01');
 
-      expect(januaryMonth.income).toBe('5000.00');
-      expect(januaryMonth.budgeted).toBe('4500.00');
-      expect(januaryMonth.activity).toBe('-4200.00');
-      expect(januaryMonth.to_be_budgeted).toBe('500.00');
+      expect(januaryMonth.income).toBe(5000);
+      expect(januaryMonth.budgeted).toBe(4500);
+      expect(januaryMonth.activity).toBe(-4200);
+      expect(januaryMonth.to_be_budgeted).toBe(500);
     });
 
     it('should include month metadata', async () => {
@@ -193,10 +193,10 @@ describe('ListMonthsTool', () => {
       const response = JSON.parse(result.content[0].text);
       const month = response.months[0];
 
-      expect(month.income).toBe('0.00');
-      expect(month.budgeted).toBe('0.00');
-      expect(month.activity).toBe('0.00');
-      expect(month.to_be_budgeted).toBe('0.00');
+      expect(month.income).toBe(0);
+      expect(month.budgeted).toBe(0);
+      expect(month.activity).toBe(0);
+      expect(month.to_be_budgeted).toBe(0);
       expect(month.age_of_money).toBeNull();
     });
   });

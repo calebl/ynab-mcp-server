@@ -20,10 +20,15 @@ import * as ListAccountsTool from "./tools/ListAccountsTool.js";
 import * as ListScheduledTransactionsTool from "./tools/ListScheduledTransactionsTool.js";
 import * as ImportTransactionsTool from "./tools/ImportTransactionsTool.js";
 import * as ListMonthsTool from "./tools/ListMonthsTool.js";
+import * as MoveMoneyTool from "./tools/MoveMoneyTool.js";
+import * as AutoAssignTool from "./tools/AutoAssignTool.js";
+import * as SpendingByCategoryTool from "./tools/SpendingByCategoryTool.js";
+import * as SpendingByPayeeTool from "./tools/SpendingByPayeeTool.js";
+import * as CashFlowTool from "./tools/CashFlowTool.js";
 
 const server = new McpServer({
   name: "ynab-mcp-server",
-  version: "0.1.2",
+  version: "0.2.0",
 });
 
 // Initialize YNAB API
@@ -125,6 +130,36 @@ server.registerTool(ListMonthsTool.name, {
   description: ListMonthsTool.description,
   inputSchema: ListMonthsTool.inputSchema,
 }, async (input) => ListMonthsTool.execute(input, api));
+
+server.registerTool(MoveMoneyTool.name, {
+  title: "Move Money",
+  description: MoveMoneyTool.description,
+  inputSchema: MoveMoneyTool.inputSchema,
+}, async (input) => MoveMoneyTool.execute(input, api));
+
+server.registerTool(AutoAssignTool.name, {
+  title: "Auto Assign",
+  description: AutoAssignTool.description,
+  inputSchema: AutoAssignTool.inputSchema,
+}, async (input) => AutoAssignTool.execute(input, api));
+
+server.registerTool(SpendingByCategoryTool.name, {
+  title: "Spending By Category",
+  description: SpendingByCategoryTool.description,
+  inputSchema: SpendingByCategoryTool.inputSchema,
+}, async (input) => SpendingByCategoryTool.execute(input, api));
+
+server.registerTool(SpendingByPayeeTool.name, {
+  title: "Spending By Payee",
+  description: SpendingByPayeeTool.description,
+  inputSchema: SpendingByPayeeTool.inputSchema,
+}, async (input) => SpendingByPayeeTool.execute(input, api));
+
+server.registerTool(CashFlowTool.name, {
+  title: "Cash Flow",
+  description: CashFlowTool.description,
+  inputSchema: CashFlowTool.inputSchema,
+}, async (input) => CashFlowTool.execute(input, api));
 
 // Start the server
 async function main() {
