@@ -1,8 +1,8 @@
 {
   "name": "ynab-mcp-server",
-  "version": "0.1.2",
-  "description": "ynab-mcp-server MCP server",
-  "author": "Caleb LeNoir <caleb.lenoir@hey.com>",
+  "version": "0.2.0",
+  "description": "MCP server for interacting with a YNAB budget",
+  "author": "ianthebeard <beardedaudio@gmail.com>",
   "type": "module",
   "bin": {
     "ynab-mcp-server": "./dist/index.js"
@@ -22,9 +22,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@types/axios": "^0.14.4",
-    "axios": "^1.8.4",
-    "commander": "^14.0.1",
     "ynab": "^2.9.0",
     "zod": "^3.23.8"
   },
@@ -34,5 +31,6 @@
     "@vitest/coverage-v8": "^3.2.4",
     "typescript": "^5.3.3",
     "vitest": "^3.2.4"
-  }
+  },
+  "private": true
 }
