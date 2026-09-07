@@ -97,7 +97,7 @@ export function buildNagEvent(
   if (pending.unapproved > 0) detail.push(`${pending.unapproved} unapproved`);
   if (pending.uncategorized > 0) detail.push(`${pending.uncategorized} uncategorized`);
 
-  const snark = buildSnark(date, pending.total, money, detail.join(", "), pending.backlog);
+  const snark = buildSnark(date, pending.total, money, detail.join(", "));
 
   return {
     id: `ncat${date.replace(/-/g, "")}`,

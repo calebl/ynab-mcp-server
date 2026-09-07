@@ -4,6 +4,10 @@
  * A nag you can predict is a nag you stop reading, so the wording rotates with
  * the date the same way the hour does — stable within a day, different the
  * next.
+ *
+ * Previous months are deliberately not mentioned. Once a month closes it is
+ * closed; chasing old items is what makes a reminder feel like a debt
+ * collector.
  */
 
 export interface Snark {
@@ -65,13 +69,7 @@ function pick(date: string, salt: string, length: number): number {
   return hash % length;
 }
 
-export function buildSnark(
-  date: string,
-  count: number,
-  money: string,
-  detail: string,
-  backlog: number,
-): Snark {
+export function buildSnark(date: string, count: number, money: string, detail: string): Snark {
   const vars: Vars = { count, money, noun: count === 1 ? "transaction" : "transactions" };
 
   // A netted-out total (a refund, say) would otherwise read as "$0.00 of pure mystery".
@@ -80,12 +78,8 @@ export function buildSnark(
   const summary = titles[pick(date, "title", titles.length)](vars);
   const closer = CLOSERS[pick(date, "closer", CLOSERS.length)];
 
-  const backlogLine = backlog > 0
-    ? `\n\nAlso, ${backlog} ${backlog === 1 ? "straggler" : "stragglers"} from previous months are still out there. No pressure. Some pressure.`
-    : "";
-
   return {
     summary,
-    description: `${detail} so far this month.\n\n${closer}${backlogLine}`,
+    description: `${detail} so far this month.\n\n${closer}`,
   };
 }

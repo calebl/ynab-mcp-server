@@ -185,16 +185,12 @@ describe("getPendingWork", () => {
   });
 });
 
-describe("backlog in the description", () => {
-  it("mentions older items without putting them in the title", () => {
+describe("previous months", () => {
+  it("stays out of the reminder entirely", () => {
     const event = buildNagEvent(pending({ total: 2, backlog: 61 }), "2026-09-07", config, 18)!;
     expect(event.summary).not.toContain("61");
-    expect(event.description).toContain("61 stragglers");
-  });
-
-  it("says nothing about a backlog when there is none", () => {
-    const event = buildNagEvent(pending({ backlog: 0 }), "2026-09-07", config, 18)!;
-    expect(event.description).not.toContain("straggler");
+    expect(event.description).not.toContain("61");
+    expect(event.description).not.toMatch(/straggler|previous month/i);
   });
 });
 
