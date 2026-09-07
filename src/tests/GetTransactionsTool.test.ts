@@ -78,6 +78,65 @@ describe('GetTransactionsTool', () => {
       },
     ];
 
+    const mockSplitTransaction = {
+      id: 'txn-split',
+      date: '2024-01-17',
+      amount: -82608,
+      memo: null,
+      approved: true,
+      cleared: 'cleared',
+      account_name: 'Checking',
+      payee_name: 'Costco',
+      category_name: 'Split',
+      flag_color: null,
+      transfer_account_id: null,
+      deleted: false,
+      subtransactions: [
+        { id: 'sub-1', amount: -35000, category_name: 'Household', memo: 'printer', deleted: false },
+        { id: 'sub-2', amount: -47608, category_name: 'Groceries', memo: null, deleted: false },
+        { id: 'sub-3', amount: -1000, category_name: 'Gone', memo: null, deleted: true },
+      ],
+    };
+
+    it('should expose the categories of a split transaction', async () => {
+      mockApi.transactions.getTransactions.mockResolvedValue({
+        data: { transactions: [mockSplitTransaction] },
+      });
+
+      const result = await GetTransactionsTool.execute(
+        { budgetId: 'test-budget-id' },
+        mockApi as any
+      );
+
+      const response = JSON.parse(result.content[0].text);
+      const split = response.transactions[0];
+
+      // The parent row is categorised "Split"; without the legs it reads as
+      // uncategorized.
+      expect(split.category_name).toBe('Split');
+      expect(split.subtransactions).toHaveLength(2); // deleted leg dropped
+      expect(split.subtransactions[0]).toMatchObject({
+        amount: -35,
+        category_name: 'Household',
+        memo: 'printer',
+      });
+      expect(split.subtransactions[1].category_name).toBe('Groceries');
+    });
+
+    it('should omit subtransactions on ordinary transactions', async () => {
+      mockApi.transactions.getTransactions.mockResolvedValue({
+        data: { transactions: mockTransactionsData },
+      });
+
+      const result = await GetTransactionsTool.execute(
+        { budgetId: 'test-budget-id' },
+        mockApi as any
+      );
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.transactions[0]).not.toHaveProperty('subtransactions');
+    });
+
     it('should successfully get all transactions', async () => {
       mockApi.transactions.getTransactions.mockResolvedValue({
         data: { transactions: mockTransactionsData },

@@ -2,6 +2,7 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 import { toDollars } from "./money.js";
+import { mapSubtransactions } from "./splits.js";
 
 export const name = "ynab_get_unapproved_transactions";
 export const description = "Gets every unapproved transaction in a budget, optionally limited to those on or after a given date.";
@@ -47,6 +48,8 @@ export async function execute(input: GetUnapprovedTransactionsInput, api: ynab.A
         account_name: transaction.account_name,
         payee_name: transaction.payee_name,
         category_name: transaction.category_name,
+        // Present only on splits, whose parent row is categorised "Split".
+        subtransactions: mapSubtransactions(transaction.subtransactions),
         transfer_account_id: transaction.transfer_account_id,
         transfer_transaction_id: transaction.transfer_transaction_id,
         matched_transaction_id: transaction.matched_transaction_id,
