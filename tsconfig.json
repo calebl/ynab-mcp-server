@@ -12,7 +12,9 @@
     "preserveSymlinks": true,
     "baseUrl": "./src",
     "paths": {
-      "/*": ["./*"]
+      "/*": [
+        "./*"
+      ]
     }
   },
   "include": [
@@ -22,6 +24,7 @@
     "node_modules",
     "src/tests",
     "**/*.test.ts",
-    "**/*.spec.ts"
+    "**/*.spec.ts",
+    "src/worker"
   ]
 }
