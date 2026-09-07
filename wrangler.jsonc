@@ -34,6 +34,8 @@
 		// it the scheduled job is a no-op.
 		"NAG_CALENDAR_ID": "262a792f16cf742caaee1325fe5bf225671a6f7cbc26a490bc05e92776d5dac6@group.calendar.google.com",
 		"NAG_TIMEZONE": "America/Los_Angeles",
-		"NAG_HOUR": "18"
+		// The nag lands on a random hour in this window, different each day.
+		"NAG_HOUR_MIN": "8",
+		"NAG_HOUR_MAX": "20"
 	}
 }

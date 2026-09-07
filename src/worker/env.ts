@@ -20,8 +20,12 @@ export interface WorkerEnv {
   NAG_CALENDAR_ID?: string;
   /** IANA zone the reminder is scheduled in. Defaults to America/Los_Angeles. */
   NAG_TIMEZONE?: string;
-  /** Local hour, 0-23, the reminder should land on. Defaults to 18. */
-  NAG_HOUR?: string;
+  /**
+   * The reminder lands on a random hour inside this window, chosen fresh each
+   * day. Set both to the same value for a fixed time. Defaults to 8-20.
+   */
+  NAG_HOUR_MIN?: string;
+  NAG_HOUR_MAX?: string;
   /** Only nag about transactions this recent. Defaults to 30 days. */
   NAG_SINCE_DAYS?: string;
 }

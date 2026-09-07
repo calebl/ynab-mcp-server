@@ -100,8 +100,8 @@ or groups" → add the service account's email with **Make changes to events**.
 
 ### 3. Configure and deploy
 
-Set `NAG_CALENDAR_ID`, `NAG_TIMEZONE`, `NAG_HOUR` and `NAG_SINCE_DAYS` in
-`wrangler.jsonc`, then store the key file as a secret:
+Set `NAG_CALENDAR_ID`, `NAG_TIMEZONE`, the `NAG_HOUR_MIN`/`NAG_HOUR_MAX`
+window and `NAG_SINCE_DAYS` in `wrangler.jsonc`, then store the key file as a secret:
 
 ```bash
 npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON < service-account.json
@@ -112,12 +112,16 @@ npm run deploy
 | --- | --- | --- |
 | `NAG_CALENDAR_ID` | — | Calendar to write to. Unset disables the job. |
 | `NAG_TIMEZONE` | `America/Los_Angeles` | IANA zone the reminder is scheduled in |
-| `NAG_HOUR` | `18` | Local hour, 0-23, the event lands on |
+| `NAG_HOUR_MIN` | `8` | Earliest local hour the event may land on |
+| `NAG_HOUR_MAX` | `20` | Latest local hour, inclusive. Set equal to the minimum for a fixed time. |
 | `NAG_SINCE_DAYS` | `30` | Only nag about transactions this recent |
 
 ### How it behaves
 
 - **Nothing pending, no event.** The reminder only exists when there is work.
+- **A different hour each day.** The slot is drawn from the configured window,
+  derived from the date so that every hourly run agrees on it — a per-run
+  random draw would fire several times some days and never on others.
 - **One event per day.** The event id is derived from the date, so a re-run
   updates that day's event rather than stacking duplicates.
 - **The old backlog does not drive the count.** Only transactions inside

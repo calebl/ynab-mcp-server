@@ -6,8 +6,10 @@ import type { WorkerEnv } from "./env.js";
 export interface NagConfig {
   calendarId: string;
   timeZone: string;
-  /** Local hour (0-23) the reminder should land on. */
-  hour: number;
+  /** Earliest local hour the reminder may land on. */
+  hourMin: number;
+  /** Latest local hour the reminder may land on, inclusive. */
+  hourMax: number;
   /**
    * Only nag about transactions this recent. An old backlog would otherwise
    * pin the count high forever, and a reminder that never changes is one you
@@ -45,6 +47,34 @@ export function localDateParts(now: Date, timeZone: string): { date: string; hou
 }
 
 /**
+ * Picks the hour for a given day, somewhere in the configured window.
+ *
+ * Derived from the date rather than Math.random so that all 24 hourly runs
+ * agree on today's slot. A per-run random pick would fire on several hours
+ * some days and none on others.
+ */
+export function pickHour(date: string, hourMin: number, hourMax: number): number {
+  const span = Math.max(1, hourMax - hourMin + 1);
+
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < date.length; i++) {
+    hash ^= date.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+
+  // FNV alone leaves neighbouring dates correlated: consecutive days landed on
+  // consecutive hours, which is a pattern you would spot within a week. The
+  // murmur3 finalizer avalanches those single-character differences.
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b) >>> 0;
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0xc2b2ae35) >>> 0;
+  hash = (hash ^ (hash >>> 16)) >>> 0;
+
+  return hourMin + (hash % span);
+}
+
+/**
  * Builds the calendar event for a day's pending work, or null when there is
  * nothing to nag about.
  *
@@ -52,12 +82,17 @@ export function localDateParts(now: Date, timeZone: string): { date: string; hou
  * rather than stacking duplicates. Google only accepts base32hex characters in
  * an event id, so the prefix avoids letters past 'v'.
  */
-export function buildNagEvent(pending: PendingWork, date: string, config: NagConfig): CalendarEvent | null {
+export function buildNagEvent(
+  pending: PendingWork,
+  date: string,
+  config: NagConfig,
+  atHour: number,
+): CalendarEvent | null {
   if (pending.total === 0) {
     return null;
   }
 
-  const hour = String(config.hour).padStart(2, "0");
+  const hour = String(atHour).padStart(2, "0");
   const noun = pending.total === 1 ? "transaction" : "transactions";
   const money = Math.abs(pending.amount).toLocaleString("en-US", {
     style: "currency",
@@ -146,13 +181,15 @@ export async function runNag(env: WorkerEnv, now = new Date()): Promise<NagOutco
   const config: NagConfig = {
     calendarId: env.NAG_CALENDAR_ID,
     timeZone: env.NAG_TIMEZONE || "America/Los_Angeles",
-    hour: Number(env.NAG_HOUR ?? "18"),
+    hourMin: Number(env.NAG_HOUR_MIN ?? "8"),
+    hourMax: Number(env.NAG_HOUR_MAX ?? "20"),
     sinceDays: Number(env.NAG_SINCE_DAYS ?? "30"),
   };
 
   const { date, hour } = localDateParts(now, config.timeZone);
-  if (hour !== config.hour) {
-    return { ran: false, reason: `local hour ${hour}, waiting for ${config.hour}` };
+  const target = pickHour(date, config.hourMin, config.hourMax);
+  if (hour !== target) {
+    return { ran: false, reason: `local hour ${hour}, today's slot is ${target}` };
   }
 
   const budgetId = env.YNAB_BUDGET_ID;
@@ -163,7 +200,7 @@ export async function runNag(env: WorkerEnv, now = new Date()): Promise<NagOutco
   const api = new ynab.API(env.YNAB_API_TOKEN);
   const pending = await getPendingWork(api, budgetId, sinceDate(now, config.sinceDays));
 
-  const event = buildNagEvent(pending, date, config);
+  const event = buildNagEvent(pending, date, config, target);
   if (!event) {
     return { ran: true, pending, result: "nothing-to-do" };
   }
