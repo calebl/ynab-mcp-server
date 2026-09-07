@@ -9,6 +9,11 @@
 	"observability": {
 		"enabled": true
 	},
+	// Hourly. The job itself only acts in NAG_HOUR local time, so the reminder
+	// keeps its wall-clock slot across daylight saving changes.
+	"triggers": {
+		"crons": ["0 * * * *"]
+	},
 	"kv_namespaces": [
 		{
 			// OAuth grants and tokens. Create with:
@@ -24,6 +29,13 @@
 		"ALLOWED_GITHUB_LOGIN": "ianthebeard",
 		"YNAB_READ_ONLY": "false",
 		// Budget 2026. Not a secret — a budget id alone grants no access.
-		"YNAB_BUDGET_ID": "82593cdb-bc22-4049-b04d-deaae054aa73"
+		"YNAB_BUDGET_ID": "82593cdb-bc22-4049-b04d-deaae054aa73",
+		// Categorize reminder. GOOGLE_SERVICE_ACCOUNT_JSON is a secret; without
+		// it the scheduled job is a no-op.
+		"NAG_CALENDAR_ID": "262a792f16cf742caaee1325fe5bf225671a6f7cbc26a490bc05e92776d5dac6@group.calendar.google.com",
+		"NAG_TIMEZONE": "America/Los_Angeles",
+		// The nag lands on a random hour in this window, different each day.
+		"NAG_HOUR_MIN": "8",
+		"NAG_HOUR_MAX": "20"
 	}
 }
