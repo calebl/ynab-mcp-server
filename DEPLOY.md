@@ -114,7 +114,6 @@ npm run deploy
 | `NAG_TIMEZONE` | `America/Los_Angeles` | IANA zone the reminder is scheduled in |
 | `NAG_HOUR_MIN` | `8` | Earliest local hour the event may land on |
 | `NAG_HOUR_MAX` | `20` | Latest local hour, inclusive. Set equal to the minimum for a fixed time. |
-| `NAG_SINCE_DAYS` | `30` | Only nag about transactions this recent |
 
 ### How it behaves
 
@@ -124,9 +123,14 @@ npm run deploy
   random draw would fire several times some days and never on others.
 - **One event per day.** The event id is derived from the date, so a re-run
   updates that day's event rather than stacking duplicates.
-- **The old backlog does not drive the count.** Only transactions inside
-  `NAG_SINCE_DAYS` appear in the title; anything older is mentioned in the
-  description. A count that never moves is a reminder you stop seeing.
+- **The count is the current month.** It resets on the 1st, so the month you
+  are budgeting is the month you are reminded about. Anything older is a
+  footnote in the description, not the headline.
+- **Transfers are ignored.** Moving money between your own accounts shows up
+  as uncategorized in YNAB but never needs a category. In the budget this was
+  built against, 77 of 80 "uncategorized" items were transfer legs.
+- **The wording rotates daily.** Same mechanism as the hour: derived from the
+  date, so it is stable within a day and different the next.
 - **Daylight saving is handled.** Cloudflare crons are UTC, so the job runs
   hourly and acts only in the configured local hour, holding its wall-clock
   slot year round.

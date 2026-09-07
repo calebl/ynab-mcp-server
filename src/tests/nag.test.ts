@@ -5,8 +5,8 @@ import {
   getPendingWork,
   localDateParts,
   pickHour,
+  monthStart,
   runNag,
-  sinceDate,
   type NagConfig,
   type PendingWork,
 } from "../worker/nag.js";
@@ -17,7 +17,6 @@ const config: NagConfig = {
   timeZone: "America/Los_Angeles",
   hourMin: 8,
   hourMax: 20,
-  sinceDays: 30,
 };
 
 function pending(overrides: Partial<PendingWork> = {}): PendingWork {
@@ -60,8 +59,9 @@ describe("buildNagEvent", () => {
   });
 
   it("puts the count and amount in the title", () => {
-    const event = buildNagEvent(pending({ total: 4, amount: -212.5 }), "2026-09-07", config)!;
-    expect(event.summary).toBe("Categorize 4 YNAB transactions ($212.50)");
+    const event = buildNagEvent(pending({ total: 4, amount: -212.5 }), "2026-09-07", config, 18)!;
+    expect(event.summary).toContain("4");
+    expect(event.summary).toContain("$212.50");
   });
 
   it("uses the singular for one transaction", () => {
@@ -71,7 +71,8 @@ describe("buildNagEvent", () => {
       config,
       18,
     )!;
-    expect(event.summary).toBe("Categorize 1 YNAB transaction ($9.99)");
+    expect(event.summary).toContain("1 transaction");
+    expect(event.summary).not.toMatch(/1 transactions/);
   });
 
   it("schedules a 15 minute slot at the configured hour with a popup", () => {
@@ -86,6 +87,7 @@ describe("buildNagEvent", () => {
     const event = buildNagEvent(pending({ unapproved: 3, uncategorized: 1 }), "2026-09-07", config, 18)!;
     expect(event.description).toContain("3 unapproved");
     expect(event.description).toContain("1 uncategorized");
+    expect(event.description).toContain("this month");
   });
 });
 
@@ -119,16 +121,17 @@ describe("runNag", () => {
   });
 });
 
-describe("sinceDate", () => {
-  it("returns the cutoff date n days back", () => {
-    expect(sinceDate(new Date("2026-09-07T18:00:00Z"), 30)).toBe("2026-08-08");
-    expect(sinceDate(new Date("2026-09-07T18:00:00Z"), 7)).toBe("2026-08-31");
+describe("monthStart", () => {
+  it("returns the first of the containing month", () => {
+    expect(monthStart("2026-09-07")).toBe("2026-09-01");
+    expect(monthStart("2026-01-31")).toBe("2026-01-01");
+    expect(monthStart("2026-12-01")).toBe("2026-12-01");
   });
 });
 
 describe("getPendingWork", () => {
-  function txn(id: string, date: string, amount: number) {
-    return { id, date, amount, deleted: false };
+  function txn(id: string, date: string, amount: number, transferAccountId: string | null = null) {
+    return { id, date, amount, deleted: false, transfer_account_id: transferAccountId };
   }
 
   /** Mirrors the real backlog: a few recent items, many old ones. */
@@ -143,44 +146,55 @@ describe("getPendingWork", () => {
                 txn("recent-2", "2026-08-20", -10000),
                 txn("old-1", "2026-04-04", -500000),
                 txn("old-2", "2026-05-11", -300000),
-                txn("deleted", "2026-09-02", -1000),
-              ].filter((t) => t.id !== "deleted"),
+                // Both legs of a transfer between the user's own accounts.
+                txn("transfer-out", "2026-09-02", -82000, "account-b"),
+                txn("transfer-in", "2026-09-02", 82000, "account-a"),
+              ],
         },
       }),
     },
   } as any;
 
-  it("counts only the recent window and reports the rest as backlog", async () => {
-    const pending = await getPendingWork(api, "budget", "2026-08-08");
+  it("counts only this month and reports the rest as backlog", async () => {
+    const pending = await getPendingWork(api, "budget", "2026-09-01");
 
-    expect(pending.total).toBe(2);
-    expect(pending.backlog).toBe(2);
+    // Only recent-1 (2026-09-01) is in September; the rest are older.
+    expect(pending.total).toBe(1);
+    expect(pending.backlog).toBe(3);
   });
 
-  it("sums only the recent amounts", async () => {
-    const pending = await getPendingWork(api, "budget", "2026-08-08");
-    expect(pending.amount).toBe(-35);
+  it("sums only this month's amounts", async () => {
+    const pending = await getPendingWork(api, "budget", "2026-09-01");
+    expect(pending.amount).toBe(-25);
+  });
+
+  it("ignores transfers between the user's own accounts", async () => {
+    const pending = await getPendingWork(api, "budget", "2026-09-01");
+
+    // The September transfer pair must not appear in the count or the total.
+    expect(pending.total).toBe(1);
+    expect(pending.amount).toBe(-25);
   });
 
   it("counts a transaction that is both unapproved and uncategorized once", async () => {
-    const pending = await getPendingWork(api, "budget", "2026-08-08");
+    const pending = await getPendingWork(api, "budget", "2026-09-01");
+    // recent-1 appears in both lists but is one transaction.
     expect(pending.unapproved).toBe(1);
-    expect(pending.uncategorized).toBe(2);
-    expect(pending.total).toBe(2); // not 3
+    expect(pending.uncategorized).toBe(1);
+    expect(pending.total).toBe(1);
   });
 });
 
 describe("backlog in the description", () => {
   it("mentions older items without putting them in the title", () => {
     const event = buildNagEvent(pending({ total: 2, backlog: 61 }), "2026-09-07", config, 18)!;
-    expect(event.summary).toContain("Categorize 2 YNAB transactions");
     expect(event.summary).not.toContain("61");
-    expect(event.description).toContain("61 older items");
+    expect(event.description).toContain("61 stragglers");
   });
 
   it("says nothing about a backlog when there is none", () => {
     const event = buildNagEvent(pending({ backlog: 0 }), "2026-09-07", config, 18)!;
-    expect(event.description).not.toContain("older");
+    expect(event.description).not.toContain("straggler");
   });
 });
 

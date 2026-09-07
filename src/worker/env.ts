@@ -26,6 +26,4 @@ export interface WorkerEnv {
    */
   NAG_HOUR_MIN?: string;
   NAG_HOUR_MAX?: string;
-  /** Only nag about transactions this recent. Defaults to 30 days. */
-  NAG_SINCE_DAYS?: string;
 }

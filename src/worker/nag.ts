@@ -1,6 +1,7 @@
 import * as ynab from "ynab";
 
 import { upsertEvent, parseServiceAccountKey, type CalendarEvent } from "./google-calendar.js";
+import { buildSnark } from "./snark.js";
 import type { WorkerEnv } from "./env.js";
 
 export interface NagConfig {
@@ -10,12 +11,6 @@ export interface NagConfig {
   hourMin: number;
   /** Latest local hour the reminder may land on, inclusive. */
   hourMax: number;
-  /**
-   * Only nag about transactions this recent. An old backlog would otherwise
-   * pin the count high forever, and a reminder that never changes is one you
-   * stop seeing.
-   */
-  sinceDays: number;
 }
 
 export interface PendingWork {
@@ -24,7 +19,7 @@ export interface PendingWork {
   total: number;
   /** Sum of the pending amounts, in plain currency. */
   amount: number;
-  /** Pending items older than the nag window, reported but not nagged about. */
+  /** Pending items from earlier months, mentioned but not the headline. */
   backlog: number;
 }
 
@@ -93,7 +88,6 @@ export function buildNagEvent(
   }
 
   const hour = String(atHour).padStart(2, "0");
-  const noun = pending.total === 1 ? "transaction" : "transactions";
   const money = Math.abs(pending.amount).toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
@@ -103,14 +97,12 @@ export function buildNagEvent(
   if (pending.unapproved > 0) detail.push(`${pending.unapproved} unapproved`);
   if (pending.uncategorized > 0) detail.push(`${pending.uncategorized} uncategorized`);
 
-  const backlog = pending.backlog > 0
-    ? `\n\nSeparately, ${pending.backlog} older ${pending.backlog === 1 ? "item" : "items"} predate this window.`
-    : "";
+  const snark = buildSnark(date, pending.total, money, detail.join(", "), pending.backlog);
 
   return {
     id: `ncat${date.replace(/-/g, "")}`,
-    summary: `Categorize ${pending.total} YNAB ${noun} (${money})`,
-    description: `${detail.join(", ")}.\n\nOpen YNAB and clear the inbox, or ask Claude to do it.${backlog}`,
+    summary: snark.summary,
+    description: snark.description,
     start: `${date}T${hour}:00:00`,
     end: `${date}T${hour}:15:00`,
     timeZone: config.timeZone,
@@ -118,15 +110,20 @@ export function buildNagEvent(
   };
 }
 
-/** The date `days` before `from`, as YYYY-MM-DD. */
-export function sinceDate(from: Date, days: number): string {
-  const cutoff = new Date(from.getTime() - days * 86_400_000);
-  return cutoff.toISOString().slice(0, 10);
+/**
+ * The first of the month containing `date` (a local YYYY-MM-DD).
+ *
+ * The nag covers the current month rather than a rolling window, so the count
+ * resets on the 1st and the month you are actually budgeting is the month you
+ * are reminded about.
+ */
+export function monthStart(date: string): string {
+  return `${date.slice(0, 7)}-01`;
 }
 
 /**
- * Counts what is waiting for attention, split into the recent window the nag
- * is about and the older backlog it only mentions.
+ * Counts what is waiting for attention, split into this month (the headline)
+ * and everything older (a footnote).
  */
 export async function getPendingWork(
   api: ynab.API,
@@ -138,7 +135,14 @@ export async function getPendingWork(
     api.transactions.getTransactions(budgetId, undefined, ynab.GetTransactionsTypeEnum.Uncategorized),
   ]);
 
-  const live = (list: ynab.TransactionDetail[]) => list.filter((t) => !t.deleted);
+  /**
+   * Live, real transactions. Transfers between your own accounts show up as
+   * uncategorized in YNAB but never need a category, and they dominate the
+   * raw counts — 77 of 80 in the budget this was built against. Nagging about
+   * them would be pure noise.
+   */
+  const live = (list: ynab.TransactionDetail[]) =>
+    list.filter((t) => !t.deleted && !t.transfer_account_id);
 
   // A transaction can be both unapproved and uncategorized; count it once.
   const seen = new Map<string, ynab.TransactionDetail>();
@@ -183,7 +187,6 @@ export async function runNag(env: WorkerEnv, now = new Date()): Promise<NagOutco
     timeZone: env.NAG_TIMEZONE || "America/Los_Angeles",
     hourMin: Number(env.NAG_HOUR_MIN ?? "8"),
     hourMax: Number(env.NAG_HOUR_MAX ?? "20"),
-    sinceDays: Number(env.NAG_SINCE_DAYS ?? "30"),
   };
 
   const { date, hour } = localDateParts(now, config.timeZone);
@@ -198,7 +201,7 @@ export async function runNag(env: WorkerEnv, now = new Date()): Promise<NagOutco
   }
 
   const api = new ynab.API(env.YNAB_API_TOKEN);
-  const pending = await getPendingWork(api, budgetId, sinceDate(now, config.sinceDays));
+  const pending = await getPendingWork(api, budgetId, monthStart(date));
 
   const event = buildNagEvent(pending, date, config, target);
   if (!event) {
