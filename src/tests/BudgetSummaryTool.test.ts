@@ -132,14 +132,64 @@ describe('BudgetSummaryTool', () => {
       expect(mockApi.months.getBudgetMonth).toHaveBeenCalledWith('test-budget-id', 'current');
 
       const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult).toHaveProperty('monthBudget');
-      expect(parsedResult).toHaveProperty('accounts');
-      expect(parsedResult).toHaveProperty('note', 'Divide all numbers by 1000 to get the balance in dollars.');
+      expect(parsedResult.month).toBe('2023-01-01');
+      expect(parsedResult.income).toBe(500);
+      expect(parsedResult.budgeted).toBe(450);
+      expect(parsedResult.activity).toBe(-400);
+      expect(parsedResult.ready_to_assign).toBe(50);
 
-      // Should only include non-deleted, non-closed accounts
+      // Should only include non-deleted, non-closed accounts, in dollars
       expect(parsedResult.accounts).toHaveLength(2);
       expect(parsedResult.accounts[0].name).toBe('Checking Account');
+      expect(parsedResult.accounts[0].balance).toBe(150);
       expect(parsedResult.accounts[1].name).toBe('Savings Account');
+    });
+
+    it('should split categories into overspent, underfunded and positive', async () => {
+      mockApi.accounts.getAccounts.mockResolvedValue({
+        data: { accounts: mockAccountsData },
+      });
+      mockApi.months.getBudgetMonth.mockResolvedValue({
+        data: {
+          month: {
+            ...mockMonthData.month,
+            categories: [
+              ...mockMonthData.month.categories,
+              {
+                id: 'category-5',
+                name: 'Vacation',
+                deleted: false,
+                hidden: false,
+                balance: 10000, // $10.00
+                budgeted: 10000,
+                activity: 0,
+                goal_target: 100000, // $100.00
+                goal_under_funded: 90000, // $90.00 still needed
+              },
+            ],
+          },
+        },
+      });
+
+      const result = await BudgetSummaryTool.execute({}, mockApi as any);
+      const parsedResult = JSON.parse(result.content[0].text);
+
+      // Only Groceries is negative; hidden and deleted categories are excluded.
+      expect(parsedResult.overspent).toHaveLength(1);
+      expect(parsedResult.overspent[0].name).toBe('Groceries');
+      expect(parsedResult.overspent[0].balance).toBe(-2.5);
+
+      // Positive balances come back largest first.
+      expect(parsedResult.positive_balance.map((c: any) => c.name)).toEqual([
+        'Vacation',
+        'Gas',
+      ]);
+
+      // Only the category with an unmet goal is underfunded.
+      expect(parsedResult.underfunded).toHaveLength(1);
+      expect(parsedResult.underfunded[0].name).toBe('Vacation');
+      expect(parsedResult.underfunded[0].goal_under_funded).toBe(90);
+      expect(parsedResult.underfunded[0].goal_target).toBe(100);
     });
 
     it('should successfully get budget summary with custom month', async () => {
@@ -192,6 +242,8 @@ describe('BudgetSummaryTool', () => {
 
       const parsedResult = JSON.parse(result.content[0].text);
       expect(parsedResult.accounts).toEqual([]);
+      expect(parsedResult.overspent).toEqual([]);
+      expect(parsedResult.positive_balance).toEqual([]);
     });
 
     it('should filter out deleted and closed accounts', async () => {

@@ -92,7 +92,7 @@ describe('GetUnapprovedTransactionsTool', () => {
         {
           id: 'transaction-1',
           date: '2023-01-01',
-          amount: '-50.00',
+          amount: -50,
           memo: 'Test transaction 1',
           approved: false,
           account_name: 'Checking',
@@ -106,7 +106,7 @@ describe('GetUnapprovedTransactionsTool', () => {
         {
           id: 'transaction-2',
           date: '2023-01-02',
-          amount: '-25.50',
+          amount: -25.5,
           memo: 'Test transaction 2',
           approved: false,
           account_name: 'Credit Card',
@@ -247,18 +247,19 @@ describe('GetUnapprovedTransactionsTool', () => {
       const result = await GetUnapprovedTransactionsTool.execute({}, mockApi as any);
 
       const parsedResult = JSON.parse(result.content[0].text);
-      expect(parsedResult.transactions[0].amount).toBe('123.46');
+      expect(parsedResult.transactions[0].amount).toBe(123.46);
     });
   });
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       expect(GetUnapprovedTransactionsTool.name).toBe('ynab_get_unapproved_transactions');
-      expect(GetUnapprovedTransactionsTool.description).toContain('Gets unapproved transactions from a budget');
+      expect(GetUnapprovedTransactionsTool.description).toContain('Gets every unapproved transaction in a budget');
     });
 
     it('should have correct input schema', () => {
       expect(GetUnapprovedTransactionsTool.inputSchema).toHaveProperty('budgetId');
+      expect(GetUnapprovedTransactionsTool.inputSchema).toHaveProperty('sinceDate');
     });
   });
 });

@@ -6,3 +6,7 @@ logs
 data
 coverage
 .claude
+dist
+
+.dev.vars
+.wrangler/

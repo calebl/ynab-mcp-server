@@ -1,15 +1,19 @@
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
+import { toDollars } from "./money.js";
+import { mapSubtransactions } from "./splits.js";
 
 export const name = "ynab_get_unapproved_transactions";
-export const description = "Gets unapproved transactions from a budget. First time pulls last 3 days, subsequent pulls use server knowledge to get only changes.";
+export const description = "Gets every unapproved transaction in a budget, optionally limited to those on or after a given date.";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The ID of the budget to fetch transactions for (optional, defaults to the budget set in the YNAB_BUDGET_ID environment variable)"),
+  sinceDate: z.string().optional().describe("Only return transactions on or after this date (ISO format: 2024-01-01). Omit to return all unapproved transactions."),
 };
 
 interface GetUnapprovedTransactionsInput {
   budgetId?: string;
+  sinceDate?: string;
 }
 
 function getBudgetId(inputBudgetId?: string): string {
@@ -28,7 +32,7 @@ export async function execute(input: GetUnapprovedTransactionsInput, api: ynab.A
 
     const response = await api.transactions.getTransactions(
       budgetId,
-      undefined,
+      input.sinceDate,
       ynab.GetTransactionsTypeEnum.Unapproved
     );
 
@@ -38,12 +42,14 @@ export async function execute(input: GetUnapprovedTransactionsInput, api: ynab.A
       .map((transaction) => ({
         id: transaction.id,
         date: transaction.date,
-        amount: (transaction.amount / 1000).toFixed(2), // Convert milliunits to actual currency
+        amount: toDollars(transaction.amount),
         memo: transaction.memo,
         approved: transaction.approved,
         account_name: transaction.account_name,
         payee_name: transaction.payee_name,
         category_name: transaction.category_name,
+        // Present only on splits, whose parent row is categorised "Split".
+        subtransactions: mapSubtransactions(transaction.subtransactions),
         transfer_account_id: transaction.transfer_account_id,
         transfer_transaction_id: transaction.transfer_transaction_id,
         matched_transaction_id: transaction.matched_transaction_id,
