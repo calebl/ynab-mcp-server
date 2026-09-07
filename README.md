@@ -5,8 +5,19 @@ assistant read and modify a [YNAB](https://ynab.com) budget. Forked from
 [calebl/ynab-mcp-server](https://github.com/calebl/ynab-mcp-server).
 
 The server talks to the YNAB API through the official
-[`ynab` SDK](https://github.com/ynab/ynab-sdk-js) over stdio. Your Personal Access
-Token lives in an environment variable and is never sent to the model.
+[`ynab` SDK](https://github.com/ynab/ynab-sdk-js). Your Personal Access Token
+lives in an environment variable and is never sent to the model.
+
+It runs two ways from one codebase:
+
+- **Local (stdio)** — a child process of Claude Code or Claude Desktop on your
+  own machine. Simplest, but only works on that machine while it is running.
+- **Remote (Cloudflare Worker)** — deployed behind GitHub sign-in and added to
+  claude.ai as a custom connector, so it works from the web and the mobile app
+  with your computer switched off. See [DEPLOY.md](./DEPLOY.md).
+
+Both entry points register the same tools from `src/registry.ts`, so a tool
+written once is available in both.
 
 ## Setup
 
@@ -24,7 +35,7 @@ Environment variables:
 | `YNAB_API_TOKEN` | yes | Personal Access Token used for every API call |
 | `YNAB_BUDGET_ID` | no | Default budget, so tools can omit `budgetId`. Find it with `ynab_list_budgets`. |
 
-### Claude Desktop / Claude Code
+### Local: Claude Desktop / Claude Code
 
 ```json
 {
@@ -40,6 +51,29 @@ Environment variables:
   }
 }
 ```
+
+### Remote: phone and claude.ai
+
+The stdio server above cannot be reached from a phone. To use these tools from
+claude.ai or the Claude mobile app, deploy `src/worker/` to Cloudflare Workers
+and add it as a custom connector. [DEPLOY.md](./DEPLOY.md) has the full walk
+through; the shape of it:
+
+1. `npx wrangler login`, then `npx wrangler kv namespace create OAUTH_KV`
+2. `npm run deploy` once to learn your `*.workers.dev` hostname
+3. Create a GitHub OAuth app whose callback is `https://<host>/callback`
+4. Set `ALLOWED_GITHUB_LOGIN` in `wrangler.jsonc` to the one account allowed in
+5. `npx wrangler secret put` for `YNAB_API_TOKEN`, `GITHUB_CLIENT_ID` and
+   `GITHUB_CLIENT_SECRET`, then `npm run deploy` again
+6. Add `https://<host>/mcp` as a custom connector in claude.ai
+
+The YNAB token stays a Worker secret and never reaches the client. GitHub is
+used only to prove who you are: any account other than `ALLOWED_GITHUB_LOGIN` is
+refused. This matters because the tool set can create and delete transactions —
+an unauthenticated endpoint would hand the budget to anyone who found the URL.
+
+Setting `YNAB_READ_ONLY` to `"true"` drops every write tool from the tool list,
+which is worth considering for a connector you will mostly use on a phone.
 
 ## Tools
 
@@ -112,9 +146,13 @@ Tools never throw at the protocol level. Failures come back as
 
 ```bash
 npm run watch          # rebuild on change
-npm test               # vitest
+npm test               # vitest (watch mode)
+npm run test:run       # vitest, single run
 npm run test:coverage  # coverage report
+npm run typecheck      # typecheck both the node and Worker targets
 npm run debug          # build, then open the MCP inspector
+npm run dev:worker     # run the Worker locally with wrangler
+npm run deploy         # deploy the Worker to Cloudflare
 ```
 
 `dist/` is a build artifact and is not tracked in git; `npm run build` regenerates it.
@@ -123,8 +161,10 @@ npm run debug          # build, then open the MCP inspector
 
 Each tool is a self-contained module in `src/tools/` exporting `name`,
 `description`, `inputSchema` (a Zod shape) and `execute(input, api)`. See
-`CLAUDE.md` for the full template, then register the module in `src/index.ts`
-and add a test in `src/tests/`.
+`CLAUDE.md` for the full template, then add the module to the `tools` array in
+`src/registry.ts` and write a test in `src/tests/`. Registering it there serves
+it from both the stdio server and the Worker; mark `writes: true` if the tool
+changes data, which is what `YNAB_READ_ONLY` filters on.
 
 Useful references:
 - YNAB SDK types: `node_modules/ynab/dist/index.d.ts`
