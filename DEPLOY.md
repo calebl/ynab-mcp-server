@@ -73,6 +73,60 @@ npm run deploy
 Once connected it works everywhere you are signed in to Claude, including the
 mobile app. Your Mac does not need to be running.
 
+## Categorize reminders (optional)
+
+The Worker can drop a reminder on a Google Calendar when transactions are
+waiting to be categorized. It runs hourly and acts once a day, in the local
+hour you choose. With no service account configured the job is a no-op, so this
+is entirely opt-in.
+
+### 1. Create a service account
+
+In the [Google Cloud console](https://console.cloud.google.com/projectcreate):
+
+1. Create a project, then enable the
+   [Calendar API](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com)
+2. APIs & Services → Credentials → Create credentials → Service account
+3. On the new account, Keys → Add key → Create new key → JSON
+
+A service account avoids the usual OAuth dance: there are no refresh tokens to
+store and no consent screen, because access comes from sharing the calendar
+with it directly.
+
+### 2. Share the calendar with it
+
+In Google Calendar, open the calendar's settings → "Share with specific people
+or groups" → add the service account's email with **Make changes to events**.
+
+### 3. Configure and deploy
+
+Set `NAG_CALENDAR_ID`, `NAG_TIMEZONE`, `NAG_HOUR` and `NAG_SINCE_DAYS` in
+`wrangler.jsonc`, then store the key file as a secret:
+
+```bash
+npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON < service-account.json
+npm run deploy
+```
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NAG_CALENDAR_ID` | — | Calendar to write to. Unset disables the job. |
+| `NAG_TIMEZONE` | `America/Los_Angeles` | IANA zone the reminder is scheduled in |
+| `NAG_HOUR` | `18` | Local hour, 0-23, the event lands on |
+| `NAG_SINCE_DAYS` | `30` | Only nag about transactions this recent |
+
+### How it behaves
+
+- **Nothing pending, no event.** The reminder only exists when there is work.
+- **One event per day.** The event id is derived from the date, so a re-run
+  updates that day's event rather than stacking duplicates.
+- **The old backlog does not drive the count.** Only transactions inside
+  `NAG_SINCE_DAYS` appear in the title; anything older is mentioned in the
+  description. A count that never moves is a reminder you stop seeing.
+- **Daylight saving is handled.** Cloudflare crons are UTC, so the job runs
+  hourly and acts only in the configured local hour, holding its wall-clock
+  slot year round.
+
 ## Read-only mode
 
 To expose only the tools that read data and none that change it, set

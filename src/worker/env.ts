@@ -11,4 +11,17 @@ export interface WorkerEnv {
   ALLOWED_GITHUB_LOGIN: string;
   /** Set to "true" to expose only the read-only tools. */
   YNAB_READ_ONLY?: string;
+
+  /**
+   * Calendar reminder. Absent means the scheduled nag stays switched off.
+   * The service account key is a secret; the rest is plain config.
+   */
+  GOOGLE_SERVICE_ACCOUNT_JSON?: string;
+  NAG_CALENDAR_ID?: string;
+  /** IANA zone the reminder is scheduled in. Defaults to America/Los_Angeles. */
+  NAG_TIMEZONE?: string;
+  /** Local hour, 0-23, the reminder should land on. Defaults to 18. */
+  NAG_HOUR?: string;
+  /** Only nag about transactions this recent. Defaults to 30 days. */
+  NAG_SINCE_DAYS?: string;
 }
