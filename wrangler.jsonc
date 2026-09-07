@@ -1,0 +1,29 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "ynab-mcp-server",
+	"main": "src/worker/index.ts",
+	"compatibility_date": "2026-09-01",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	"kv_namespaces": [
+		{
+			// OAuth grants and tokens. Create with:
+			//   npx wrangler kv namespace create OAUTH_KV
+			"binding": "OAUTH_KV",
+			"id": "7bcc07072913466b93a2a333514741ed",
+			"remote": true
+		}
+	],
+	"vars": {
+		// Non-secret config. Secrets (YNAB_API_TOKEN, GITHUB_CLIENT_SECRET)
+		// are set with `wrangler secret put`, never here.
+		"ALLOWED_GITHUB_LOGIN": "ianthebeard",
+		"YNAB_READ_ONLY": "false",
+		// Budget 2026. Not a secret — a budget id alone grants no access.
+		"YNAB_BUDGET_ID": "82593cdb-bc22-4049-b04d-deaae054aa73"
+	}
+}
