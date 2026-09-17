@@ -8,9 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.1] - 2026-09-17
 
 ### Changed
-- **Breaking:** the minimum supported Node.js version is now 24; Node.js 22 is no longer supported. Node.js 22 reaches end of life on April 30, 2027, and Node.js 24 reaches end of life on April 30, 2028, according to the Node.js release schedule.
-- Updated the CI matrix to test Node.js 24 and 26.
-- Bumped `@types/node` to the Node.js 24 line.
+- Verified compatibility across Node.js 22, 24, and 26 in the CI matrix. Node.js 22 reaches end of life on April 30, 2027, and Node.js 24 reaches end of life on April 30, 2028, according to the Node.js release schedule.
+- Bumped `@types/node` to the Node.js 22 line.
 - Credited the 0.2.0 release contributors by GitHub username and profile URL.
 
 ## [0.2.0] - 2026-09-17

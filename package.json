@@ -31,7 +31,7 @@
     "personal-finance"
   ],
   "engines": {
-    "node": ">=24"
+    "node": ">=22"
   },
   "type": "module",
   "bin": {
@@ -64,7 +64,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260906.1",
     "@modelcontextprotocol/inspector": "^0.16.5",
-    "@types/node": "^24.13.5",
+    "@types/node": "^22.20.3",
     "@vitest/coverage-v8": "^3.2.4",
     "typescript": "^5.3.3",
     "vitest": "^3.2.4",
