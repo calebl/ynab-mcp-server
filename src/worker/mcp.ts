@@ -8,7 +8,7 @@ import type { WorkerEnv } from "./env.js";
  * The tool modules read configuration from `process.env` (they were written for
  * the stdio server). Workers has no ambient environment, so mirror the bindings
  * onto `process.env` before building the server. Safe here because this Worker
- * serves exactly one YNAB account.
+ * uses one server-wide YNAB credential rather than per-request credentials.
  */
 function applyEnv(env: WorkerEnv) {
   process.env.YNAB_API_TOKEN = env.YNAB_API_TOKEN;
