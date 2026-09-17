@@ -70,11 +70,14 @@ through; the shape of it:
 The YNAB token stays a Worker secret and never reaches the client. GitHub sign-in
 controls **who may connect** to the remote Worker; the YNAB Personal Access
 Token controls **which YNAB account it reaches**. They answer different questions,
-and neither substitutes for the other: the Worker uses one server-wide YNAB token
-and budget, so anyone admitted through the GitHub gate reaches the deployer's
-budget and money, not their own. Any account other than `ALLOWED_GITHUB_LOGIN` is
-refused. This matters because the tool set can create and delete transactions —
-an unauthenticated endpoint would hand the budget to anyone who found the URL.
+and neither substitutes for the other. The Worker uses one server-wide YNAB token,
+so anyone admitted through the GitHub gate reaches the deployer's YNAB account,
+money, and every budget available to that token—not their own YNAB account.
+`ynab_list_budgets` lists all of those budgets, and a caller-supplied `budgetId`
+overrides the optional `YNAB_BUDGET_ID` default. Any account other than
+`ALLOWED_GITHUB_LOGIN` is refused. This matters because the tool set can create
+and delete transactions—an unauthenticated endpoint would grant access to those
+budgets to anyone who found the URL.
 
 ## Why not YNAB OAuth?
 
