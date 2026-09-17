@@ -1,18 +1,37 @@
 {
   "name": "ynab-mcp-server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MCP server for interacting with a YNAB budget",
   "author": "Caleb LeNoir <caleb.lenoir@hey.com>",
-  "contributors": ["ianthebeard <beardedaudio@gmail.com>"],
+  "contributors": [
+    {
+      "name": "lwsinclair",
+      "url": "https://github.com/lwsinclair"
+    },
+    {
+      "name": "grandcamel",
+      "url": "https://github.com/grandcamel"
+    },
+    {
+      "name": "ianthebeard",
+      "url": "https://github.com/ianthebeard"
+    }
+  ],
   "repository": "git+https://github.com/calebl/ynab-mcp-server.git",
   "homepage": "https://github.com/calebl/ynab-mcp-server#readme",
   "bugs": {
     "url": "https://github.com/calebl/ynab-mcp-server/issues"
   },
   "license": "MIT",
-  "keywords": ["mcp", "model-context-protocol", "ynab", "budgeting", "personal-finance"],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ynab",
+    "budgeting",
+    "personal-finance"
+  ],
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "type": "module",
   "bin": {
@@ -45,7 +64,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260906.1",
     "@modelcontextprotocol/inspector": "^0.16.5",
-    "@types/node": "^20.11.24",
+    "@types/node": "^24.13.5",
     "@vitest/coverage-v8": "^3.2.4",
     "typescript": "^5.3.3",
     "vitest": "^3.2.4",
