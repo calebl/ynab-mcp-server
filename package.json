@@ -2,7 +2,18 @@
   "name": "ynab-mcp-server",
   "version": "0.2.0",
   "description": "MCP server for interacting with a YNAB budget",
-  "author": "ianthebeard <beardedaudio@gmail.com>",
+  "author": "Caleb LeNoir <caleb.lenoir@hey.com>",
+  "contributors": ["ianthebeard <beardedaudio@gmail.com>"],
+  "repository": "git+https://github.com/calebl/ynab-mcp-server.git",
+  "homepage": "https://github.com/calebl/ynab-mcp-server#readme",
+  "bugs": {
+    "url": "https://github.com/calebl/ynab-mcp-server/issues"
+  },
+  "license": "MIT",
+  "keywords": ["mcp", "model-context-protocol", "ynab", "budgeting", "personal-finance"],
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "bin": {
     "ynab-mcp-server": "./dist/index.js"
@@ -39,6 +50,5 @@
     "typescript": "^5.3.3",
     "vitest": "^3.2.4",
     "wrangler": "^4.129.0"
-  },
-  "private": true
+  }
 }
