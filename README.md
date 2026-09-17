@@ -69,24 +69,29 @@ through; the shape of it:
 
 The YNAB token stays a Worker secret and never reaches the client. GitHub sign-in
 controls **who may connect** to the remote Worker; the YNAB Personal Access
-Token controls **which YNAB account it reaches**. They answer different questions,
-and neither substitutes for the other. The Worker uses one server-wide YNAB token,
-so anyone admitted through the GitHub gate reaches the deployer's YNAB account,
-money, and every budget available to that token—not their own YNAB account.
+Token controls **which YNAB account it reaches**. They answer different
+questions, and neither substitutes for the other. The Worker uses one
+server-wide YNAB token, so anyone admitted through the GitHub gate reaches the
+deployer's YNAB account, money, and every budget available to that token—not
+their own YNAB account.
 `ynab_list_budgets` lists all of those budgets, and a caller-supplied `budgetId`
-overrides the optional `YNAB_BUDGET_ID` default. Any account other than
+overrides the optional `YNAB_BUDGET_ID` default. Any GitHub account other than
 `ALLOWED_GITHUB_LOGIN` is refused. This matters because the tool set can create
 and delete transactions—an unauthenticated endpoint would grant access to those
 budgets to anyone who found the URL.
 
 ## Why not YNAB OAuth?
 
-YNAB OAuth is deliberately not supported: its token exchange requires a client
-secret even with PKCE, which an open-source package cannot ship, so it cannot
-honestly implement the authorization-code flow ([OAuth application requirements](https://api.ynab.com/#oauth-applications)).
+YNAB OAuth is deliberately not supported. Its token exchange requires a client
+secret even with PKCE; an open-source package cannot ship a secret, so a local
+package cannot honestly implement the authorization-code flow
+([OAuth application requirements](https://api.ynab.com/#oauth-applications)).
 The only secretless flow YNAB documents is the implicit grant, which expires in
-two hours with no refresh; YNAB recommends a Personal Access Token instead for
-an individual accessing their own account ([OAuth application requirements](https://api.ynab.com/#oauth-applications), [Personal Access Tokens](https://api.ynab.com/#personal-access-tokens)).
+two hours with no refresh
+([OAuth application requirements](https://api.ynab.com/#oauth-applications)).
+YNAB recommends a Personal Access Token for an individual accessing their own
+account
+([Personal Access Tokens](https://api.ynab.com/#personal-access-tokens)).
 
 Setting `YNAB_READ_ONLY` to `"true"` drops every write tool from the tool list,
 which is worth considering for a connector you will mostly use on a phone.

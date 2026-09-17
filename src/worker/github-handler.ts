@@ -37,8 +37,8 @@ function decodeState(state: string): AuthRequest {
  * then turn a successful GitHub login into an MCP authorization grant.
  *
  * Only the login named by ALLOWED_GITHUB_LOGIN is granted. Every other GitHub
- * account is refused, because a grant here means full read/write access to the
- * budget behind YNAB_API_TOKEN.
+ * account is refused, because a grant here means full read/write access to
+ * every budget available through YNAB_API_TOKEN.
  */
 export const GitHubHandler = {
   async fetch(request: Request, env: WorkerEnv & { OAUTH_PROVIDER: OAuthHelpers }): Promise<Response> {
