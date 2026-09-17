@@ -5,9 +5,13 @@ these tools from claude.ai or the Claude mobile app, deploy the Worker in
 `src/worker/` to Cloudflare and add it as a custom connector.
 
 The Worker holds the YNAB token server-side and puts GitHub sign-in in front of
-it, restricted to a single account. That matters: the tool set includes create,
-update and delete, so an unauthenticated endpoint would let anyone who finds the
-URL rewrite the budget.
+it, restricted to a single account. These are separate layers: GitHub sign-in
+controls who may connect, while the YNAB Personal Access Token controls which
+YNAB account the server reaches. The Worker uses one server-wide token and
+budget, so anyone admitted through GitHub reaches the deployer's budget and
+money, not their own. That matters: the tool set includes create, update and
+delete, so an unauthenticated endpoint would let anyone who finds the URL rewrite
+the budget.
 
 ## One-time setup
 

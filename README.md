@@ -67,10 +67,23 @@ through; the shape of it:
    `GITHUB_CLIENT_SECRET`, then `npm run deploy` again
 6. Add `https://<host>/mcp` as a custom connector in claude.ai
 
-The YNAB token stays a Worker secret and never reaches the client. GitHub is
-used only to prove who you are: any account other than `ALLOWED_GITHUB_LOGIN` is
+The YNAB token stays a Worker secret and never reaches the client. GitHub sign-in
+controls **who may connect** to the remote Worker; the YNAB Personal Access
+Token controls **which YNAB account it reaches**. They answer different questions,
+and neither substitutes for the other: the Worker uses one server-wide YNAB token
+and budget, so anyone admitted through the GitHub gate reaches the deployer's
+budget and money, not their own. Any account other than `ALLOWED_GITHUB_LOGIN` is
 refused. This matters because the tool set can create and delete transactions —
 an unauthenticated endpoint would hand the budget to anyone who found the URL.
+
+## Why not YNAB OAuth?
+
+YNAB OAuth is deliberately not supported: its token exchange requires a client
+secret even with PKCE, which an open-source package cannot ship, so it cannot
+honestly implement the authorization-code flow ([OAuth application requirements](https://api.ynab.com/#oauth-applications)).
+The only secretless flow YNAB documents is the implicit grant, which expires in
+two hours with no refresh; YNAB recommends a Personal Access Token instead for
+an individual accessing their own account ([OAuth application requirements](https://api.ynab.com/#oauth-applications), [Personal Access Tokens](https://api.ynab.com/#personal-access-tokens)).
 
 Setting `YNAB_READ_ONLY` to `"true"` drops every write tool from the tool list,
 which is worth considering for a connector you will mostly use on a phone.
