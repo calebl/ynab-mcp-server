@@ -48,7 +48,10 @@ describe("worker MCP handler", () => {
     expect(response.status).toBe(200);
 
     const result = await readResult(response);
-    expect(result.result.serverInfo.name).toBe("ynab-mcp-server");
+    expect(result.result.serverInfo).toEqual({
+      name: "ynab-mcp-server",
+      version: "0.2.1",
+    });
   });
 
   it("serves every tool", async () => {
