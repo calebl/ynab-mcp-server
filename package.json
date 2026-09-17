@@ -1,8 +1,8 @@
 {
   "name": "ynab-mcp-server",
-  "version": "0.1.2",
-  "description": "ynab-mcp-server MCP server",
-  "author": "Caleb LeNoir <caleb.lenoir@hey.com>",
+  "version": "0.2.0",
+  "description": "MCP server for interacting with a YNAB budget",
+  "author": "ianthebeard <beardedaudio@gmail.com>",
   "type": "module",
   "bin": {
     "ynab-mcp-server": "./dist/index.js"
@@ -18,21 +18,27 @@
     "debug": "npm run build && npx @modelcontextprotocol/inspector dist/index.js",
     "test": "vitest",
     "test:watch": "vitest watch",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.worker.json",
+    "dev:worker": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test:run": "vitest run"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "@types/axios": "^0.14.4",
-    "axios": "^1.8.4",
-    "commander": "^14.0.1",
+    "@cloudflare/workers-oauth-provider": "^0.10.3",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "ynab": "^2.9.0",
-    "zod": "^3.23.8"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260906.1",
     "@modelcontextprotocol/inspector": "^0.16.5",
     "@types/node": "^20.11.24",
     "@vitest/coverage-v8": "^3.2.4",
     "typescript": "^5.3.3",
-    "vitest": "^3.2.4"
-  }
+    "vitest": "^3.2.4",
+    "wrangler": "^4.129.0"
+  },
+  "private": true
 }

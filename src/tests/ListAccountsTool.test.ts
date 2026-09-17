@@ -133,9 +133,9 @@ describe('ListAccountsTool', () => {
 
       const response = JSON.parse(result.content[0].text);
       const checking = response.accounts.find((a: any) => a.name === 'Checking');
-      expect(checking.balance).toBe('5000.00');
-      expect(checking.cleared_balance).toBe('4500.00');
-      expect(checking.uncleared_balance).toBe('500.00');
+      expect(checking.balance).toBe(5000);
+      expect(checking.cleared_balance).toBe(4500);
+      expect(checking.uncleared_balance).toBe(500);
     });
 
     it('should include account metadata', async () => {

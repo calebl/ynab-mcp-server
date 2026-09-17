@@ -1,225 +1,175 @@
-[![MseeP.ai Security Assessment Badge](https://mseep.net/mseep-audited.png)](https://mseep.ai/app/calebl-ynab-mcp-server)
-
 # ynab-mcp-server
-[![smithery badge](https://smithery.ai/badge/@calebl/ynab-mcp-server)](https://smithery.ai/server/@calebl/ynab-mcp-server)
 
-A Model Context Protocol (MCP) server built with mcp-framework. This MCP provides tools
-for interacting with your YNAB budgets setup at https://ynab.com
+A [Model Context Protocol](https://modelcontextprotocol.io) server that lets an AI
+assistant read and modify a [YNAB](https://ynab.com) budget. Forked from
+[calebl/ynab-mcp-server](https://github.com/calebl/ynab-mcp-server).
 
-<a href="https://glama.ai/mcp/servers/@calebl/ynab-mcp-server">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/@calebl/ynab-mcp-server/badge" alt="YNAB Server MCP server" />
-</a>
+The server talks to the YNAB API through the official
+[`ynab` SDK](https://github.com/ynab/ynab-sdk-js). Your Personal Access Token
+lives in an environment variable and is never sent to the model.
 
-In order to have an AI interact with this tool, you will need to get your Personal Access Token
-from YNAB: https://api.ynab.com/#personal-access-tokens. When adding this MCP server to any
-client, you will need to provide your personal access token as YNAB_API_TOKEN. **This token
-is never directly sent to the LLM.** It is stored privately in an environment variable for
-use with the YNAB api.
+It runs two ways from one codebase:
+
+- **Local (stdio)** — a child process of Claude Code or Claude Desktop on your
+  own machine. Simplest, but only works on that machine while it is running.
+- **Remote (Cloudflare Worker)** — deployed behind GitHub sign-in and added to
+  claude.ai as a custom connector, so it works from the web and the mobile app
+  with your computer switched off. See [DEPLOY.md](./DEPLOY.md).
+
+Both entry points register the same tools from `src/registry.ts`, so a tool
+written once is available in both.
 
 ## Setup
-Specify env variables:
-* YNAB_API_TOKEN (required)
-* YNAB_BUDGET_ID (optional)
 
-## Goal
-The goal of the project is to be able to interact with my YNAB budget via an AI conversation.
-There are a few primary workflows I want to enable:
-
-## Workflows:
-### First time setup
-* be prompted to select your budget from your available budgets. If you try to use another
-tool first, this prompt should happen asking you to set your default budget.
-  * Tools needed: ListBudgets
-### Manage overspent categories
-### Adding new transactions
-### Approving transactions
-### Check total monthly spending vs total income
-### Auto-distribute ready to assign funds based on category targets
-
-## Current state
-Available tools:
-* ListBudgets - lists available budgets on your account
-* BudgetSummary - provides a summary of categories that are underfunded and accounts that are low
-* GetUnapprovedTransactions - retrieve all unapproved transactions
-* CreateTransaction - creates a transaction for a specified budget and account.
-  * example prompt: `Add a transaction to my Ally account for $3.98 I spent at REI today`
-  * requires GetBudget to be called first so we know the account id
-* ApproveTransaction - approves an existing transaction in your YNAB budget
-  * requires a transaction ID to approve
-  * can be used in conjunction with GetUnapprovedTransactions to approve pending transactions
-  * After calling get unapproved transactions, prompt: `approve the transaction for $6.95 on the Apple Card`
-
-Next:
-* be able to approve multiple transactions with 1 call
-* updateCategory tool - or updateTransaction more general tool if I can get optional parameters to work correctly with zod & mcp framework
-* move off of mcp framework to use the model context protocol sdk directly?
-
-
-## Quick Start
+Get a Personal Access Token from <https://api.ynab.com/#personal-access-tokens>, then:
 
 ```bash
-# Install dependencies
 npm install
-
-# Build the project
 npm run build
-
 ```
 
-## Project Structure
+Environment variables:
 
-```
-ynab-mcp-server/
-├── src/
-│   ├── tools/        # MCP Tools
-│   └── index.ts      # Server entry point
-├── .cursor/
-│   └── rules/        # Cursor AI rules for code generation
-├── package.json
-└── tsconfig.json
-```
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `YNAB_API_TOKEN` | yes | Personal Access Token used for every API call |
+| `YNAB_BUDGET_ID` | no | Default budget, so tools can omit `budgetId`. Find it with `ynab_list_budgets`. |
 
-## Adding Components
-
-The YNAB sdk describes the available api endpoints: https://github.com/ynab/ynab-sdk-js.
-
-YNAB open api specification is here: https://api.ynab.com/papi/open_api_spec.yaml. This can
-be used to prompt an AI to generate a new tool. Example prompt for Cursor Agent:
-
-```
-create a new tool based on the readme and this openapi doc: https://api.ynab.com/papi/open_api_spec.yaml
-
-The new tool should get the details for a single budget
-```
-
-You can add more tools using the CLI:
-
-```bash
-# Add a new tool
-mcp add tool my-tool
-
-# Example tools you might create:
-mcp add tool data-processor
-mcp add tool api-client
-mcp add tool file-handler
-```
-
-## Tool Development
-
-Example tool structure:
-
-```typescript
-import { MCPTool } from "mcp-framework";
-import { z } from "zod";
-
-interface MyToolInput {
-  message: string;
-}
-
-class MyTool extends MCPTool<MyToolInput> {
-  name = "my_tool";
-  description = "Describes what your tool does";
-
-  schema = {
-    message: {
-      type: z.string(),
-      description: "Description of this input parameter",
-    },
-  };
-
-  async execute(input: MyToolInput) {
-    // Your tool logic here
-    return `Processed: ${input.message}`;
-  }
-}
-
-export default MyTool;
-```
-
-## Publishing to npm
-
-1. Update your package.json:
-   - Ensure `name` is unique and follows npm naming conventions
-   - Set appropriate `version`
-   - Add `description`, `author`, `license`, etc.
-   - Check `bin` points to the correct entry file
-
-2. Build and test locally:
-   ```bash
-   npm run build
-   npm link
-   ynab-mcp-server  # Test your CLI locally
-   ```
-
-3. Login to npm (create account if necessary):
-   ```bash
-   npm login
-   ```
-
-4. Publish your package:
-   ```bash
-   npm publish
-   ```
-
-After publishing, users can add it to their claude desktop client (read below) or run it with npx
-
-
-## Using with Claude Desktop
-
-### Installing via Smithery
-
-To install YNAB Budget Assistant for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@calebl/ynab-mcp-server):
-
-```bash
-npx -y @smithery/cli install @calebl/ynab-mcp-server --client claude
-```
-
-### Local Development
-
-Add this configuration to your Claude Desktop config file:
-
-**MacOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%/Claude/claude_desktop_config.json`
+### Local: Claude Desktop / Claude Code
 
 ```json
 {
   "mcpServers": {
-    "ynab-mcp-server": {
+    "ynab": {
       "command": "node",
-      "args":["/absolute/path/to/ynab-mcp-server/dist/index.js"]
+      "args": ["/absolute/path/to/ynab-mcp-server/dist/index.js"],
+      "env": {
+        "YNAB_API_TOKEN": "your-token",
+        "YNAB_BUDGET_ID": "your-budget-id"
+      }
     }
   }
 }
 ```
 
-### After Publishing
+### Remote: phone and claude.ai
 
-Add this configuration to your Claude Desktop config file:
+The stdio server above cannot be reached from a phone. To use these tools from
+claude.ai or the Claude mobile app, deploy `src/worker/` to Cloudflare Workers
+and add it as a custom connector. [DEPLOY.md](./DEPLOY.md) has the full walk
+through; the shape of it:
 
-**MacOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%/Claude/claude_desktop_config.json`
+1. `npx wrangler login`, then `npx wrangler kv namespace create OAUTH_KV`
+2. `npm run deploy` once to learn your `*.workers.dev` hostname
+3. Create a GitHub OAuth app whose callback is `https://<host>/callback`
+4. Set `ALLOWED_GITHUB_LOGIN` in `wrangler.jsonc` to the one account allowed in
+5. `npx wrangler secret put` for `YNAB_API_TOKEN`, `GITHUB_CLIENT_ID` and
+   `GITHUB_CLIENT_SECRET`, then `npm run deploy` again
+6. Add `https://<host>/mcp` as a custom connector in claude.ai
 
-```json
-{
-  "mcpServers": {
-    "ynab-mcp-server": {
-      "command": "npx",
-      "args": ["ynab-mcp-server"]
-    }
-  }
-}
+The YNAB token stays a Worker secret and never reaches the client. GitHub is
+used only to prove who you are: any account other than `ALLOWED_GITHUB_LOGIN` is
+refused. This matters because the tool set can create and delete transactions —
+an unauthenticated endpoint would hand the budget to anyone who found the URL.
+
+Setting `YNAB_READ_ONLY` to `"true"` drops every write tool from the tool list,
+which is worth considering for a connector you will mostly use on a phone.
+
+## Tools
+
+Every tool takes an optional `budgetId` that falls back to `YNAB_BUDGET_ID`.
+All monetary values — in both directions — are plain currency amounts, never
+YNAB's milliunits; conversion happens in `src/tools/money.ts`.
+
+### Reading
+
+| Tool | What it does |
+| --- | --- |
+| `ynab_list_budgets` | Every budget on the account. Run this first to find a budget ID. |
+| `ynab_budget_summary` | A month at a glance: income, budgeted, activity, Ready to Assign, plus categories split into `overspent`, `underfunded` (goal not yet met) and `positive_balance`. Hidden and deleted categories are excluded. |
+| `ynab_list_accounts` | Accounts with balances. `includeClosedAccounts` to see closed ones. |
+| `ynab_list_categories` | Categories grouped by category group, with goal info. |
+| `ynab_list_payees` | Payees, for resolving payee IDs. |
+| `ynab_list_months` | Every budget month with its summary numbers. |
+| `ynab_list_scheduled_transactions` | Scheduled/recurring transactions. |
+| `ynab_get_transactions` | Transactions filtered by `sinceDate`, `accountId`, `categoryId`, `payeeId`, `type` (`all`/`uncategorized`/`unapproved`) and `limit` (default 100). |
+| `ynab_get_unapproved_transactions` | Unapproved transactions, optionally from `sinceDate` onward. |
+
+### Reporting
+
+Splits are counted through their subtransactions and transfers between your own
+accounts are excluded, so these report spending rather than money movement.
+
+| Tool | What it does |
+| --- | --- |
+| `ynab_spending_by_category` | Total spend per category over a date range, biggest first, with share of total. Defaults to the last 30 days. |
+| `ynab_spending_by_payee` | The same, grouped by merchant. |
+| `ynab_cash_flow` | Income vs spending per month with the running net, from YNAB's own monthly totals. Defaults to the last 6 months. |
+
+### Writing
+
+| Tool | What it does |
+| --- | --- |
+| `ynab_create_transaction` | Creates a transaction. Needs `date`, `amount`, an account (`accountId` or `accountName`) and a payee (`payeeId` or `payeeName`); category optional as `categoryId` or `categoryName`. |
+| `ynab_update_transaction` | Updates any subset of an existing transaction's fields. |
+| `ynab_delete_transaction` | Deletes a transaction. Not undoable. |
+| `ynab_approve_transaction` | Approves (or un-approves) one transaction. |
+| `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call. |
+| `ynab_update_category_budget` | Sets the total budgeted amount for a category in a month. Not an increment. |
+| `ynab_import_transactions` | Triggers an import from linked institutions, the same as hitting Import in the YNAB app. |
+| `ynab_move_money` | Moves budgeted money between two categories in a month, for covering overspending. |
+| `ynab_auto_assign` | Spreads Ready to Assign over categories with unmet monthly goals, largest shortfall first. `dryRun` to preview, `maxTotal` to cap it. |
+
+#### Names instead of IDs
+
+`ynab_create_transaction` accepts `accountName` and `categoryName` and matches
+them loosely against the budget, so "ally checking" finds *Ally Checking*.
+Closed accounts and hidden categories are never matched. If a name is ambiguous
+or unrecognised the call fails and names the near misses rather than guessing,
+and successful calls echo back `matchedAccount` / `matchedCategory` so a wrong
+guess is visible.
+
+#### Writes that can half-succeed
+
+YNAB has no endpoint for moving money between categories, so `ynab_move_money`
+rewrites both categories' budgeted amounts in two calls. It takes from the
+source first, so a failure in between leaves the money in Ready to Assign rather
+than double-counted. When that happens the response sets `partial: true` and
+carries a `recovery` line with the original amount to restore. `ynab_auto_assign`
+behaves the same way: on failure it reports which categories were already funded
+and which were left alone.
+
+Tools never throw at the protocol level. Failures come back as
+`{ "success": false, "error": "..." }` in the text content.
+
+## Development
+
+```bash
+npm run watch          # rebuild on change
+npm test               # vitest (watch mode)
+npm run test:run       # vitest, single run
+npm run test:coverage  # coverage report
+npm run typecheck      # typecheck both the node and Worker targets
+npm run debug          # build, then open the MCP inspector
+npm run dev:worker     # run the Worker locally with wrangler
+npm run deploy         # deploy the Worker to Cloudflare
 ```
 
-### Other MCP Clients
-Check https://modelcontextprotocol.io/clients for other available clients.
+`dist/` is a build artifact and is not tracked in git; `npm run build` regenerates it.
 
-## Building and Testing
+### Adding a tool
 
-1. Make changes to your tools
-2. Run `npm run build` to compile
-3. The server will automatically load your tools on startup
+Each tool is a self-contained module in `src/tools/` exporting `name`,
+`description`, `inputSchema` (a Zod shape) and `execute(input, api)`. See
+`CLAUDE.md` for the full template, then add the module to the `tools` array in
+`src/registry.ts` and write a test in `src/tests/`. Registering it there serves
+it from both the stdio server and the Worker; mark `writes: true` if the tool
+changes data, which is what `YNAB_READ_ONLY` filters on.
 
-## Learn More
+Useful references:
+- YNAB SDK types: `node_modules/ynab/dist/index.d.ts`
+- YNAB OpenAPI spec: <https://api.ynab.com/papi/open_api_spec.yaml>
 
-- [MCP Framework Github](https://github.com/QuantGeekDev/mcp-framework)
-- [MCP Framework Docs](https://mcp-framework.com)
+## License
+
+See [LICENSE](./LICENSE).

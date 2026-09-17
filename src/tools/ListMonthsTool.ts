@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
+import { toDollars } from "./money.js";
 
 export const name = "ynab_list_months";
 export const description = "Lists all budget months. Each month contains summary information about budgeting status.";
@@ -31,10 +32,10 @@ export async function execute(input: ListMonthsInput, api: ynab.API) {
     const months = response.data.months.map((month) => ({
       month: month.month,
       note: month.note,
-      income: (month.income / 1000).toFixed(2),
-      budgeted: (month.budgeted / 1000).toFixed(2),
-      activity: (month.activity / 1000).toFixed(2),
-      to_be_budgeted: (month.to_be_budgeted / 1000).toFixed(2),
+      income: toDollars(month.income),
+      budgeted: toDollars(month.budgeted),
+      activity: toDollars(month.activity),
+      to_be_budgeted: toDollars(month.to_be_budgeted),
       age_of_money: month.age_of_money,
     }));
 

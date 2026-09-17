@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
+import { toDollars } from "./money.js";
 
 export const name = "ynab_bulk_approve_transactions";
 export const description = "Approves multiple transactions at once. Provide an array of transaction IDs to approve them all in a single API call.";
@@ -47,7 +48,7 @@ export async function execute(input: BulkApproveTransactionsInput, api: ynab.API
     const updatedTransactions = response.data.transactions.map((txn) => ({
       id: txn.id,
       date: txn.date,
-      amount: (txn.amount / 1000).toFixed(2),
+      amount: toDollars(txn.amount),
       payee_name: txn.payee_name,
       approved: txn.approved,
     }));
