@@ -159,7 +159,7 @@ npm run deploy         # deploy the Worker to Cloudflare
 
 ### Releasing
 
-Bump the version in `package.json` and update `CHANGELOG.md`, then merge to `main` and create a GitHub release tagged in the existing `0.2.0` style (without a `v` prefix). The publish workflow publishes that release to npm. Configure a Trusted Publisher on npmjs.com for `ynab-mcp-server`, pointing at GitHub repository `calebl/ynab-mcp-server` and the exact workflow filename `.github/workflows/publish.yml` (the filename must match exactly).
+Bump the version in `package.json` and update `CHANGELOG.md`, then merge to `main` and create a GitHub release tagged in the existing `0.2.0` style (without a `v` prefix). The workflow stages that release with npm; it does not make the package public. The maintainer must run `npm stage list`, review it, and run `npm stage approve` with 2FA to promote it live. Configure a Trusted Publisher on npmjs.com for `ynab-mcp-server`, pointing at GitHub repository `calebl/ynab-mcp-server` and the exact workflow filename `.github/workflows/publish.yml` (the filename must match exactly); under Allowed actions select only `npm stage publish`.
 
 ### Adding a tool
 

@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Excluded transfers from spending reports and categorization reminders.
-- npm publishing now uses npm Trusted Publishing (OIDC), configured for the exact `publish.yml` workflow filename.
+- npm publishing now uses npm Trusted Publishing (OIDC) and staged publishing: the maintainer reviews with `npm stage list` and promotes with `npm stage approve` (2FA). The package does not become public until approval.
 - Categorization reminders now focus on the current month and run at a randomized hour.
 
 ## [0.1.2] - 2024-03-26
