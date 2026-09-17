@@ -157,6 +157,10 @@ npm run deploy         # deploy the Worker to Cloudflare
 
 `dist/` is a build artifact and is not tracked in git; `npm run build` regenerates it.
 
+### Releasing
+
+Bump the version in `package.json` and update `CHANGELOG.md`, then merge to `main` and create a GitHub release tagged in the existing `0.2.0` style (without a `v` prefix). The publish workflow publishes that release to npm. Configure the one-time `NPM_TOKEN` repository secret with a granular automation token that has publish rights for `ynab-mcp-server`.
+
 ### Adding a tool
 
 Each tool is a self-contained module in `src/tools/` exporting `name`,
