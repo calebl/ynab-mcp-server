@@ -443,9 +443,15 @@ function isChoiceAnswer(value: unknown, validKeys: Set<string>): value is Choice
   ) return false;
   const entries = Object.entries(answer.probabilities);
   if (entries.length !== validKeys.size) return false;
-  return entries.every(([key, probability]) =>
+  const validProbabilities = entries.every(([key, probability]) =>
     validKeys.has(key) && typeof probability === "number" && Number.isFinite(probability) && probability >= 0 && probability <= 1
   ) && [...validKeys].every((key) => typeof answer.probabilities?.[key] === "number");
+  if (!validProbabilities) return false;
+  const tolerance = 1e-6;
+  const totalProbability = entries.reduce((total, [, probability]) => total + probability, 0);
+  const highestProbability = Math.max(...entries.map(([, probability]) => probability));
+  return Math.abs(totalProbability - 1) <= tolerance &&
+    answer.probabilities[answer.choice] >= highestProbability - tolerance;
 }
 
 async function callTypeSafe(body: ReturnType<typeof buildTypeSafeRequest>, apiKey: string): Promise<TypeSafeResponse> {

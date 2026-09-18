@@ -357,6 +357,32 @@ describe("SuggestCategoriesTool", () => {
     expect(requestBody).toContain("MARKET #123");
   });
 
+  it("rejects inconsistent Choice probability distributions per row", async () => {
+    const api = makeApi({ candidates: [
+      transaction("wrong-winner"),
+      transaction("invalid-total", { payee_id: "other-payee" }),
+    ] });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(choiceResponse({
+      t00: answer("c000", 0.9, { c000: 0.1, c001: 0.8, leave_uncategorized: 0.1 }),
+      t01: answer("c001", 0.9, { c000: 0.1, c001: 0.4, leave_uncategorized: 0.1 }),
+    })));
+
+    const output = await result({}, api);
+
+    expect(output.transactions).toMatchObject([
+      {
+        transaction_id: "wrong-winner",
+        status: "failed",
+        error: "TypeSafe returned a missing or malformed Choice answer",
+      },
+      {
+        transaction_id: "invalid-total",
+        status: "failed",
+        error: "TypeSafe returned a missing or malformed Choice answer",
+      },
+    ]);
+  });
+
   it("turns a provider failure into failed rows without throwing or writing to YNAB", async () => {
     const api = makeApi({ candidates: [transaction("txn-1"), transaction("txn-2", { payee_id: "other-payee" })] });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("overloaded", { status: 529 })));
