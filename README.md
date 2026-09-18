@@ -142,8 +142,8 @@ category group and category names, to **TypeSafe as a third-party processor**.
 It does not send YNAB UUIDs, balances, goals, approval/cleared state, or raw
 transaction history. TypeSafe's published Jev 1.13 price at the time of this
 release is **$0.042 per million input tokens; output tokens are free**. The tool
-returns preflight estimates, actual token usage, and computed input cost on each
-run and refuses requests over its per-call token/cost ceilings. Pricing and
+returns preflight estimates, actual token usage, and projected cost on each run
+and refuses requests over its per-call token/cost ceilings. Pricing and
 provider limits can change; check <https://docs.typesafe.ai/models>.
 
 The prototype is intentionally narrow and not default-on. Its supporting

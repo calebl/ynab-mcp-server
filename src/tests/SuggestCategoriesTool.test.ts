@@ -296,8 +296,9 @@ describe("SuggestCategoriesTool", () => {
       model: "jev-1.13.0",
       provider_calls: 1,
       thresholds: { provisional: true, suggested_at_or_above: 0.8, needs_review_at_or_above: 0.5 },
-      usage: { input_tokens: 1234, output_tokens: 56, input_cost_usd: 0.000051828 },
+      usage: { input_tokens: 1234, output_tokens: 56, projected_cost_usd: 0.000051828 },
     });
+    expect(output.usage).not.toHaveProperty("input_cost_usd");
     expect(output.transactions[0]).toMatchObject({
       status: "needs_review",
       source: "jev",
@@ -390,17 +391,56 @@ describe("SuggestCategoriesTool", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("refuses more than 255 Choice options instead of truncating categories", async () => {
-    const categories = Array.from({ length: 255 }, (_, index) => category(`cat-${index}`, `Category ${index}`));
-    const api = makeApi({ groups: [group("large", "Large", categories)] });
+  it("preserves skipped rows when no eligible categories are available", async () => {
+    const api = makeApi({
+      candidates: [
+        transaction("transfer", { transfer_account_id: "other-account" }),
+        transaction("eligible"),
+      ],
+      groups: [],
+    });
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     const output = await result({}, api);
 
-    expect(output.success).toBe(false);
-    expect(output.error).toContain("255 eligible categories plus leave_uncategorized");
-    expect(output.error).toContain("No categories were truncated");
+    expect(output.success).toBe(true);
+    expect(output.transactions).toMatchObject([
+      { transaction_id: "transfer", status: "skipped_transfer" },
+      {
+        transaction_id: "eligible",
+        status: "failed",
+        error: "No visible writable categories are available in this budget.",
+      },
+    ]);
+    expect(output.usage).toMatchObject({ input_tokens: 0, output_tokens: 0, projected_cost_usd: 0 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves skipped rows when refusing more than 255 Choice options", async () => {
+    const categories = Array.from({ length: 255 }, (_, index) => category(`cat-${index}`, `Category ${index}`));
+    const api = makeApi({
+      candidates: [
+        transaction("transfer", { transfer_account_id: "other-account" }),
+        transaction("eligible"),
+      ],
+      groups: [group("large", "Large", categories)],
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(output.success).toBe(true);
+    expect(output.transactions).toMatchObject([
+      { transaction_id: "transfer", status: "skipped_transfer" },
+      {
+        transaction_id: "eligible",
+        status: "failed",
+        error: expect.stringContaining("255 eligible categories plus leave_uncategorized"),
+      },
+    ]);
+    expect(output.transactions[1].error).toContain("No categories were truncated");
     expect(output).toMatchObject({
       requested_model: Tool.PINNED_MODEL,
       model: Tool.PINNED_MODEL,

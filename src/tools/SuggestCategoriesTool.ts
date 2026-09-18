@@ -515,27 +515,68 @@ function usageCost(inputTokens: number): number {
   return Number((inputTokens * PUBLISHED_INPUT_PRICE_PER_MILLION_USD / 1_000_000).toFixed(12));
 }
 
-function zeroSpendMetadata() {
+interface ToolResponseOptions {
+  success: boolean;
+  transactions?: any[];
+  transactionOrder?: string[];
+  error?: string;
+  eligibleCategoryCount?: number;
+  providerCalls?: number;
+  responseModels?: Set<string>;
+  estimatedInputTokens?: number;
+  estimatedCostUsd?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+function toolResponse(options: ToolResponseOptions) {
+  const transactions = [...(options.transactions ?? [])];
+  if (options.transactionOrder) {
+    const originalOrder = new Map<string, number>(
+      options.transactionOrder.map((transactionId, index): [string, number] => [transactionId, index]),
+    );
+    transactions.sort((a, b) => (originalOrder.get(a.transaction_id) ?? Number.MAX_SAFE_INTEGER) - (originalOrder.get(b.transaction_id) ?? Number.MAX_SAFE_INTEGER));
+  }
+  const responseModels = options.responseModels ?? new Set<string>();
+  const inputTokens = options.inputTokens ?? 0;
   return {
-    requested_model: PINNED_MODEL,
-    model: PINNED_MODEL,
-    provider_calls: 0,
-    usage: {
-      estimated_input_tokens_before_calls: 0,
-      estimated_cost_usd_before_calls: 0,
-      input_tokens: 0,
-      output_tokens: 0,
-      projected_cost_usd: 0,
-      input_cost_usd: 0,
-      published_input_price_per_million_usd: PUBLISHED_INPUT_PRICE_PER_MILLION_USD,
-    },
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify({
+        success: options.success,
+        dry_run: true,
+        transactions,
+        transaction_count: transactions.length,
+        ...(options.error ? { error: options.error } : {}),
+        ...(options.eligibleCategoryCount === undefined ? {} : { eligible_category_count: options.eligibleCategoryCount }),
+        requested_model: PINNED_MODEL,
+        model: responseModels.size === 1 ? [...responseModels][0] : responseModels.size > 1 ? [...responseModels] : PINNED_MODEL,
+        provider_calls: options.providerCalls ?? 0,
+        thresholds: {
+          provisional: true,
+          suggested_at_or_above: PROVISIONAL_SUGGEST_CONFIDENCE,
+          needs_review_at_or_above: PROVISIONAL_REVIEW_CONFIDENCE,
+        },
+        usage: {
+          estimated_input_tokens_before_calls: options.estimatedInputTokens ?? 0,
+          estimated_cost_usd_before_calls: Number((options.estimatedCostUsd ?? 0).toFixed(12)),
+          input_tokens: inputTokens,
+          output_tokens: options.outputTokens ?? 0,
+          projected_cost_usd: usageCost(inputTokens),
+          published_input_price_per_million_usd: PUBLISHED_INPUT_PRICE_PER_MILLION_USD,
+        },
+      }, null, 2),
+    }],
   };
 }
 
 export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
   try {
     if (!isCategorySuggestionEnabled()) {
-      throw new Error("Category suggestions are disabled. Set TYPESAFE_API_KEY and YNAB_AI_CATEGORIZATION=true to opt in.");
+      return toolResponse({
+        success: false,
+        error: "Category suggestions are disabled. Set TYPESAFE_API_KEY and YNAB_AI_CATEGORIZATION=true to opt in.",
+      });
     }
     const apiKey = process.env.TYPESAFE_API_KEY as string;
     const budgetId = getBudgetId(input.budgetId);
@@ -594,21 +635,32 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
       outputRows.push(...remainingTransactions.map((transaction) =>
         failedRow(transaction.id, error, transaction, fingerprints.get(transaction.id))
       ));
-      const requestedOrder = input.transactionIds
-        ? [...new Set(input.transactionIds)]
-        : candidates.transactions.map((transaction) => transaction.id);
-      const originalOrder = new Map<string, number>(
-        requestedOrder.map((transactionId, index): [string, number] => [transactionId, index]),
-      );
-      outputRows.sort((a, b) => (originalOrder.get(a.transaction_id) ?? Number.MAX_SAFE_INTEGER) - (originalOrder.get(b.transaction_id) ?? Number.MAX_SAFE_INTEGER));
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify({ success: true, dry_run: true, transactions: outputRows, transaction_count: outputRows.length, ...zeroSpendMetadata() }, null, 2) }],
-      };
+      return toolResponse({
+        success: true,
+        transactions: outputRows,
+        transactionOrder: input.transactionIds
+          ? [...new Set(input.transactionIds)]
+          : candidates.transactions.map((transaction) => transaction.id),
+      });
     }
 
-    if (categories.length === 0) throw new Error("No visible writable categories are available in this budget.");
-    if (categories.length + 1 > MAX_CHOICE_OPTIONS) {
-      throw new Error(`TypeSafe Choice supports at most ${MAX_CHOICE_OPTIONS} options; this budget has ${categories.length} eligible categories plus leave_uncategorized. No categories were truncated.`);
+    const categoryRefusal = categories.length === 0
+      ? "No visible writable categories are available in this budget."
+      : categories.length + 1 > MAX_CHOICE_OPTIONS
+        ? `TypeSafe Choice supports at most ${MAX_CHOICE_OPTIONS} options; this budget has ${categories.length} eligible categories plus leave_uncategorized. No categories were truncated.`
+        : null;
+    if (categoryRefusal) {
+      outputRows.push(...remainingTransactions.map((transaction) =>
+        failedRow(transaction.id, categoryRefusal, transaction, fingerprints.get(transaction.id))
+      ));
+      return toolResponse({
+        success: true,
+        transactions: outputRows,
+        transactionOrder: input.transactionIds
+          ? [...new Set(input.transactionIds)]
+          : candidates.transactions.map((transaction) => transaction.id),
+        eligibleCategoryCount: categories.length,
+      });
     }
 
     const categoriesByKey = new Map(categories.map((category) => [category.key, category]));
@@ -765,49 +817,21 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
       });
     }
 
-    const requestedOrder = input.transactionIds
-      ? [...new Set(input.transactionIds)]
-      : candidates.transactions.map((transaction) => transaction.id);
-    const originalOrder = new Map<string, number>(
-      requestedOrder.map((transactionId, index): [string, number] => [transactionId, index]),
-    );
-    outputRows.sort((a, b) => (originalOrder.get(a.transaction_id) ?? Number.MAX_SAFE_INTEGER) - (originalOrder.get(b.transaction_id) ?? Number.MAX_SAFE_INTEGER));
-
-    return {
-      content: [{
-        type: "text" as const,
-        text: JSON.stringify({
-          success: true,
-          dry_run: true,
-          transactions: outputRows,
-          transaction_count: outputRows.length,
-          eligible_category_count: categories.length,
-          requested_model: PINNED_MODEL,
-          model: responseModels.size === 1 ? [...responseModels][0] : responseModels.size > 1 ? [...responseModels] : PINNED_MODEL,
-          provider_calls: providerCalls,
-          thresholds: {
-            provisional: true,
-            suggested_at_or_above: PROVISIONAL_SUGGEST_CONFIDENCE,
-            needs_review_at_or_above: PROVISIONAL_REVIEW_CONFIDENCE,
-          },
-          usage: {
-            estimated_input_tokens_before_calls: estimatedInputTokens,
-            estimated_cost_usd_before_calls: Number(estimatedCostUsd.toFixed(12)),
-            input_tokens: inputTokens,
-            output_tokens: outputTokens,
-            projected_cost_usd: usageCost(inputTokens),
-            input_cost_usd: usageCost(inputTokens),
-            published_input_price_per_million_usd: PUBLISHED_INPUT_PRICE_PER_MILLION_USD,
-          },
-        }, null, 2),
-      }],
-    };
+    return toolResponse({
+      success: true,
+      transactions: outputRows,
+      transactionOrder: input.transactionIds
+        ? [...new Set(input.transactionIds)]
+        : candidates.transactions.map((transaction) => transaction.id),
+      eligibleCategoryCount: categories.length,
+      providerCalls,
+      responseModels,
+      estimatedInputTokens,
+      estimatedCostUsd,
+      inputTokens,
+      outputTokens,
+    });
   } catch (error) {
-    return {
-      content: [{
-        type: "text" as const,
-        text: JSON.stringify({ success: false, error: getErrorMessage(error), ...zeroSpendMetadata() }, null, 2),
-      }],
-    };
+    return toolResponse({ success: false, error: getErrorMessage(error) });
   }
 }
