@@ -11,6 +11,10 @@ export interface WorkerEnv {
   ALLOWED_GITHUB_LOGIN: string;
   /** Set to "true" to expose only the read-only tools. */
   YNAB_READ_ONLY?: string;
+  /** TypeSafe API credential for the optional category suggestion preview. */
+  TYPESAFE_API_KEY?: string;
+  /** Set to "true" as a separate opt-in for category suggestions. */
+  YNAB_AI_CATEGORIZATION?: string;
 
   /**
    * Calendar reminder. Absent means the scheduled nag stays switched off.

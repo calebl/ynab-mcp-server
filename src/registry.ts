@@ -22,6 +22,7 @@ import * as AutoAssignTool from "./tools/AutoAssignTool.js";
 import * as SpendingByCategoryTool from "./tools/SpendingByCategoryTool.js";
 import * as SpendingByPayeeTool from "./tools/SpendingByPayeeTool.js";
 import * as CashFlowTool from "./tools/CashFlowTool.js";
+import * as SuggestCategoriesTool from "./tools/SuggestCategoriesTool.js";
 
 /** A tool module as exported by every file in src/tools. */
 interface ToolModule {
@@ -36,6 +37,8 @@ export interface ToolEntry {
   module: ToolModule;
   /** True when the tool changes data in YNAB rather than only reading it. */
   writes: boolean;
+  /** Tool is omitted unless the operator explicitly enables AI categorization. */
+  requiresAiCategorization?: boolean;
 }
 
 export const tools: ToolEntry[] = [
@@ -60,6 +63,7 @@ export const tools: ToolEntry[] = [
   { title: "Spending By Category", module: SpendingByCategoryTool, writes: false },
   { title: "Spending By Payee", module: SpendingByPayeeTool, writes: false },
   { title: "Cash Flow", module: CashFlowTool, writes: false },
+  { title: "Suggest Categories", module: SuggestCategoriesTool, writes: false, requiresAiCategorization: true },
 ];
 
 /**
@@ -74,11 +78,19 @@ export interface ToolRegistrar {
 export interface RegisterOptions {
   /** Register only the read-only tools. */
   readOnly?: boolean;
+  /** Explicitly override whether the opt-in AI categorization tool is exposed. */
+  aiCategorization?: boolean;
 }
 
 /** Register every tool (or only the read-only ones) against a server instance. */
 export function registerAll(server: ToolRegistrar, api: ynab.API, options: RegisterOptions = {}) {
-  const selected = options.readOnly ? tools.filter((t) => !t.writes) : tools;
+  const aiCategorization = options.aiCategorization ?? (
+    process.env.YNAB_AI_CATEGORIZATION === "true" && Boolean(process.env.TYPESAFE_API_KEY)
+  );
+  const selected = tools.filter((tool) =>
+    (!options.readOnly || !tool.writes) &&
+    (!tool.requiresAiCategorization || aiCategorization)
+  );
 
   for (const { title, module } of selected) {
     server.registerTool(module.name, {

@@ -34,6 +34,8 @@ Environment variables:
 | --- | --- | --- |
 | `YNAB_API_TOKEN` | yes | Personal Access Token used for every API call |
 | `YNAB_BUDGET_ID` | no | Default budget, so tools can omit `budgetId`. Find it with `ynab_list_budgets`. |
+| `TYPESAFE_API_KEY` | no | Operator-owned TypeSafe credential. Required, but not sufficient, to enable category suggestions. |
+| `YNAB_AI_CATEGORIZATION` | no | Set to `"true"` together with `TYPESAFE_API_KEY` to expose the opt-in suggestion tool. |
 
 ### Local: Claude Desktop / Claude Code
 
@@ -115,6 +117,37 @@ YNAB's milliunits; conversion happens in `src/tools/money.ts`.
 | `ynab_list_scheduled_transactions` | Scheduled/recurring transactions. |
 | `ynab_get_transactions` | Transactions filtered by `sinceDate`, `accountId`, `categoryId`, `payeeId`, `type` (`all`/`uncategorized`/`unapproved`) and `limit` (default 100). |
 | `ynab_get_unapproved_transactions` | Unapproved transactions, optionally from `sinceDate` onward. |
+| `ynab_suggest_categories` | Opt-in, read-only category previews for uncategorized outflows. Hidden/internal/payment categories, transfers, splits, inflows and categorized rows are excluded or reported as skipped. |
+
+### Category suggestions (optional)
+
+`ynab_suggest_categories` is off by default. To expose it, set both an
+operator-owned `TYPESAFE_API_KEY` and `YNAB_AI_CATEGORIZATION=true`, then restart
+the server. The API key is read from the environment (or a Worker secret), never
+from a tool argument.
+
+The tool is a dry-run preview: it never writes to YNAB, approves a transaction,
+or changes the behavior of `ynab_update_transaction`. It first handles exact
+facts in code—transfers, splits, inflows, existing categories, hidden/internal
+categories, and sufficiently consistent exact-payee history. Remaining rows are
+sent to TypeSafe's pinned `jev-1.13.0` System One model in batches of ten. Every
+row includes a status, content fingerprint, proposed category, confidence,
+winning probability, up to three alternatives, and history summary. Applying a
+suggestion remains a separate human decision using `ynab_update_transaction`.
+
+Enabling this feature sends the transaction's display payee, imported/original
+payee, memo, amount, date, and account name/type/on-budget status, plus visible
+category group and category names, to **TypeSafe as a third-party processor**.
+It does not send YNAB UUIDs, balances, goals, approval/cleared state, or raw
+transaction history. TypeSafe's published Jev 1.13 price at the time of this
+release is **$0.042 per million input tokens; output tokens are free**. The tool
+returns preflight estimates, actual token usage, and computed input cost on each
+run and refuses requests over its per-call token/cost ceilings. Pricing and
+provider limits can change; check <https://docs.typesafe.ai/models>.
+
+The prototype is intentionally narrow and not default-on. Its supporting
+98.3% exact-label, 98.9% top-three, and 60/60 expected-abstention results came
+from 40 synthetic, single-evaluator fixtures—not a production accuracy claim.
 
 ### Reporting
 
