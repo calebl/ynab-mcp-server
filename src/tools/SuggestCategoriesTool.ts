@@ -404,16 +404,15 @@ function buildTypeSafeRequest(
   return { state: modelState(transactions, accountsById, categories), model: PINNED_MODEL, questions };
 }
 
-/** A conservative character-based guard; TypeSafe returns authoritative usage after the call. */
+/** A conservative UTF-8 byte bound; TypeSafe returns authoritative usage after the call. */
 export function preflightTypeSafeRequest(body: ReturnType<typeof buildTypeSafeRequest>): Preflight {
-  const estimatedInputTokens = Math.ceil(JSON.stringify(body).length / 3);
+  const encodedLength = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  const estimatedInputTokens = encodedLength(body);
   const questionValues = Object.values(body.questions);
   const longestQuestion = questionValues.reduce((longest, question) =>
-    JSON.stringify(question).length > JSON.stringify(longest).length ? question : longest,
+    encodedLength(question) > encodedLength(longest) ? question : longest,
   questionValues[0]);
-  const estimatedStateAndLongestQuestionTokens = Math.ceil(
-    (JSON.stringify(body.state).length + JSON.stringify(longestQuestion).length) / 3,
-  );
+  const estimatedStateAndLongestQuestionTokens = encodedLength(body.state) + encodedLength(longestQuestion);
   const projectedCostUsd = Number((estimatedInputTokens * PUBLISHED_INPUT_PRICE_PER_MILLION_USD / 1_000_000).toFixed(12));
   const reasons: string[] = [];
   if (estimatedInputTokens > MAX_ESTIMATED_REQUEST_TOKENS) reasons.push("estimated total input exceeds the 60,000-token preflight ceiling");
@@ -590,7 +589,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
     ]);
     const prerequisiteNames = ["categories", "payees", "accounts", "history"];
     const prerequisiteFailures = prerequisites.flatMap((result, index) =>
-      result.status === "rejected" ? [`${prerequisiteNames[index]}: ${getErrorMessage(result.reason)}`] : []
+      index !== 2 && result.status === "rejected" ? [`${prerequisiteNames[index]}: ${getErrorMessage(result.reason)}`] : []
     );
     const categoriesResponse = prerequisites[0].status === "fulfilled" ? prerequisites[0].value : null;
     const payeesResponse = prerequisites[1].status === "fulfilled" ? prerequisites[1].value : null;
@@ -669,21 +668,14 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
       type: account.type,
       onBudget: account.on_budget,
     }]));
+    const accountFailure = prerequisites[2].status === "rejected"
+      ? `YNAB prerequisite request failed (accounts: ${getErrorMessage(prerequisites[2].reason)})`
+      : "YNAB account context is unavailable for this transaction";
     const modelTransactions: ynab.TransactionDetail[] = [];
     const historyByTransactionId = new Map<string, HistorySummary>();
 
     for (const transaction of remainingTransactions) {
       const fingerprint = fingerprints.get(transaction.id) as string;
-      if (!accountsById.has(transaction.account_id)) {
-        outputRows.push(failedRow(
-          transaction.id,
-          "YNAB account context is unavailable for this transaction",
-          transaction,
-          fingerprint,
-        ));
-        continue;
-      }
-
       const history = buildHistorySummary(
         transaction,
         historyResponse!.data.transactions,
@@ -705,6 +697,14 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
           top_alternatives: [],
           history: historyForOutput(history, category.id),
         });
+      } else if (!accountsById.has(transaction.account_id)) {
+        outputRows.push(failedRow(
+          transaction.id,
+          accountFailure,
+          transaction,
+          fingerprint,
+          history,
+        ));
       } else {
         modelTransactions.push(transaction);
       }

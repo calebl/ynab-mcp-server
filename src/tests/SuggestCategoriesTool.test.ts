@@ -243,6 +243,41 @@ describe("SuggestCategoriesTool", () => {
     expect(output.usage.input_tokens).toBe(0);
   });
 
+  it("keeps history-rule suggestions when account loading fails", async () => {
+    const api = makeApi({
+      candidates: [
+        transaction("history-rule"),
+        transaction("model-bound", { payee_id: "other-payee" }),
+      ],
+      history: [
+        history("old-1", "cat-grocery"),
+        history("old-2", "cat-grocery", { date: "2026-07-01" }),
+        history("old-3", "cat-grocery", { date: "2026-06-01" }),
+      ],
+    });
+    api.accounts.getAccounts.mockRejectedValue(new Error("accounts unavailable"));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(output.transactions).toMatchObject([
+      {
+        transaction_id: "history-rule",
+        status: "suggested",
+        source: "history_rule",
+        proposed_category: { id: "cat-grocery" },
+      },
+      {
+        transaction_id: "model-bound",
+        status: "failed",
+        error: expect.stringContaining("accounts unavailable"),
+      },
+    ]);
+    expect(output.provider_calls).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("forces review when mixed exact-payee history disagrees with Jev", async () => {
     const api = makeApi({ history: [
       history("old-1", "cat-grocery"),
@@ -349,6 +384,27 @@ describe("SuggestCategoriesTool", () => {
       status: "failed",
       error: expect.stringContaining("preflight refused"),
     });
+    expect(output.provider_calls).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses oversized Unicode context using its UTF-8 byte bound", async () => {
+    const unicodeContext = "漢字😀".repeat(4_000);
+    const api = makeApi({ candidates: [transaction("unicode", {
+      payee_name: unicodeContext,
+      memo: unicodeContext,
+    })] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(output.transactions[0]).toMatchObject({
+      transaction_id: "unicode",
+      status: "failed",
+      error: expect.stringContaining("preflight refused"),
+    });
+    expect(output.usage.estimated_input_tokens_before_calls).toBeGreaterThan(Tool.MAX_ESTIMATED_REQUEST_TOKENS);
     expect(output.provider_calls).toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
   });
