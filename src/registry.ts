@@ -78,18 +78,13 @@ export interface ToolRegistrar {
 export interface RegisterOptions {
   /** Register only the read-only tools. */
   readOnly?: boolean;
-  /** Explicitly override whether the opt-in AI categorization tool is exposed. */
-  aiCategorization?: boolean;
 }
 
 /** Register every tool (or only the read-only ones) against a server instance. */
 export function registerAll(server: ToolRegistrar, api: ynab.API, options: RegisterOptions = {}) {
-  const aiCategorization = options.aiCategorization ?? (
-    process.env.YNAB_AI_CATEGORIZATION === "true" && Boolean(process.env.TYPESAFE_API_KEY)
-  );
   const selected = tools.filter((tool) =>
     (!options.readOnly || !tool.writes) &&
-    (!tool.requiresAiCategorization || aiCategorization)
+    (!tool.requiresAiCategorization || SuggestCategoriesTool.isCategorySuggestionEnabled())
   );
 
   for (const { title, module } of selected) {

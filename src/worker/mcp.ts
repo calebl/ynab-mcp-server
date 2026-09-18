@@ -34,7 +34,6 @@ export function createServer(env: WorkerEnv) {
   const api = new ynab.API(env.YNAB_API_TOKEN);
   registerAll(server, api, {
     readOnly: env.YNAB_READ_ONLY === "true",
-    aiCategorization: env.YNAB_AI_CATEGORIZATION === "true" && Boolean(env.TYPESAFE_API_KEY),
   });
 
   return server;

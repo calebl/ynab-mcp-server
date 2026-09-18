@@ -5,7 +5,7 @@ import { getErrorMessage } from "./errorUtils.js";
 import { toDollars } from "./money.js";
 
 export const name = "ynab_suggest_categories";
-export const description = "Previews category suggestions for uncategorized outflows using exact payee history and TypeSafe Jev. Never writes to YNAB.";
+export const description = "Previews category suggestions for uncategorized outflows, using a history rule only when at least three retained exact-payee rows unanimously use one eligible category and TypeSafe Jev otherwise. Never writes to YNAB.";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The budget ID (defaults to YNAB_BUDGET_ID)"),
   transactionIds: z.array(z.string()).min(1).max(100).optional().describe("Specific transaction IDs to inspect instead of fetching uncategorized transactions"),
@@ -504,6 +504,23 @@ function usageCost(inputTokens: number): number {
   return Number((inputTokens * PUBLISHED_INPUT_PRICE_PER_MILLION_USD / 1_000_000).toFixed(12));
 }
 
+function zeroSpendMetadata() {
+  return {
+    requested_model: PINNED_MODEL,
+    model: PINNED_MODEL,
+    provider_calls: 0,
+    usage: {
+      estimated_input_tokens_before_calls: 0,
+      estimated_cost_usd_before_calls: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      projected_cost_usd: 0,
+      input_cost_usd: 0,
+      published_input_price_per_million_usd: PUBLISHED_INPUT_PRICE_PER_MILLION_USD,
+    },
+  };
+}
+
 export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
   try {
     if (!isCategorySuggestionEnabled()) {
@@ -530,7 +547,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
       ));
       rows.push(...candidates.failures.map((failure) => failedRow(failure.transactionId, `YNAB transaction request failed: ${failure.error}`)));
       return {
-        content: [{ type: "text" as const, text: JSON.stringify({ success: true, dry_run: true, transactions: rows, transaction_count: rows.length, provider_calls: 0 }, null, 2) }],
+        content: [{ type: "text" as const, text: JSON.stringify({ success: true, dry_run: true, transactions: rows, transaction_count: rows.length, ...zeroSpendMetadata() }, null, 2) }],
       };
     }
 
@@ -546,7 +563,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
 
     const categoriesById = new Map(categories.map((category) => [category.id, category]));
     const categoriesByKey = new Map(categories.map((category) => [category.key, category]));
-    const payeesById = new Map(payeesResponse.data.payees.filter((payee) => !payee.deleted).map((payee) => [payee.id, payee]));
+    const payeesById = new Map(payeesResponse.data.payees.map((payee) => [payee.id, payee]));
     const accountsById = new Map(accountsResponse.data.accounts.filter((account) => !account.deleted).map((account) => [account.id, {
       name: account.name,
       type: account.type,
@@ -740,7 +757,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
           transaction_count: outputRows.length,
           eligible_category_count: categories.length,
           requested_model: PINNED_MODEL,
-          model: responseModels.size === 1 ? [...responseModels][0] : responseModels.size > 1 ? [...responseModels] : null,
+          model: responseModels.size === 1 ? [...responseModels][0] : responseModels.size > 1 ? [...responseModels] : PINNED_MODEL,
           provider_calls: providerCalls,
           thresholds: {
             provisional: true,
@@ -752,6 +769,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
             estimated_cost_usd_before_calls: Number(estimatedCostUsd.toFixed(12)),
             input_tokens: inputTokens,
             output_tokens: outputTokens,
+            projected_cost_usd: usageCost(inputTokens),
             input_cost_usd: usageCost(inputTokens),
             published_input_price_per_million_usd: PUBLISHED_INPUT_PRICE_PER_MILLION_USD,
           },
@@ -762,7 +780,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
     return {
       content: [{
         type: "text" as const,
-        text: JSON.stringify({ success: false, error: getErrorMessage(error) }, null, 2),
+        text: JSON.stringify({ success: false, error: getErrorMessage(error), ...zeroSpendMetadata() }, null, 2),
       }],
     };
   }

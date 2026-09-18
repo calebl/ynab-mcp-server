@@ -123,9 +123,17 @@ describe("SuggestCategoriesTool", () => {
 
     const output = await result({}, api);
 
-    expect(output).toEqual({
+    expect(output).toMatchObject({
       success: false,
       error: expect.stringContaining("disabled"),
+      requested_model: Tool.PINNED_MODEL,
+      model: Tool.PINNED_MODEL,
+      provider_calls: 0,
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        projected_cost_usd: 0,
+      },
     });
     expect(api.transactions.getTransactions).not.toHaveBeenCalled();
   });
@@ -161,6 +169,7 @@ describe("SuggestCategoriesTool", () => {
       transaction("deleted", { deleted: true }),
       transaction("row-transfer", { transfer_account_id: "other-account" }),
       transaction("payee-transfer", { payee_id: "transfer-payee" }),
+      transaction("deleted-payee-transfer", { payee_id: "deleted-transfer-payee" }),
       transaction("split-transfer", { subtransactions: [{ id: "sub-transfer", transaction_id: "split-transfer", amount: -1000, transfer_account_id: "account-2", deleted: false }] }),
       transaction("split", { subtransactions: [{ id: "sub", transaction_id: "split", amount: -1000, deleted: false }] }),
       transaction("categorized", { category_id: "cat-grocery" }),
@@ -172,6 +181,7 @@ describe("SuggestCategoriesTool", () => {
       payees: [
         { id: "payee-uuid", name: "Market", transfer_account_id: null, deleted: false },
         { id: "transfer-payee", name: "Transfer", transfer_account_id: "account-2", deleted: false },
+        { id: "deleted-transfer-payee", name: "Old Transfer", transfer_account_id: "account-3", deleted: true },
       ],
     });
     const fetchMock = vi.fn().mockResolvedValue(choiceResponse({
@@ -184,6 +194,7 @@ describe("SuggestCategoriesTool", () => {
     expect(output.transactions.map((row: any) => [row.transaction_id, row.status])).toEqual([
       ["row-transfer", "skipped_transfer"],
       ["payee-transfer", "skipped_transfer"],
+      ["deleted-payee-transfer", "skipped_transfer"],
       ["split-transfer", "skipped_transfer"],
       ["split", "skipped_split"],
       ["categorized", "skipped_already_categorized"],
@@ -335,6 +346,33 @@ describe("SuggestCategoriesTool", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("returns zero spend metadata when a YNAB prerequisite fails", async () => {
+    const api = makeApi();
+    api.categories.getCategories.mockRejectedValue(new Error("categories unavailable"));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(output).toMatchObject({
+      success: true,
+      requested_model: Tool.PINNED_MODEL,
+      model: Tool.PINNED_MODEL,
+      provider_calls: 0,
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        projected_cost_usd: 0,
+      },
+    });
+    expect(output.transactions[0]).toMatchObject({
+      transaction_id: "txn-1",
+      status: "failed",
+      error: expect.stringContaining("categories unavailable"),
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("refuses more than 255 Choice options instead of truncating categories", async () => {
     const categories = Array.from({ length: 255 }, (_, index) => category(`cat-${index}`, `Category ${index}`));
     const api = makeApi({ groups: [group("large", "Large", categories)] });
@@ -346,6 +384,16 @@ describe("SuggestCategoriesTool", () => {
     expect(output.success).toBe(false);
     expect(output.error).toContain("255 eligible categories plus leave_uncategorized");
     expect(output.error).toContain("No categories were truncated");
+    expect(output).toMatchObject({
+      requested_model: Tool.PINNED_MODEL,
+      model: Tool.PINNED_MODEL,
+      provider_calls: 0,
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        projected_cost_usd: 0,
+      },
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

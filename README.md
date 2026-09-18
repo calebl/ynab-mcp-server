@@ -128,9 +128,10 @@ from a tool argument.
 
 The tool is a dry-run preview: it never writes to YNAB, approves a transaction,
 or changes the behavior of `ynab_update_transaction`. It first handles exact
-facts in code—transfers, splits, inflows, existing categories, hidden/internal
-categories, and sufficiently consistent exact-payee history. Remaining rows are
-sent to TypeSafe's pinned `jev-1.13.0` System One model in batches of ten. Every
+facts in code—transfers, splits, inflows, existing categories, and
+hidden/internal categories. The history rule applies only when at least three
+retained exact-payee rows all use the same still-eligible category. Any mixed
+history goes to TypeSafe's pinned `jev-1.13.0` System One model in batches of ten. Every
 row includes a status, content fingerprint, proposed category, confidence,
 winning probability, up to three alternatives, and history summary. Applying a
 suggestion remains a separate human decision using `ynab_update_transaction`.
