@@ -61,6 +61,16 @@ interface HistorySummary {
   dominantCategoryId: string | null;
 }
 
+function emptyHistorySummary(): HistorySummary {
+  return {
+    sampleSize: 0,
+    counts: [],
+    lastUsedCategoryId: null,
+    unanimousCategoryId: null,
+    dominantCategoryId: null,
+  };
+}
+
 interface ChoiceAnswer {
   type: "choice";
   choice: string;
@@ -274,7 +284,7 @@ function buildHistorySummary(
   categoriesById: Map<string, EligibleCategory>,
 ): HistorySummary {
   if (!transaction.payee_id) {
-    return { sampleSize: 0, counts: [], lastUsedCategoryId: null, unanimousCategoryId: null, dominantCategoryId: null };
+    return emptyHistorySummary();
   }
 
   const rows = history
@@ -330,6 +340,7 @@ function historyForOutput(summary: HistorySummary, suggestedCategoryId: string |
     last_used_category_id: summary.lastUsedCategoryId,
     dominant_category_id: summary.dominantCategoryId,
     agrees_with_suggestion: agrees,
+    agreement: suggestedCategoryId === undefined ? "not_applicable" : agrees === null ? "insufficient" : agrees ? "agrees" : "conflicts",
     conflict: agrees === false,
   };
 }
@@ -495,7 +506,7 @@ function failedRow(
     model_confidence: null,
     winning_probability: null,
     top_alternatives: [],
-    ...(history ? { history: historyForOutput(history, undefined) } : {}),
+    history: historyForOutput(history ?? emptyHistorySummary(), undefined),
     error,
   };
 }
@@ -540,62 +551,77 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
     const prerequisiteFailures = prerequisites.flatMap((result, index) =>
       result.status === "rejected" ? [`${prerequisiteNames[index]}: ${getErrorMessage(result.reason)}`] : []
     );
-    if (prerequisiteFailures.length > 0) {
-      const error = `YNAB prerequisite request failed (${prerequisiteFailures.join("; ")})`;
-      const rows = await Promise.all(candidates.transactions.map(async (transaction) =>
-        failedRow(transaction.id, error, transaction, await contentFingerprint(transaction))
-      ));
-      rows.push(...candidates.failures.map((failure) => failedRow(failure.transactionId, `YNAB transaction request failed: ${failure.error}`)));
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify({ success: true, dry_run: true, transactions: rows, transaction_count: rows.length, ...zeroSpendMetadata() }, null, 2) }],
-      };
-    }
-
-    const categoriesResponse = (prerequisites[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof api.categories.getCategories>>>).value;
-    const payeesResponse = (prerequisites[1] as PromiseFulfilledResult<Awaited<ReturnType<typeof api.payees.getPayees>>>).value;
-    const accountsResponse = (prerequisites[2] as PromiseFulfilledResult<Awaited<ReturnType<typeof api.accounts.getAccounts>>>).value;
-    const historyResponse = (prerequisites[3] as PromiseFulfilledResult<Awaited<ReturnType<typeof api.transactions.getTransactions>>>).value;
-    const categories = getEligibleCategories(categoriesResponse.data.category_groups);
-    if (categories.length === 0) throw new Error("No visible writable categories are available in this budget.");
-    if (categories.length + 1 > MAX_CHOICE_OPTIONS) {
-      throw new Error(`TypeSafe Choice supports at most ${MAX_CHOICE_OPTIONS} options; this budget has ${categories.length} eligible categories plus leave_uncategorized. No categories were truncated.`);
-    }
-
+    const categoriesResponse = prerequisites[0].status === "fulfilled" ? prerequisites[0].value : null;
+    const payeesResponse = prerequisites[1].status === "fulfilled" ? prerequisites[1].value : null;
+    const accountsResponse = prerequisites[2].status === "fulfilled" ? prerequisites[2].value : null;
+    const historyResponse = prerequisites[3].status === "fulfilled" ? prerequisites[3].value : null;
+    const categories = categoriesResponse ? getEligibleCategories(categoriesResponse.data.category_groups) : [];
     const categoriesById = new Map(categories.map((category) => [category.id, category]));
-    const categoriesByKey = new Map(categories.map((category) => [category.key, category]));
-    const payeesById = new Map(payeesResponse.data.payees.map((payee) => [payee.id, payee]));
-    const accountsById = new Map(accountsResponse.data.accounts.filter((account) => !account.deleted).map((account) => [account.id, {
-      name: account.name,
-      type: account.type,
-      onBudget: account.on_budget,
-    }]));
-
+    const payeesById = new Map((payeesResponse?.data.payees ?? []).map((payee) => [payee.id, payee]));
+    const fingerprints = new Map<string, string>();
     const outputRows: any[] = candidates.failures.map((failure) =>
       failedRow(failure.transactionId, `YNAB transaction request failed: ${failure.error}`)
     );
-    const modelTransactions: ynab.TransactionDetail[] = [];
-    const historyByTransactionId = new Map<string, HistorySummary>();
-    const fingerprints = new Map<string, string>();
+    const remainingTransactions: ynab.TransactionDetail[] = [];
 
     for (const transaction of candidates.transactions) {
       const fingerprint = await contentFingerprint(transaction);
       fingerprints.set(transaction.id, fingerprint);
       const skip = skippedStatus(transaction, payeesById);
-      if (skip) {
-        outputRows.push({
-          transaction_id: transaction.id,
-          transaction: displayFields(transaction),
-          content_fingerprint: fingerprint,
-          status: skip,
-          source: null,
-          proposed_category: null,
-          model_confidence: null,
-          winning_probability: null,
-          top_alternatives: [],
-        });
+      if (!skip) {
+        remainingTransactions.push(transaction);
         continue;
       }
+      const history = categoriesResponse && payeesResponse && historyResponse
+        ? buildHistorySummary(transaction, historyResponse.data.transactions, payeesById, categoriesById)
+        : emptyHistorySummary();
+      outputRows.push({
+        transaction_id: transaction.id,
+        transaction: displayFields(transaction),
+        content_fingerprint: fingerprint,
+        status: skip,
+        source: null,
+        proposed_category: null,
+        model_confidence: null,
+        winning_probability: null,
+        top_alternatives: [],
+        history: historyForOutput(history, undefined),
+      });
+    }
 
+    if (prerequisiteFailures.length > 0) {
+      const error = `YNAB prerequisite request failed (${prerequisiteFailures.join("; ")})`;
+      outputRows.push(...remainingTransactions.map((transaction) =>
+        failedRow(transaction.id, error, transaction, fingerprints.get(transaction.id))
+      ));
+      const requestedOrder = input.transactionIds
+        ? [...new Set(input.transactionIds)]
+        : candidates.transactions.map((transaction) => transaction.id);
+      const originalOrder = new Map<string, number>(
+        requestedOrder.map((transactionId, index): [string, number] => [transactionId, index]),
+      );
+      outputRows.sort((a, b) => (originalOrder.get(a.transaction_id) ?? Number.MAX_SAFE_INTEGER) - (originalOrder.get(b.transaction_id) ?? Number.MAX_SAFE_INTEGER));
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ success: true, dry_run: true, transactions: outputRows, transaction_count: outputRows.length, ...zeroSpendMetadata() }, null, 2) }],
+      };
+    }
+
+    if (categories.length === 0) throw new Error("No visible writable categories are available in this budget.");
+    if (categories.length + 1 > MAX_CHOICE_OPTIONS) {
+      throw new Error(`TypeSafe Choice supports at most ${MAX_CHOICE_OPTIONS} options; this budget has ${categories.length} eligible categories plus leave_uncategorized. No categories were truncated.`);
+    }
+
+    const categoriesByKey = new Map(categories.map((category) => [category.key, category]));
+    const accountsById = new Map((accountsResponse?.data.accounts ?? []).filter((account) => !account.deleted).map((account) => [account.id, {
+      name: account.name,
+      type: account.type,
+      onBudget: account.on_budget,
+    }]));
+    const modelTransactions: ynab.TransactionDetail[] = [];
+    const historyByTransactionId = new Map<string, HistorySummary>();
+
+    for (const transaction of remainingTransactions) {
+      const fingerprint = fingerprints.get(transaction.id) as string;
       if (!accountsById.has(transaction.account_id)) {
         outputRows.push(failedRow(
           transaction.id,
@@ -608,7 +634,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
 
       const history = buildHistorySummary(
         transaction,
-        historyResponse.data.transactions,
+        historyResponse!.data.transactions,
         payeesById,
         categoriesById,
       );

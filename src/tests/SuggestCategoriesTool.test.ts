@@ -178,6 +178,7 @@ describe("SuggestCategoriesTool", () => {
     ];
     const api = makeApi({
       candidates,
+      history: [history("old-grocery", "cat-grocery")],
       payees: [
         { id: "payee-uuid", name: "Market", transfer_account_id: null, deleted: false },
         { id: "transfer-payee", name: "Transfer", transfer_account_id: "account-2", deleted: false },
@@ -202,6 +203,11 @@ describe("SuggestCategoriesTool", () => {
       ["eligible", "suggested"],
     ]);
     expect(output.transactions.some((row: any) => row.transaction_id === "deleted")).toBe(false);
+    expect(output.transactions.find((row: any) => row.transaction_id === "row-transfer").history).toMatchObject({
+      sample_size: 1,
+      dominant_category_id: "cat-grocery",
+      agreement: "not_applicable",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const request = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(request.state.transactions).toHaveLength(1);
@@ -346,8 +352,11 @@ describe("SuggestCategoriesTool", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("returns zero spend metadata when a YNAB prerequisite fails", async () => {
-    const api = makeApi();
+  it("preserves deterministic skips and zero spend metadata when a YNAB prerequisite fails", async () => {
+    const api = makeApi({ candidates: [
+      transaction("transfer", { transfer_account_id: "other-account" }),
+      transaction("eligible"),
+    ] });
     api.categories.getCategories.mockRejectedValue(new Error("categories unavailable"));
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -365,11 +374,19 @@ describe("SuggestCategoriesTool", () => {
         projected_cost_usd: 0,
       },
     });
-    expect(output.transactions[0]).toMatchObject({
-      transaction_id: "txn-1",
-      status: "failed",
-      error: expect.stringContaining("categories unavailable"),
-    });
+    expect(output.transactions).toMatchObject([
+      {
+        transaction_id: "transfer",
+        status: "skipped_transfer",
+        history: { sample_size: 0, agreement: "not_applicable" },
+      },
+      {
+        transaction_id: "eligible",
+        status: "failed",
+        history: { sample_size: 0, agreement: "not_applicable" },
+        error: expect.stringContaining("categories unavailable"),
+      },
+    ]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
