@@ -8,12 +8,12 @@ export const name = "ynab_get_transactions";
 export const description = "Gets transactions from a budget with optional filters. Can filter by date range, account, category, payee, or approval status.";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),
-  sinceDate: z.string().optional().describe("Only return transactions on or after this date (ISO format: 2024-01-01)"),
+  sinceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Only return transactions on or after this date (ISO format: 2024-01-01)"),
   type: z.enum(["all", "uncategorized", "unapproved"]).optional().describe("Filter by transaction type. Defaults to 'all'."),
   accountId: z.string().optional().describe("Filter to only transactions in this account"),
   categoryId: z.string().optional().describe("Filter to only transactions in this category"),
   payeeId: z.string().optional().describe("Filter to only transactions with this payee"),
-  limit: z.number().optional().describe("Maximum number of transactions to return (default: 100)"),
+  limit: z.number().int().positive().max(1000).optional().describe("Maximum number of transactions to return (default: 100)"),
 };
 
 interface GetTransactionsInput {

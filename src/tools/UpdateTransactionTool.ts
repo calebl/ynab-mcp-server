@@ -9,7 +9,7 @@ export const inputSchema = {
   budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),
   transactionId: z.string().describe("The ID of the transaction to update"),
   accountId: z.string().optional().describe("Move transaction to a different account"),
-  date: z.string().optional().describe("The date of the transaction in ISO format (e.g. 2024-03-24)"),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("The date of the transaction in ISO format (e.g. 2024-03-24)"),
   amount: z.number().optional().describe("The amount in dollars (e.g. -10.99 for outflow, 10.99 for inflow)"),
   payeeId: z.string().optional().describe("The ID of the payee"),
   payeeName: z.string().optional().describe("The name of the payee (creates new payee if doesn't exist)"),
@@ -17,7 +17,7 @@ export const inputSchema = {
   memo: z.string().optional().describe("A memo/note for the transaction"),
   cleared: z.enum(["cleared", "uncleared", "reconciled"]).optional().describe("The cleared status"),
   approved: z.boolean().optional().describe("Whether the transaction is approved"),
-  flagColor: z.enum(["red", "orange", "yellow", "green", "blue", "purple"]).optional().describe("The transaction flag color"),
+  flagColor: z.enum(["red", "orange", "yellow", "green", "blue", "purple", ""]).optional().describe("The transaction flag color, or an empty string to clear the flag"),
 };
 
 interface UpdateTransactionInput {
@@ -32,7 +32,7 @@ interface UpdateTransactionInput {
   memo?: string;
   cleared?: "cleared" | "uncleared" | "reconciled";
   approved?: boolean;
-  flagColor?: "red" | "orange" | "yellow" | "green" | "blue" | "purple";
+  flagColor?: "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "";
 }
 
 function getBudgetId(inputBudgetId?: string): string {
@@ -89,7 +89,7 @@ export async function execute(input: UpdateTransactionInput, api: ynab.API) {
       transactionUpdate.approved = input.approved;
     }
     if (input.flagColor !== undefined) {
-      transactionUpdate.flag_color = input.flagColor as ynab.TransactionFlagColor;
+      transactionUpdate.flag_color = input.flagColor;
     }
 
     const response = await api.transactions.updateTransaction(

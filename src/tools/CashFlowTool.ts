@@ -8,7 +8,7 @@ export const name = "ynab_cash_flow";
 export const description = "Income versus spending, month by month, so you can see whether you are running a surplus. Uses YNAB's own monthly totals rather than re-adding transactions.";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),
-  months: z.number().positive().optional().describe("How many of the most recent months to report on (default: 6)"),
+  months: z.number().int().positive().optional().describe("How many of the most recent months to report on (default: 6)"),
   sinceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Only include months on or after this date (ISO format: 2024-01-01). Overrides the months count."),
 };
 

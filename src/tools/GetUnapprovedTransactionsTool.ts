@@ -8,7 +8,7 @@ export const name = "ynab_get_unapproved_transactions";
 export const description = "Gets every unapproved transaction in a budget, optionally limited to those on or after a given date.";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The ID of the budget to fetch transactions for (optional, defaults to the budget set in the YNAB_BUDGET_ID environment variable)"),
-  sinceDate: z.string().optional().describe("Only return transactions on or after this date (ISO format: 2024-01-01). Omit to return all unapproved transactions."),
+  sinceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Only return transactions on or after this date (ISO format: 2024-01-01). Omit to return all unapproved transactions."),
 };
 
 interface GetUnapprovedTransactionsInput {

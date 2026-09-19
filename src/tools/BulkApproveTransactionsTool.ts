@@ -7,7 +7,7 @@ export const name = "ynab_bulk_approve_transactions";
 export const description = "Approves multiple transactions at once. Provide an array of transaction IDs to approve them all in a single API call.";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),
-  transactionIds: z.array(z.string()).describe("Array of transaction IDs to approve"),
+  transactionIds: z.array(z.string()).min(1).max(500).describe("Array of transaction IDs to approve"),
 };
 
 interface BulkApproveTransactionsInput {

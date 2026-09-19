@@ -230,8 +230,16 @@ carries a `recovery` line with the original amount to restore. `ynab_auto_assign
 behaves the same way: on failure it reports which categories were already funded
 and which were left alone.
 
-Tools never throw at the protocol level. Failures come back as
-`{ "success": false, "error": "..." }` in the text content.
+Tools never throw at the protocol level. Failures come back as an MCP error
+result (`isError: true`) with `{ "success": false, "error": "..." }` in the
+text content, so a failed write is never mistaken for a successful one.
+
+#### `cleared` and `flagColor`
+
+`ynab_create_transaction` and `ynab_update_transaction` accept `cleared` as
+one of `cleared`, `uncleared`, or `reconciled`, and `flagColor` as one of
+`red`, `orange`, `yellow`, `green`, `blue`, `purple`, or `""` to clear an
+existing flag.
 
 ## Development
 

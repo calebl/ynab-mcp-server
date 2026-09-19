@@ -157,11 +157,11 @@ describe('ListBudgetsTool', () => {
 
       const result = await ListBudgetsTool.execute({}, mockApi as any);
 
-      const expectedResult = {
-        content: [{ type: "text", text: "YNAB API Token is not set" }]
-      };
-
-      expect(result).toEqual(expectedResult);
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text)).toEqual({
+        success: false,
+        error: "YNAB API Token is not set",
+      });
       expect(mockApi.budgets.getBudgets).not.toHaveBeenCalled();
     });
 
@@ -170,11 +170,11 @@ describe('ListBudgetsTool', () => {
 
       const result = await ListBudgetsTool.execute({}, mockApi as any);
 
-      const expectedResult = {
-        content: [{ type: "text", text: "YNAB API Token is not set" }]
-      };
-
-      expect(result).toEqual(expectedResult);
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text)).toEqual({
+        success: false,
+        error: "YNAB API Token is not set",
+      });
       expect(mockApi.budgets.getBudgets).not.toHaveBeenCalled();
     });
 

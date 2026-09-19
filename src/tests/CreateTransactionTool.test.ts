@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
+import { z } from 'zod';
 import * as ynab from 'ynab';
 import * as CreateTransactionTool from '../tools/CreateTransactionTool';
 
@@ -70,9 +71,9 @@ describe('CreateTransactionTool', () => {
       payeeName: 'Test Payee',
       categoryId: 'category-123',
       memo: 'Test transaction',
-      cleared: true,
+      cleared: 'cleared' as const,
       approved: false,
-      flagColor: 'red',
+      flagColor: 'red' as const,
     };
 
     const mockCreatedTransaction = {
@@ -319,14 +320,15 @@ describe('CreateTransactionTool', () => {
     });
 
     it('should handle cleared status correctly', async () => {
-      const clearedInput = { ...validTransactionInput, cleared: true };
-      const unclearedInput = { ...validTransactionInput, cleared: false };
+      const clearedInput = { ...validTransactionInput, cleared: 'cleared' as const };
+      const unclearedInput = { ...validTransactionInput, cleared: 'uncleared' as const };
+      const reconciledInput = { ...validTransactionInput, cleared: 'reconciled' as const };
 
       mockApi.transactions.createTransaction.mockResolvedValue({
         data: { transaction: mockCreatedTransaction },
       });
 
-      // Test cleared = true
+      // Test cleared = 'cleared'
       await CreateTransactionTool.execute(clearedInput, mockApi as any);
       expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
         'test-budget-id',
@@ -339,7 +341,7 @@ describe('CreateTransactionTool', () => {
 
       mockApi.transactions.createTransaction.mockClear();
 
-      // Test cleared = false
+      // Test cleared = 'uncleared'
       await CreateTransactionTool.execute(unclearedInput, mockApi as any);
       expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
         'test-budget-id',
@@ -349,6 +351,91 @@ describe('CreateTransactionTool', () => {
           }),
         })
       );
+
+      mockApi.transactions.createTransaction.mockClear();
+
+      // Test cleared = 'reconciled'
+      await CreateTransactionTool.execute(reconciledInput, mockApi as any);
+      expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
+        'test-budget-id',
+        expect.objectContaining({
+          transaction: expect.objectContaining({
+            cleared: ynab.TransactionClearedStatus.Reconciled,
+          }),
+        })
+      );
+    });
+
+    it('should default cleared to uncleared when omitted', async () => {
+      const { cleared, ...inputWithoutCleared } = validTransactionInput;
+
+      mockApi.transactions.createTransaction.mockResolvedValue({
+        data: { transaction: mockCreatedTransaction },
+      });
+
+      await CreateTransactionTool.execute(inputWithoutCleared as any, mockApi as any);
+      expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
+        'test-budget-id',
+        expect.objectContaining({
+          transaction: expect.objectContaining({
+            cleared: ynab.TransactionClearedStatus.Uncleared,
+          }),
+        })
+      );
+    });
+
+    it('should reject an invalid cleared value at the schema level', () => {
+      const result = (CreateTransactionTool.inputSchema.cleared as z.ZodType).safeParse('invalid');
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject a boolean cleared value at the schema level', () => {
+      const result = (CreateTransactionTool.inputSchema.cleared as z.ZodType).safeParse(true);
+      expect(result.success).toBe(false);
+    });
+
+    it('should accept every flag color and pass it through unmodified', async () => {
+      mockApi.transactions.createTransaction.mockResolvedValue({
+        data: { transaction: mockCreatedTransaction },
+      });
+
+      for (const flagColor of ['red', 'orange', 'yellow', 'green', 'blue', 'purple'] as const) {
+        expect((CreateTransactionTool.inputSchema.flagColor as z.ZodType).safeParse(flagColor).success).toBe(true);
+
+        await CreateTransactionTool.execute({ ...validTransactionInput, flagColor }, mockApi as any);
+        expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
+          'test-budget-id',
+          expect.objectContaining({
+            transaction: expect.objectContaining({ flag_color: flagColor }),
+          })
+        );
+
+        mockApi.transactions.createTransaction.mockClear();
+      }
+    });
+
+    it('should clear a flag when flagColor is an empty string', async () => {
+      mockApi.transactions.createTransaction.mockResolvedValue({
+        data: { transaction: mockCreatedTransaction },
+      });
+
+      await CreateTransactionTool.execute({ ...validTransactionInput, flagColor: '' }, mockApi as any);
+      expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
+        'test-budget-id',
+        expect.objectContaining({
+          transaction: expect.objectContaining({ flag_color: '' }),
+        })
+      );
+    });
+
+    it('should reject an invalid flag color at the schema level', () => {
+      const result = (CreateTransactionTool.inputSchema.flagColor as z.ZodType).safeParse('chartreuse');
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject a date not in YYYY-MM-DD format at the schema level', () => {
+      const result = (CreateTransactionTool.inputSchema.date as z.ZodType).safeParse('03/24/2024');
+      expect(result.success).toBe(false);
     });
 
     it('should handle approved status correctly', async () => {

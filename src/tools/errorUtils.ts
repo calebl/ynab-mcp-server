@@ -1,3 +1,14 @@
+/** Builds the shared MCP error-result shape used by tools. */
+export function toolError(error: string) {
+  return {
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify({ success: false, error }, null, 2),
+    }],
+    isError: true,
+  };
+}
+
 /**
  * Extracts a meaningful error message from various error types,
  * including YNAB API error responses.
