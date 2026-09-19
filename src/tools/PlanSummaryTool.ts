@@ -35,7 +35,7 @@ export async function execute(input: BudgetSummaryInput, api: ynab.API) {
     const budgetId = resolvePlanId(input);
     const month = input.month || "current";
 
-    console.error(`Getting accounts and categories for budget ${budgetId} and month ${month}`);
+    console.error(`Getting accounts and categories for plan ${budgetId} and month ${month}`);
     const accountsResponse = await api.accounts.getAccounts(budgetId);
     const accounts = accountsResponse.data.accounts
       .filter((account) => account.deleted === false && account.closed === false)
@@ -78,7 +78,7 @@ export async function execute(input: BudgetSummaryInput, api: ynab.API) {
     return {
       content: [{ type: "text" as const, text: JSON.stringify({
         month: monthBudget.month,
-        currency: "All amounts are in the budget's currency, not milliunits.",
+        currency: "All amounts are in the plan's currency, not milliunits.",
         income: toDollars(monthBudget.income),
         budgeted: toDollars(monthBudget.budgeted),
         activity: toDollars(monthBudget.activity),
@@ -91,7 +91,7 @@ export async function execute(input: BudgetSummaryInput, api: ynab.API) {
       }, null, 2) }]
     };
   } catch (error: unknown) {
-    console.error("Error getting budget summary:", error);
+    console.error("Error getting plan summary:", error);
     return {
       content: [{ type: "text" as const, text: JSON.stringify({
         success: false,

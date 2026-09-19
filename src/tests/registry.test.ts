@@ -9,14 +9,14 @@ interface RegisteredTool {
   callback: (input: any) => Promise<any>;
 }
 
-function register() {
+function register(api: ynab.API = {} as ynab.API) {
   const registered = new Map<string, RegisteredTool>();
   const server: ToolRegistrar = {
     registerTool(name, config, callback) {
       registered.set(name, { config, callback });
     },
   };
-  registerAll(server, {} as ynab.API);
+  registerAll(server, api);
   return registered;
 }
 
@@ -181,6 +181,117 @@ describe("tool registration", () => {
     } finally {
       tools.pop();
     }
+  });
+
+  it.each([
+    {
+      label: "planId",
+      input: { planId: "input-plan" },
+      planEnv: "environment-plan",
+      budgetEnv: "environment-budget",
+      expected: "input-plan",
+    },
+    {
+      label: "budgetId",
+      input: { budgetId: "input-budget" },
+      planEnv: "environment-plan",
+      budgetEnv: "environment-budget",
+      expected: "input-budget",
+    },
+    {
+      label: "YNAB_PLAN_ID",
+      input: {},
+      planEnv: "environment-plan",
+      budgetEnv: "",
+      expected: "environment-plan",
+    },
+    {
+      label: "YNAB_BUDGET_ID",
+      input: {},
+      planEnv: "",
+      budgetEnv: "environment-budget",
+      expected: "environment-budget",
+    },
+    {
+      label: "planId over budgetId",
+      input: { planId: "input-plan", budgetId: "input-budget" },
+      planEnv: "environment-plan",
+      budgetEnv: "environment-budget",
+      expected: "input-plan",
+    },
+    {
+      label: "YNAB_PLAN_ID over YNAB_BUDGET_ID",
+      input: {},
+      planEnv: "environment-plan",
+      budgetEnv: "environment-budget",
+      expected: "environment-plan",
+    },
+  ])("resolves $label through a registered plan tool", async ({ input, planEnv, budgetEnv, expected }) => {
+    vi.stubEnv("YNAB_PLAN_ID", planEnv);
+    vi.stubEnv("YNAB_BUDGET_ID", budgetEnv);
+    const api = {
+      accounts: { getAccounts: vi.fn().mockResolvedValue({ data: { accounts: [] } }) },
+      months: {
+        getPlanMonth: vi.fn().mockResolvedValue({
+          data: {
+            month: {
+              month: "2024-01-01",
+              income: 0,
+              budgeted: 0,
+              activity: 0,
+              to_be_budgeted: 0,
+              age_of_money: null,
+              note: null,
+              categories: [],
+            },
+          },
+        }),
+      },
+    };
+    const registered = register(api as unknown as ynab.API);
+
+    const result = await registered.get("ynab_plan_summary")!.callback(input);
+
+    expect(result.isError).toBeUndefined();
+    expect(api.accounts.getAccounts).toHaveBeenCalledWith(expected);
+    expect(api.months.getPlanMonth).toHaveBeenCalledWith(expected, "current");
+  });
+
+  it("successfully calls canonical and legacy plan tool registrations", async () => {
+    vi.stubEnv("YNAB_API_TOKEN", "test-token");
+    const api = {
+      plans: { getPlans: vi.fn().mockResolvedValue({ data: { plans: [] } }) },
+      accounts: { getAccounts: vi.fn().mockResolvedValue({ data: { accounts: [] } }) },
+      months: {
+        getPlanMonth: vi.fn().mockResolvedValue({
+          data: {
+            month: {
+              month: "2024-01-01",
+              income: 0,
+              budgeted: 0,
+              activity: 0,
+              to_be_budgeted: 0,
+              age_of_money: null,
+              note: null,
+              categories: [],
+            },
+          },
+        }),
+      },
+    };
+    const registered = register(api as unknown as ynab.API);
+
+    for (const name of ["ynab_list_plans", "ynab_list_budgets"]) {
+      const result = await registered.get(name)!.callback({});
+      expect(result.isError, name).toBeUndefined();
+    }
+    for (const name of ["ynab_plan_summary", "ynab_budget_summary"]) {
+      const result = await registered.get(name)!.callback({ planId: "test-plan" });
+      expect(result.isError, name).toBeUndefined();
+    }
+
+    expect(api.plans.getPlans).toHaveBeenCalledTimes(2);
+    expect(api.accounts.getAccounts).toHaveBeenCalledTimes(2);
   });
 
   it("marks the registered list-budgets missing-token failure as isError", async () => {

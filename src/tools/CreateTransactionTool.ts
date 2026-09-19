@@ -6,7 +6,7 @@ import { toMilliunits } from "./money.js";
 import { resolveName } from "./match.js";
 
 export const name = "ynab_create_transaction";
-export const description = "Creates a new transaction in your YNAB budget. The account can be given as accountId or accountName, and the category as categoryId or categoryName - names are fuzzy-matched against the budget. Either payeeId or payeeName must also be provided.";
+export const description = "Creates a new transaction in your YNAB plan. The account can be given as accountId or accountName, and the category as categoryId or categoryName - names are fuzzy-matched against the plan. Either payeeId or payeeName must also be provided.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),

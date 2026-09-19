@@ -5,7 +5,7 @@ import { getErrorMessage } from "./errorUtils.js";
 import { toDollars } from "./money.js";
 
 export const name = "ynab_list_categories";
-export const description = "Lists all categories in a budget, grouped by category group. Useful for finding category IDs when creating transactions or updating budgets.";
+export const description = "Lists all categories in a plan, grouped by category group. Useful for finding category IDs when creating transactions or updating budgeted amounts.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),

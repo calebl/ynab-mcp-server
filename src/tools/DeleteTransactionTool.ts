@@ -4,7 +4,7 @@ import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 
 export const name = "ynab_delete_transaction";
-export const description = "Deletes a transaction from the budget. This action cannot be undone.";
+export const description = "Deletes a transaction from the plan. This action cannot be undone.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),

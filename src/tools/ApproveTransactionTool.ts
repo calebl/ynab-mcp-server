@@ -4,7 +4,7 @@ import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 
 export const name = "ynab_approve_transaction";
-export const description = "Approves an existing transaction in your YNAB budget.";
+export const description = "Approves an existing transaction in your YNAB plan.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),

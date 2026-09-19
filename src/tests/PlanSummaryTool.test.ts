@@ -305,14 +305,15 @@ describe('PlanSummaryTool', () => {
       expect(response.error).toContain('Month API Error');
     });
 
-    it('should throw error when no budget ID is provided', async () => {
+    it('should return an error when no plan ID is provided', async () => {
+      delete process.env.YNAB_PLAN_ID;
       delete process.env.YNAB_BUDGET_ID;
 
       const result = await PlanSummaryTool.execute({}, mockApi as any);
 
       const response = JSON.parse(result.content[0].text);
       expect(response.success).toBe(false);
-      expect(response.error).toContain('No budget ID provided');
+      expect(response.error).toContain('No plan ID provided');
     });
 
     it('should validate month format with regex', () => {
@@ -337,6 +338,7 @@ describe('PlanSummaryTool', () => {
     });
 
     it('should have correct input schema', () => {
+      expect(PlanSummaryTool.inputSchema).toHaveProperty('planId');
       expect(PlanSummaryTool.inputSchema).toHaveProperty('budgetId');
       expect(PlanSummaryTool.inputSchema).toHaveProperty('month');
     });

@@ -4,7 +4,7 @@ import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 
 export const name = "ynab_import_transactions";
-export const description = "Imports available transactions on all linked accounts for the budget. This triggers an import from connected financial institutions (equivalent to clicking 'Import' in the YNAB app).";
+export const description = "Imports available transactions on all linked accounts for the plan. This triggers an import from connected financial institutions (equivalent to clicking 'Import' in the YNAB app).";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),

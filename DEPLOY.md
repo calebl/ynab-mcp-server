@@ -10,7 +10,7 @@ GitHub sign-in controls who may connect, while the YNAB Personal Access Token
 controls which YNAB account the server reaches. They answer different
 questions, and neither substitutes for the other. The Worker uses one
 server-wide YNAB token, so anyone admitted through GitHub reaches the
-deployer's YNAB account, money, and every budget available to that token—not
+deployer's YNAB account, money, and every plan available to that token—not
 their own YNAB account.
 `ynab_list_plans` lists all of those plans, and a caller-supplied `planId`
 overrides the optional `YNAB_PLAN_ID` default. That matters: the tool set
@@ -59,7 +59,7 @@ npx wrangler secret put GITHUB_CLIENT_ID
 npx wrangler secret put GITHUB_CLIENT_SECRET
 ```
 
-Optionally pin a default budget so tool calls can omit `planId`:
+Optionally pin a default plan so tool calls can omit `planId`:
 
 ```bash
 npx wrangler secret put YNAB_PLAN_ID
@@ -147,7 +147,7 @@ npm run deploy
   are budgeting is the month you are reminded about. Anything older is a
   footnote in the description, not the headline.
 - **Transfers are ignored.** Moving money between your own accounts shows up
-  as uncategorized in YNAB but never needs a category. In the budget this was
+  as uncategorized in YNAB but never needs a category. In the plan this was
   built against, 77 of 80 "uncategorized" items were transfer legs.
 - **The wording rotates daily.** Same mechanism as the hour: derived from the
   date, so it is stable within a day and different the next.

@@ -6,7 +6,7 @@ import { toDollars } from "./money.js";
 import { mapSubtransactions } from "./splits.js";
 
 export const name = "ynab_get_transactions";
-export const description = "Gets transactions from a budget with optional filters. Can filter by date range, account, category, payee, or approval status.";
+export const description = "Gets transactions from a plan with optional filters. Can filter by date range, account, category, payee, or approval status.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),

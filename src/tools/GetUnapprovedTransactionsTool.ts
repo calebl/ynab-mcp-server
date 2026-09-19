@@ -6,7 +6,7 @@ import { toDollars } from "./money.js";
 import { mapSubtransactions } from "./splits.js";
 
 export const name = "ynab_get_unapproved_transactions";
-export const description = "Gets every unapproved transaction in a budget, optionally limited to those on or after a given date.";
+export const description = "Gets every unapproved transaction in a plan, optionally limited to those on or after a given date.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),

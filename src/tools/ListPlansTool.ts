@@ -12,20 +12,20 @@ export async function execute(_input: Record<string, unknown>, api: ynab.API) {
       return toolError("YNAB API Token is not set");
     }
 
-    console.error("Listing budgets");
+    console.error("Listing plans");
     const plansResponse = await api.plans.getPlans();
-    console.error(`Found ${plansResponse.data.plans.length} budgets`);
+    console.error(`Found ${plansResponse.data.plans.length} plans`);
 
-    const budgets = plansResponse.data.plans.map((plan) => ({
+    const plans = plansResponse.data.plans.map((plan) => ({
       id: plan.id,
       name: plan.name,
     }));
 
     return {
-      content: [{ type: "text" as const, text: JSON.stringify(budgets, null, 2) }]
+      content: [{ type: "text" as const, text: JSON.stringify(plans, null, 2) }]
     };
   } catch (error: unknown) {
-    console.error("Error listing budgets:", error);
+    console.error("Error listing plans:", error);
     return toolError(getErrorMessage(error));
   }
 }

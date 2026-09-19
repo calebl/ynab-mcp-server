@@ -1,6 +1,6 @@
 # ynab-mcp-server
 
-A Model Context Protocol (MCP) server for interacting with your YNAB plans setup at https://ynab.com
+A Model Context Protocol (MCP) server for interacting with your YNAB plans at https://ynab.com
 
 In order to have an AI interact with this tool, you will need to get your Personal Access Token
 from YNAB: https://api.ynab.com/#personal-access-tokens. When adding this MCP server to any
@@ -9,7 +9,7 @@ is never directly sent to the LLM.** It is stored privately in an environment va
 use with the YNAB api.
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server that lets an AI
-assistant read and modify a [YNAB](https://ynab.com) budget.
+assistant read and modify a [YNAB](https://ynab.com) plan.
 
 The server talks to the YNAB API through the official
 [`ynab` SDK](https://github.com/ynab/ynab-sdk-js). Your Personal Access Token
@@ -49,7 +49,7 @@ Environment variables:
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `YNAB_API_TOKEN` | yes | Personal Access Token used for every API call |
-| `YNAB_PLAN_ID` | no | Default budget, so tools can omit `planId`. Find it with `ynab_list_plans`. |
+| `YNAB_PLAN_ID` | no | Default plan, so tools can omit `planId`. Find it with `ynab_list_plans`. |
 | `TYPESAFE_API_KEY` | no | Operator-owned TypeSafe credential. Required, but not sufficient, to enable category suggestions. |
 | `YNAB_AI_CATEGORIZATION` | no | Set to `"true"` together with `TYPESAFE_API_KEY` to expose the opt-in suggestion tool. |
 
@@ -63,7 +63,7 @@ Environment variables:
       "args": ["/absolute/path/to/ynab-mcp-server/dist/index.js"],
       "env": {
         "YNAB_API_TOKEN": "your-token",
-        "YNAB_PLAN_ID": "your-budget-id"
+        "YNAB_PLAN_ID": "your-plan-id"
       }
     }
   }
@@ -90,7 +90,7 @@ controls **who may connect** to the remote Worker; the YNAB Personal Access
 Token controls **which YNAB account it reaches**. They answer different
 questions, and neither substitutes for the other. The Worker uses one
 server-wide YNAB token, so anyone admitted through the GitHub gate reaches the
-deployer's YNAB account, money, and every budget available to that token—not
+deployer's YNAB account, money, and every plan available to that token—not
 their own YNAB account.
 `ynab_list_plans` lists all of those plans, and a caller-supplied `planId`
 overrides the optional `YNAB_PLAN_ID` default. Any GitHub account other than
@@ -116,7 +116,7 @@ which is worth considering for a connector you will mostly use on a phone.
 
 ## Tools
 
-Budget-scoped tools take an optional `planId` that falls back to
+Plan-scoped tools take an optional `planId` that falls back to
 `YNAB_PLAN_ID`. Optional tool inputs may be `null`; the server treats `null`
 the same as omitting that input. All monetary values — in both directions — are
 plain currency amounts, never YNAB's milliunits; conversion happens in
@@ -126,12 +126,12 @@ plain currency amounts, never YNAB's milliunits; conversion happens in
 
 | Tool | What it does |
 | --- | --- |
-| `ynab_list_plans` | Every budget on the account. Run this first to find a budget ID. |
-| `ynab_budget_summary` | A month at a glance: income, budgeted, activity, Ready to Assign, plus categories split into `overspent`, `underfunded` (goal not yet met) and `positive_balance`. Hidden and deleted categories are excluded. |
+| `ynab_list_plans` | Every plan on the account. Run this first to find a plan ID. |
+| `ynab_plan_summary` | A month at a glance: income, budgeted, activity, Ready to Assign, plus categories split into `overspent`, `underfunded` (goal not yet met) and `positive_balance`. Hidden and deleted categories are excluded. |
 | `ynab_list_accounts` | Accounts with balances. `includeClosedAccounts` to see closed ones. |
 | `ynab_list_categories` | Categories grouped by category group, with goal info. |
 | `ynab_list_payees` | Payees, for resolving payee IDs. |
-| `ynab_list_months` | Every budget month with its summary numbers. |
+| `ynab_list_months` | Every plan month with its summary numbers. |
 | `ynab_list_scheduled_transactions` | Scheduled/recurring transactions. |
 | `ynab_get_transactions` | Transactions filtered by `sinceDate`, `accountId`, `categoryId`, `payeeId`, `type` (`all`/`uncategorized`/`unapproved`) and `limit` (default 100). |
 | `ynab_get_unapproved_transactions` | Unapproved transactions, optionally from `sinceDate` onward. |
@@ -214,7 +214,7 @@ accounts are excluded, so these report spending rather than money movement.
 #### Names instead of IDs
 
 `ynab_create_transaction` accepts `accountName` and `categoryName` and matches
-them loosely against the budget, so "ally checking" finds *Ally Checking*.
+them loosely against the plan, so "ally checking" finds *Ally Checking*.
 Closed accounts and hidden categories are never matched. If a name is ambiguous
 or unrecognised the call fails and names the near misses rather than guessing,
 and successful calls echo back `matchedAccount` / `matchedCategory` so a wrong
