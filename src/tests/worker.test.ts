@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 
-import { McpApiHandler } from "../worker/mcp.js";
+import { createServer, McpApiHandler } from "../worker/mcp.js";
 import { tools } from "../registry.js";
 import type { WorkerEnv } from "../worker/env.js";
 
@@ -43,6 +43,29 @@ const initialize = {
 };
 
 describe("worker MCP handler", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("mirrors plan environment aliases without resolving them", async () => {
+    vi.stubEnv("YNAB_PLAN_ID", "original-plan");
+    vi.stubEnv("YNAB_BUDGET_ID", "original-budget");
+
+    const legacyOnlyServer = createServer({ ...env, YNAB_BUDGET_ID: "legacy-plan" });
+    expect(process.env.YNAB_PLAN_ID).toBeUndefined();
+    expect(process.env.YNAB_BUDGET_ID).toBe("legacy-plan");
+    await legacyOnlyServer.close();
+
+    const bothServer = createServer({
+      ...env,
+      YNAB_PLAN_ID: "canonical-plan",
+      YNAB_BUDGET_ID: "legacy-plan",
+    });
+    expect(process.env.YNAB_PLAN_ID).toBe("canonical-plan");
+    expect(process.env.YNAB_BUDGET_ID).toBe("legacy-plan");
+    await bothServer.close();
+  });
+
   it("responds to initialize over HTTP", async () => {
     const response = await call(initialize);
     expect(response.status).toBe(200);

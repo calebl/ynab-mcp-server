@@ -13,7 +13,7 @@ import type { WorkerEnv } from "./env.js";
 function applyEnv(env: WorkerEnv) {
   process.env.YNAB_API_TOKEN = env.YNAB_API_TOKEN;
   const optionalBindings: Array<[string, string | undefined]> = [
-    ["YNAB_PLAN_ID", env.YNAB_PLAN_ID || env.YNAB_BUDGET_ID],
+    ["YNAB_PLAN_ID", env.YNAB_PLAN_ID],
     ["YNAB_BUDGET_ID", env.YNAB_BUDGET_ID],
     ["TYPESAFE_API_KEY", env.TYPESAFE_API_KEY],
     ["YNAB_AI_CATEGORIZATION", env.YNAB_AI_CATEGORIZATION],
