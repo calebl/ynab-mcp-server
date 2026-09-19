@@ -51,10 +51,10 @@ export async function execute(input: BudgetSummaryInput, api: ynab.API) {
         balance: toDollars(account.balance),
       }));
 
-    const monthResponse = await api.months.getBudgetMonth(budgetId, month);
+    const monthResponse = await api.months.getPlanMonth(budgetId, month);
     const monthBudget = monthResponse.data.month;
 
-    const categories = monthBudget.categories.filter(
+    const categories: ynab.Category[] = monthBudget.categories.filter(
       (category) => category.deleted === false && category.hidden === false
     );
 

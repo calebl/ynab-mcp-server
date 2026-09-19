@@ -131,8 +131,18 @@ export async function getPendingWork(
   since: string,
 ): Promise<PendingWork> {
   const [unapprovedResponse, uncategorizedResponse] = await Promise.all([
-    api.transactions.getTransactions(budgetId, undefined, ynab.GetTransactionsTypeEnum.Unapproved),
-    api.transactions.getTransactions(budgetId, undefined, ynab.GetTransactionsTypeEnum.Uncategorized),
+    api.transactions.getTransactions(
+      budgetId,
+      undefined,
+      undefined,
+      ynab.GetTransactionsTypeEnum.Unapproved,
+    ),
+    api.transactions.getTransactions(
+      budgetId,
+      undefined,
+      undefined,
+      ynab.GetTransactionsTypeEnum.Uncategorized,
+    ),
   ]);
 
   /**

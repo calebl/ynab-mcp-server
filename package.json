@@ -58,7 +58,7 @@
     "@cloudflare/workers-oauth-provider": "^0.10.3",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@modelcontextprotocol/server": "^2.0.0",
-    "ynab": "^2.9.0",
+    "ynab": "^4.5.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {

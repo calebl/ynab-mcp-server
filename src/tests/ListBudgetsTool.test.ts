@@ -6,8 +6,8 @@ vi.mock('ynab');
 
 describe('ListBudgetsTool', () => {
   let mockApi: {
-    budgets: {
-      getBudgets: Mock;
+    plans: {
+      getPlans: Mock;
     };
   };
 
@@ -15,8 +15,8 @@ describe('ListBudgetsTool', () => {
     vi.clearAllMocks();
 
     mockApi = {
-      budgets: {
-        getBudgets: vi.fn(),
+      plans: {
+        getPlans: vi.fn(),
       },
     };
 
@@ -90,13 +90,13 @@ describe('ListBudgetsTool', () => {
     ];
 
     it('should successfully list all budgets', async () => {
-      mockApi.budgets.getBudgets.mockResolvedValue({
-        data: { budgets: mockBudgetsData },
+      mockApi.plans.getPlans.mockResolvedValue({
+        data: { plans: mockBudgetsData },
       });
 
       const result = await ListBudgetsTool.execute({}, mockApi as any);
 
-      expect(mockApi.budgets.getBudgets).toHaveBeenCalledWith();
+      expect(mockApi.plans.getPlans).toHaveBeenCalledWith();
 
       const expectedResult = {
         content: [{
@@ -113,13 +113,13 @@ describe('ListBudgetsTool', () => {
     });
 
     it('should handle empty budget list', async () => {
-      mockApi.budgets.getBudgets.mockResolvedValue({
-        data: { budgets: [] },
+      mockApi.plans.getPlans.mockResolvedValue({
+        data: { plans: [] },
       });
 
       const result = await ListBudgetsTool.execute({}, mockApi as any);
 
-      expect(mockApi.budgets.getBudgets).toHaveBeenCalledWith();
+      expect(mockApi.plans.getPlans).toHaveBeenCalledWith();
 
       const expectedResult = {
         content: [{
@@ -134,8 +134,8 @@ describe('ListBudgetsTool', () => {
     it('should handle single budget', async () => {
       const singleBudget = [mockBudgetsData[0]];
 
-      mockApi.budgets.getBudgets.mockResolvedValue({
-        data: { budgets: singleBudget },
+      mockApi.plans.getPlans.mockResolvedValue({
+        data: { plans: singleBudget },
       });
 
       const result = await ListBudgetsTool.execute({}, mockApi as any);
@@ -162,7 +162,7 @@ describe('ListBudgetsTool', () => {
         success: false,
         error: "YNAB API Token is not set",
       });
-      expect(mockApi.budgets.getBudgets).not.toHaveBeenCalled();
+      expect(mockApi.plans.getPlans).not.toHaveBeenCalled();
     });
 
     it('should return error message when YNAB API token is empty string', async () => {
@@ -175,12 +175,12 @@ describe('ListBudgetsTool', () => {
         success: false,
         error: "YNAB API Token is not set",
       });
-      expect(mockApi.budgets.getBudgets).not.toHaveBeenCalled();
+      expect(mockApi.plans.getPlans).not.toHaveBeenCalled();
     });
 
     it('should handle API error', async () => {
       const apiError = new Error('API Error: Unauthorized');
-      mockApi.budgets.getBudgets.mockRejectedValue(apiError);
+      mockApi.plans.getPlans.mockRejectedValue(apiError);
 
       const result = await ListBudgetsTool.execute({}, mockApi as any);
 
@@ -229,8 +229,8 @@ describe('ListBudgetsTool', () => {
         },
       ];
 
-      mockApi.budgets.getBudgets.mockResolvedValue({
-        data: { budgets: specialBudgets },
+      mockApi.plans.getPlans.mockResolvedValue({
+        data: { plans: specialBudgets },
       });
 
       const result = await ListBudgetsTool.execute({}, mockApi as any);

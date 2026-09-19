@@ -151,6 +151,7 @@ describe('GetTransactionsTool', () => {
       expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith(
         'test-budget-id',
         undefined,
+        undefined,
         undefined
       );
 
@@ -183,6 +184,7 @@ describe('GetTransactionsTool', () => {
         {
           budgetId: 'test-budget-id',
           accountId: 'account-1',
+          type: 'unapproved',
         },
         mockApi as any
       );
@@ -191,7 +193,8 @@ describe('GetTransactionsTool', () => {
         'test-budget-id',
         'account-1',
         undefined,
-        undefined
+        undefined,
+        ynab.GetTransactionsByAccountTypeEnum.Unapproved
       );
     });
 
@@ -204,6 +207,7 @@ describe('GetTransactionsTool', () => {
         {
           budgetId: 'test-budget-id',
           categoryId: 'category-1',
+          type: 'uncategorized',
         },
         mockApi as any
       );
@@ -212,7 +216,8 @@ describe('GetTransactionsTool', () => {
         'test-budget-id',
         'category-1',
         undefined,
-        undefined
+        undefined,
+        ynab.GetTransactionsByCategoryTypeEnum.Uncategorized
       );
     });
 
@@ -225,6 +230,7 @@ describe('GetTransactionsTool', () => {
         {
           budgetId: 'test-budget-id',
           payeeId: 'payee-1',
+          type: 'unapproved',
         },
         mockApi as any
       );
@@ -233,7 +239,8 @@ describe('GetTransactionsTool', () => {
         'test-budget-id',
         'payee-1',
         undefined,
-        undefined
+        undefined,
+        ynab.GetTransactionsByPayeeTypeEnum.Unapproved
       );
     });
 
@@ -253,6 +260,7 @@ describe('GetTransactionsTool', () => {
       expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith(
         'test-budget-id',
         '2024-01-01',
+        undefined,
         undefined
       );
     });
@@ -273,6 +281,7 @@ describe('GetTransactionsTool', () => {
       expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith(
         'test-budget-id',
         undefined,
+        undefined,
         ynab.GetTransactionsTypeEnum.Unapproved
       );
     });
@@ -292,6 +301,7 @@ describe('GetTransactionsTool', () => {
 
       expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith(
         'test-budget-id',
+        undefined,
         undefined,
         ynab.GetTransactionsTypeEnum.Uncategorized
       );

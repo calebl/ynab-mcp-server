@@ -7,7 +7,7 @@ vi.mock('ynab');
 describe('ListMonthsTool', () => {
   let mockApi: {
     months: {
-      getBudgetMonths: Mock;
+      getPlanMonths: Mock;
     };
   };
 
@@ -16,7 +16,7 @@ describe('ListMonthsTool', () => {
 
     mockApi = {
       months: {
-        getBudgetMonths: vi.fn(),
+        getPlanMonths: vi.fn(),
       },
     };
 
@@ -62,14 +62,14 @@ describe('ListMonthsTool', () => {
     };
 
     it('should successfully list all months', async () => {
-      mockApi.months.getBudgetMonths.mockResolvedValue(mockMonthsData);
+      mockApi.months.getPlanMonths.mockResolvedValue(mockMonthsData);
 
       const result = await ListMonthsTool.execute(
         { budgetId: 'test-budget-id' },
         mockApi as any
       );
 
-      expect(mockApi.months.getBudgetMonths).toHaveBeenCalledWith('test-budget-id');
+      expect(mockApi.months.getPlanMonths).toHaveBeenCalledWith('test-budget-id');
 
       const response = JSON.parse(result.content[0].text);
       expect(response.month_count).toBe(3);
@@ -77,7 +77,7 @@ describe('ListMonthsTool', () => {
     });
 
     it('should format amounts correctly', async () => {
-      mockApi.months.getBudgetMonths.mockResolvedValue(mockMonthsData);
+      mockApi.months.getPlanMonths.mockResolvedValue(mockMonthsData);
 
       const result = await ListMonthsTool.execute(
         { budgetId: 'test-budget-id' },
@@ -94,7 +94,7 @@ describe('ListMonthsTool', () => {
     });
 
     it('should include month metadata', async () => {
-      mockApi.months.getBudgetMonths.mockResolvedValue(mockMonthsData);
+      mockApi.months.getPlanMonths.mockResolvedValue(mockMonthsData);
 
       const result = await ListMonthsTool.execute(
         { budgetId: 'test-budget-id' },
@@ -109,7 +109,7 @@ describe('ListMonthsTool', () => {
     });
 
     it('should handle null notes', async () => {
-      mockApi.months.getBudgetMonths.mockResolvedValue(mockMonthsData);
+      mockApi.months.getPlanMonths.mockResolvedValue(mockMonthsData);
 
       const result = await ListMonthsTool.execute(
         { budgetId: 'test-budget-id' },
@@ -123,11 +123,11 @@ describe('ListMonthsTool', () => {
     });
 
     it('should use YNAB_BUDGET_ID from env when budgetId not provided', async () => {
-      mockApi.months.getBudgetMonths.mockResolvedValue(mockMonthsData);
+      mockApi.months.getPlanMonths.mockResolvedValue(mockMonthsData);
 
       await ListMonthsTool.execute({}, mockApi as any);
 
-      expect(mockApi.months.getBudgetMonths).toHaveBeenCalledWith('test-budget-id');
+      expect(mockApi.months.getPlanMonths).toHaveBeenCalledWith('test-budget-id');
     });
 
     it('should return error when no budget ID available', async () => {
@@ -141,7 +141,7 @@ describe('ListMonthsTool', () => {
     });
 
     it('should handle API error', async () => {
-      mockApi.months.getBudgetMonths.mockRejectedValue(new Error('API Error'));
+      mockApi.months.getPlanMonths.mockRejectedValue(new Error('API Error'));
 
       const result = await ListMonthsTool.execute(
         { budgetId: 'test-budget-id' },
@@ -154,7 +154,7 @@ describe('ListMonthsTool', () => {
     });
 
     it('should handle empty months list', async () => {
-      mockApi.months.getBudgetMonths.mockResolvedValue({
+      mockApi.months.getPlanMonths.mockResolvedValue({
         data: { months: [] },
       });
 
@@ -169,7 +169,7 @@ describe('ListMonthsTool', () => {
     });
 
     it('should handle months with zero values', async () => {
-      mockApi.months.getBudgetMonths.mockResolvedValue({
+      mockApi.months.getPlanMonths.mockResolvedValue({
         data: {
           months: [
             {
