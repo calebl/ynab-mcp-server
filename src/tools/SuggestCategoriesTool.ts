@@ -5,7 +5,7 @@ import { getErrorMessage } from "./errorUtils.js";
 import { toDollars } from "./money.js";
 
 export const name = "ynab_suggest_categories";
-export const description = "Previews category suggestions for unapproved, uncategorized ordinary outflows. Approved, reconciled, transfer, split, inflow, categorized, and YNAB balance-adjustment rows are excluded before exact-payee history or TypeSafe Jev processing. A disagreement between the history plurality and Jev always requires review. Never writes to YNAB.";
+export const description = "Previews category suggestions for unapproved, uncategorized ordinary outflows. Approved, reconciled, transfer, split, inflow, categorized, and YNAB balance-adjustment rows are ineligible for history-rule suggestions or TypeSafe Jev processing. A disagreement between the history plurality and Jev always requires review. Never writes to YNAB.";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The budget ID (defaults to YNAB_BUDGET_ID)"),
   transactionIds: z.array(z.string()).max(100).optional().describe("Specific transaction IDs to inspect; omission, null, or an empty array fetches unapproved, uncategorized transactions"),

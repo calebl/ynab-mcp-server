@@ -145,11 +145,12 @@ limit. The top-level `skipped` object reports `total_count` and a `count` plus
 `skipped_balance_adjustment`, `skipped_transfer`, `skipped_split`,
 `skipped_inflow`, and `skipped_already_categorized`. With explicit
 `transactionIds`, every non-deleted fetched row remains an individual result,
-including rows carrying a `skipped_*` status; deleted rows are omitted. The
-history rule applies only when at least three retained exact-payee rows all use
-the same still-eligible category. Any mixed
-history goes to TypeSafe's pinned `jev-1.13.0` System One model in batches of
-ten, and any disagreement between its plurality and the model forces
+including rows carrying a `skipped_*` status; deleted rows are omitted.
+Payee history uses the latest 12 months, capped at 50 qualifying exact-payee
+rows. The history rule applies only when at least three such rows all use the
+same still-eligible category; every eligible row without that unanimous signal
+goes to TypeSafe's pinned `jev-1.13.0` System One model in batches of ten. Any
+disagreement between the history plurality and the model forces
 `needs_review`. Every inspected eligible row includes a status, content
 fingerprint, proposed category, confidence, winning probability, up to three
 alternatives, and history summary. Applying a suggestion remains a separate
