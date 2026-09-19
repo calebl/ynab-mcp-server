@@ -7,7 +7,7 @@ async function getCategory(budgetId, categoryId) {
     }
 
     const response = await fetch(
-      `https://api.ynab.com/v1/budgets/${budgetId}/categories/${categoryId}`,
+      `https://api.ynab.com/v1/plans/${budgetId}/categories/${categoryId}`,
       {
         headers: {
           'Authorization': `Bearer ${process.env.YNAB_API_TOKEN}`

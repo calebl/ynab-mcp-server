@@ -7,7 +7,7 @@ async function getBudgetMonth(budgetId) {
     }
 
     const response = await fetch(
-      `https://api.ynab.com/v1/budgets/${budgetId}/months/current`,
+      `https://api.ynab.com/v1/plans/${budgetId}/months/current`,
       {
         headers: {
           'Authorization': `Bearer ${process.env.YNAB_API_TOKEN}`
