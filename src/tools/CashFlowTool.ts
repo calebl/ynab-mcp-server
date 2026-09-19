@@ -30,8 +30,8 @@ export async function execute(input: CashFlowInput, api: ynab.API) {
   try {
     const budgetId = getBudgetId(input.budgetId);
 
-    const response = await api.months.getBudgetMonths(budgetId);
-    const allMonths = response.data.months
+    const response = await api.months.getPlanMonths(budgetId);
+    const allMonths: ynab.MonthSummary[] = response.data.months
       .filter((month) => !month.deleted)
       .sort((a, b) => a.month.localeCompare(b.month));
 

@@ -59,7 +59,7 @@ export async function execute(input: UpdateTransactionInput, api: ynab.API) {
     const budgetId = getBudgetId(input.budgetId);
 
     // Build the update object with only provided fields
-    const transactionUpdate: ynab.SaveTransactionWithOptionalFields = {};
+    const transactionUpdate: ynab.ExistingTransaction = {};
 
     if (input.accountId !== undefined) {
       transactionUpdate.account_id = input.accountId;

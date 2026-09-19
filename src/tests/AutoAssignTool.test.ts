@@ -3,7 +3,7 @@ import * as AutoAssignTool from '../tools/AutoAssignTool';
 
 describe('AutoAssignTool', () => {
   let mockApi: {
-    months: { getBudgetMonth: Mock };
+    months: { getPlanMonth: Mock };
     categories: { updateMonthCategory: Mock };
   };
 
@@ -26,7 +26,7 @@ describe('AutoAssignTool', () => {
     vi.clearAllMocks();
 
     mockApi = {
-      months: { getBudgetMonth: vi.fn().mockResolvedValue(monthWith(100000)) },
+      months: { getPlanMonth: vi.fn().mockResolvedValue(monthWith(100000)) },
       categories: {
         updateMonthCategory: vi.fn().mockResolvedValue({ data: { category: { id: 'x', name: 'x', budgeted: 0 } } }),
       },
@@ -107,7 +107,7 @@ describe('AutoAssignTool', () => {
     });
 
     it('does nothing when Ready to Assign is not positive', async () => {
-      mockApi.months.getBudgetMonth.mockResolvedValue(monthWith(0));
+      mockApi.months.getPlanMonth.mockResolvedValue(monthWith(0));
 
       const result = await AutoAssignTool.execute({}, mockApi as any);
       const response = JSON.parse(result.content[0].text);
@@ -119,7 +119,7 @@ describe('AutoAssignTool', () => {
     });
 
     it('does nothing when no category has an unmet goal', async () => {
-      mockApi.months.getBudgetMonth.mockResolvedValue({
+      mockApi.months.getPlanMonth.mockResolvedValue({
         data: { month: { month: '2024-03-01', to_be_budgeted: 100000, categories: [categories[2]] } },
       });
 

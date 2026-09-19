@@ -60,14 +60,14 @@ const transactions = [
 describe('spending reports', () => {
   let mockApi: {
     transactions: { getTransactions: Mock };
-    months: { getBudgetMonths: Mock };
+    months: { getPlanMonths: Mock };
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockApi = {
       transactions: { getTransactions: vi.fn().mockResolvedValue({ data: { transactions } }) },
-      months: { getBudgetMonths: vi.fn() },
+      months: { getPlanMonths: vi.fn() },
     };
     process.env.YNAB_BUDGET_ID = 'test-budget-id';
   });
@@ -177,7 +177,7 @@ describe('spending reports', () => {
     ];
 
     beforeEach(() => {
-      mockApi.months.getBudgetMonths.mockResolvedValue({ data: { months } });
+      mockApi.months.getPlanMonths.mockResolvedValue({ data: { months } });
     });
 
     it('reports income, spending and net per month, oldest first', async () => {
@@ -220,7 +220,7 @@ describe('spending reports', () => {
     });
 
     it('handles a budget with no months', async () => {
-      mockApi.months.getBudgetMonths.mockResolvedValue({ data: { months: [] } });
+      mockApi.months.getPlanMonths.mockResolvedValue({ data: { months: [] } });
 
       const result = await CashFlowTool.execute({}, mockApi as any);
       const response = JSON.parse(result.content[0].text);
@@ -230,7 +230,7 @@ describe('spending reports', () => {
     });
 
     it('reports API errors', async () => {
-      mockApi.months.getBudgetMonths.mockRejectedValue(new Error('Unauthorized'));
+      mockApi.months.getPlanMonths.mockRejectedValue(new Error('Unauthorized'));
 
       const result = await CashFlowTool.execute({}, mockApi as any);
       const response = JSON.parse(result.content[0].text);

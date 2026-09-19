@@ -82,7 +82,7 @@ export async function execute(input: AutoAssignInput, api: ynab.API) {
     const budgetId = getBudgetId(input.budgetId);
     const month = input.month || "current";
 
-    const monthResponse = await api.months.getBudgetMonth(budgetId, month);
+    const monthResponse = await api.months.getPlanMonth(budgetId, month);
     const readyToAssign = monthResponse.data.month.to_be_budgeted;
 
     if (readyToAssign <= 0) {
