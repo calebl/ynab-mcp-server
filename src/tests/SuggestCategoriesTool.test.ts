@@ -65,7 +65,12 @@ function makeApi(options: {
   return {
     transactions: {
       getTransactions: vi.fn().mockImplementation(
-        async (_budgetId: string, _sinceDate?: string, type?: ynab.GetTransactionsTypeEnum) => ({
+        async (
+          _budgetId: string,
+          _sinceDate?: string,
+          _untilDate?: string,
+          type?: ynab.GetTransactionsTypeEnum,
+        ) => ({
           data: {
             transactions: type === ynab.GetTransactionsTypeEnum.Unapproved
               ? candidates
@@ -566,6 +571,7 @@ describe("SuggestCategoriesTool", () => {
       1,
       "budget-id",
       undefined,
+      undefined,
       ynab.GetTransactionsTypeEnum.Unapproved,
     );
     expect(output.transaction_count).toBe(1);
@@ -695,6 +701,7 @@ describe("SuggestCategoriesTool", () => {
       1,
       "budget-id",
       undefined,
+      undefined,
       ynab.GetTransactionsTypeEnum.Unapproved,
     );
     expect(api.transactions.getTransactionById).not.toHaveBeenCalled();
@@ -722,6 +729,7 @@ describe("SuggestCategoriesTool", () => {
     expect(api.transactions.getTransactionById).toHaveBeenCalledTimes(2);
     expect(api.transactions.getTransactions.mock.calls).not.toContainEqual([
       "budget-id",
+      undefined,
       undefined,
       ynab.GetTransactionsTypeEnum.Unapproved,
     ]);

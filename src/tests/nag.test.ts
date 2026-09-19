@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import {
   buildNagEvent,
@@ -137,7 +137,12 @@ describe("getPendingWork", () => {
   /** Mirrors the real backlog: a few recent items, many old ones. */
   const api = {
     transactions: {
-      getTransactions: async (_budget: string, _since: undefined, type: string) => ({
+      getTransactions: vi.fn(async (
+        _budget: string,
+        _since: undefined,
+        _until: undefined,
+        type: string,
+      ) => ({
         data: {
           transactions: type === "unapproved"
             ? [txn("recent-1", "2026-09-01", -25000)]
@@ -151,13 +156,18 @@ describe("getPendingWork", () => {
                 txn("transfer-in", "2026-09-02", 82000, "account-a"),
               ],
         },
-      }),
+      })),
     },
   } as any;
 
   it("counts only this month and reports the rest as backlog", async () => {
+    api.transactions.getTransactions.mockClear();
     const pending = await getPendingWork(api, "budget", "2026-09-01");
 
+    expect(api.transactions.getTransactions.mock.calls).toEqual([
+      ["budget", undefined, undefined, "unapproved"],
+      ["budget", undefined, undefined, "uncategorized"],
+    ]);
     // Only recent-1 (2026-09-01) is in September; the rest are older.
     expect(pending.total).toBe(1);
     expect(pending.backlog).toBe(3);

@@ -304,6 +304,7 @@ async function loadCandidates(
     const response = await api.transactions.getTransactions(
       budgetId,
       undefined,
+      undefined,
       ynab.GetTransactionsTypeEnum.Unapproved,
     );
     const limit = input.limit ?? DEFAULT_LIMIT;
