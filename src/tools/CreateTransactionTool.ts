@@ -1,3 +1,4 @@
+import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
@@ -7,7 +8,8 @@ import { resolveName } from "./match.js";
 export const name = "ynab_create_transaction";
 export const description = "Creates a new transaction in your YNAB budget. The account can be given as accountId or accountName, and the category as categoryId or categoryName - names are fuzzy-matched against the budget. Either payeeId or payeeName must also be provided.";
 export const inputSchema = {
-  budgetId: z.string().optional().describe("The id of the budget to create the transaction in (optional, defaults to the budget set in the YNAB_BUDGET_ID environment variable)"),
+  planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
+  budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   accountId: z.string().optional().describe("The id of the account to create the transaction in (optional if accountName is provided)"),
   accountName: z.string().optional().describe("The name of the account, matched loosely against your accounts (e.g. 'ally checking'). Optional if accountId is provided."),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("The date of the transaction in ISO format (e.g. 2024-03-24)"),
@@ -23,6 +25,7 @@ export const inputSchema = {
 };
 
 interface CreateTransactionInput {
+  planId?: string;
   budgetId?: string;
   accountId?: string;
   accountName?: string;
@@ -49,13 +52,6 @@ function mapClearedStatus(cleared?: string): ynab.TransactionClearedStatus {
   }
 }
 
-function getBudgetId(inputBudgetId?: string): string {
-  const budgetId = inputBudgetId || process.env.YNAB_BUDGET_ID || "";
-  if (!budgetId) {
-    throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.");
-  }
-  return budgetId;
-}
 
 /** Resolves accountName to an id, skipping the API call when an id was given. */
 async function resolveAccountId(
@@ -95,7 +91,7 @@ async function resolveCategoryId(
 
 export async function execute(input: CreateTransactionInput, api: ynab.API) {
   try {
-    const budgetId = getBudgetId(input.budgetId);
+    const budgetId = resolvePlanId(input);
 
     if (!input.payeeId && !input.payeeName) {
       throw new Error("Either payeeId or payeeName must be provided");

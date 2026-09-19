@@ -1,3 +1,4 @@
+import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
@@ -6,24 +7,19 @@ import { toDollars } from "./money.js";
 export const name = "ynab_list_months";
 export const description = "Lists all budget months. Each month contains summary information about budgeting status.";
 export const inputSchema = {
-  budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),
+  planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
+  budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
 };
 
 interface ListMonthsInput {
+  planId?: string;
   budgetId?: string;
 }
 
-function getBudgetId(inputBudgetId?: string): string {
-  const budgetId = inputBudgetId || process.env.YNAB_BUDGET_ID || "";
-  if (!budgetId) {
-    throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.");
-  }
-  return budgetId;
-}
 
 export async function execute(input: ListMonthsInput, api: ynab.API) {
   try {
-    const budgetId = getBudgetId(input.budgetId);
+    const budgetId = resolvePlanId(input);
 
     console.error(`Listing months for budget ${budgetId}`);
     const response = await api.months.getPlanMonths(budgetId);

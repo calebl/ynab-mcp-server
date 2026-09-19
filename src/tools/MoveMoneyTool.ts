@@ -1,3 +1,4 @@
+import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
@@ -6,7 +7,8 @@ import { toDollars, toMilliunits } from "./money.js";
 export const name = "ynab_move_money";
 export const description = "Moves budgeted money from one category to another in a given month, typically to cover overspending. YNAB has no single move endpoint, so this reads both categories and rewrites their budgeted amounts; if the second write fails the response says exactly which half was applied.";
 export const inputSchema = {
-  budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),
+  planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
+  budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   month: z.string().regex(/^(current|\d{4}-\d{2}-\d{2})$/).optional().describe("The budget month in ISO format (e.g. 2024-01-01, must be the first of the month), or 'current'. Defaults to 'current'."),
   fromCategoryId: z.string().describe("The ID of the category to take money from"),
   toCategoryId: z.string().describe("The ID of the category to give money to"),
@@ -14,6 +16,7 @@ export const inputSchema = {
 };
 
 interface MoveMoneyInput {
+  planId?: string;
   budgetId?: string;
   month?: string;
   fromCategoryId: string;
@@ -21,13 +24,6 @@ interface MoveMoneyInput {
   amount: number;
 }
 
-function getBudgetId(inputBudgetId?: string): string {
-  const budgetId = inputBudgetId || process.env.YNAB_BUDGET_ID || "";
-  if (!budgetId) {
-    throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.");
-  }
-  return budgetId;
-}
 
 export async function execute(input: MoveMoneyInput, api: ynab.API) {
   const month = input.month || "current";
@@ -39,7 +35,7 @@ export async function execute(input: MoveMoneyInput, api: ynab.API) {
 
   // Phase 1: everything that can fail without changing the budget.
   try {
-    budgetId = getBudgetId(input.budgetId);
+    budgetId = resolvePlanId(input);
 
     if (input.fromCategoryId === input.toCategoryId) {
       throw new Error("fromCategoryId and toCategoryId must be different categories");

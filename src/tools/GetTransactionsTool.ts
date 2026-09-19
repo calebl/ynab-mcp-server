@@ -1,3 +1,4 @@
+import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
@@ -7,7 +8,8 @@ import { mapSubtransactions } from "./splits.js";
 export const name = "ynab_get_transactions";
 export const description = "Gets transactions from a budget with optional filters. Can filter by date range, account, category, payee, or approval status.";
 export const inputSchema = {
-  budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),
+  planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
+  budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   sinceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Only return transactions on or after this date (ISO format: 2024-01-01)"),
   type: z.enum(["all", "uncategorized", "unapproved"]).optional().describe("Filter by transaction type. Defaults to 'all'."),
   accountId: z.string().optional().describe("Filter to only transactions in this account"),
@@ -17,6 +19,7 @@ export const inputSchema = {
 };
 
 interface GetTransactionsInput {
+  planId?: string;
   budgetId?: string;
   sinceDate?: string;
   type?: "all" | "uncategorized" | "unapproved";
@@ -26,13 +29,6 @@ interface GetTransactionsInput {
   limit?: number;
 }
 
-function getBudgetId(inputBudgetId?: string): string {
-  const budgetId = inputBudgetId || process.env.YNAB_BUDGET_ID || "";
-  if (!budgetId) {
-    throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.");
-  }
-  return budgetId;
-}
 
 function mapTransactionType(type?: string): ynab.GetTransactionsTypeEnum | undefined {
   switch (type) {
@@ -63,7 +59,7 @@ interface TransactionData {
 
 export async function execute(input: GetTransactionsInput, api: ynab.API) {
   try {
-    const budgetId = getBudgetId(input.budgetId);
+    const budgetId = resolvePlanId(input);
     const limit = input.limit || 100;
 
     let rawTransactions: TransactionData[];

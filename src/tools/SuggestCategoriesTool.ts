@@ -1,3 +1,4 @@
+import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 
@@ -7,12 +8,14 @@ import { toDollars } from "./money.js";
 export const name = "ynab_suggest_categories";
 export const description = "Previews category suggestions for unapproved, uncategorized ordinary outflows. Approved, reconciled, transfer, split, inflow, categorized, and YNAB balance-adjustment rows are ineligible for history-rule suggestions or TypeSafe Jev processing. A disagreement between the history plurality and Jev always requires review. Never writes to YNAB.";
 export const inputSchema = {
-  budgetId: z.string().optional().describe("The budget ID (defaults to YNAB_BUDGET_ID)"),
+  planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
+  budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   transactionIds: z.array(z.string()).max(100).optional().describe("Specific transaction IDs to inspect; omission, null, or an empty array fetches unapproved, uncategorized transactions"),
   limit: z.number().int().min(1).max(100).optional().describe("Maximum rows to inspect when transactionIds is omitted (default: 20, maximum: 100)"),
 };
 
 interface SuggestCategoriesInput {
+  planId?: string;
   budgetId?: string;
   transactionIds?: string[];
   limit?: number;
@@ -127,13 +130,6 @@ interface Preflight {
   error?: string;
 }
 
-function getBudgetId(inputBudgetId?: string): string {
-  const budgetId = inputBudgetId || process.env.YNAB_BUDGET_ID || "";
-  if (!budgetId) {
-    throw new Error("No budget ID provided. Please provide a budget ID or set YNAB_BUDGET_ID.");
-  }
-  return budgetId;
-}
 
 export function isCategorySuggestionEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return env.YNAB_AI_CATEGORIZATION === "true" && Boolean(env.TYPESAFE_API_KEY);
@@ -653,7 +649,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
       });
     }
     const apiKey = process.env.TYPESAFE_API_KEY as string;
-    const budgetId = getBudgetId(input.budgetId);
+    const budgetId = resolvePlanId(input);
     const candidates = await loadCandidates(input, budgetId, api);
 
     const prerequisites = await Promise.allSettled([

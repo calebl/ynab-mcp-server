@@ -1,6 +1,6 @@
 # ynab-mcp-server
 
-A Model Context Protocol (MCP) server for interacting with your YNAB budgets setup at https://ynab.com
+A Model Context Protocol (MCP) server for interacting with your YNAB plans setup at https://ynab.com
 
 In order to have an AI interact with this tool, you will need to get your Personal Access Token
 from YNAB: https://api.ynab.com/#personal-access-tokens. When adding this MCP server to any
@@ -49,7 +49,7 @@ Environment variables:
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `YNAB_API_TOKEN` | yes | Personal Access Token used for every API call |
-| `YNAB_BUDGET_ID` | no | Default budget, so tools can omit `budgetId`. Find it with `ynab_list_budgets`. |
+| `YNAB_PLAN_ID` | no | Default budget, so tools can omit `planId`. Find it with `ynab_list_plans`. |
 | `TYPESAFE_API_KEY` | no | Operator-owned TypeSafe credential. Required, but not sufficient, to enable category suggestions. |
 | `YNAB_AI_CATEGORIZATION` | no | Set to `"true"` together with `TYPESAFE_API_KEY` to expose the opt-in suggestion tool. |
 
@@ -63,7 +63,7 @@ Environment variables:
       "args": ["/absolute/path/to/ynab-mcp-server/dist/index.js"],
       "env": {
         "YNAB_API_TOKEN": "your-token",
-        "YNAB_BUDGET_ID": "your-budget-id"
+        "YNAB_PLAN_ID": "your-budget-id"
       }
     }
   }
@@ -92,11 +92,11 @@ questions, and neither substitutes for the other. The Worker uses one
 server-wide YNAB token, so anyone admitted through the GitHub gate reaches the
 deployer's YNAB account, money, and every budget available to that token—not
 their own YNAB account.
-`ynab_list_budgets` lists all of those budgets, and a caller-supplied `budgetId`
-overrides the optional `YNAB_BUDGET_ID` default. Any GitHub account other than
+`ynab_list_plans` lists all of those plans, and a caller-supplied `planId`
+overrides the optional `YNAB_PLAN_ID` default. Any GitHub account other than
 `ALLOWED_GITHUB_LOGIN` is refused. This matters because the tool set can create
 and delete transactions—an unauthenticated endpoint would grant access to those
-budgets to anyone who found the URL.
+plans to anyone who found the URL.
 
 ## Why not YNAB OAuth?
 
@@ -116,8 +116,8 @@ which is worth considering for a connector you will mostly use on a phone.
 
 ## Tools
 
-Budget-scoped tools take an optional `budgetId` that falls back to
-`YNAB_BUDGET_ID`. Optional tool inputs may be `null`; the server treats `null`
+Budget-scoped tools take an optional `planId` that falls back to
+`YNAB_PLAN_ID`. Optional tool inputs may be `null`; the server treats `null`
 the same as omitting that input. All monetary values — in both directions — are
 plain currency amounts, never YNAB's milliunits; conversion happens in
 `src/tools/money.ts`.
@@ -126,7 +126,7 @@ plain currency amounts, never YNAB's milliunits; conversion happens in
 
 | Tool | What it does |
 | --- | --- |
-| `ynab_list_budgets` | Every budget on the account. Run this first to find a budget ID. |
+| `ynab_list_plans` | Every budget on the account. Run this first to find a budget ID. |
 | `ynab_budget_summary` | A month at a glance: income, budgeted, activity, Ready to Assign, plus categories split into `overspent`, `underfunded` (goal not yet met) and `positive_balance`. Hidden and deleted categories are excluded. |
 | `ynab_list_accounts` | Accounts with balances. `includeClosedAccounts` to see closed ones. |
 | `ynab_list_categories` | Categories grouped by category group, with goal info. |
@@ -284,3 +284,6 @@ Useful references:
 ## License
 
 See [LICENSE](./LICENSE).
+
+### Compatibility
+`ynab_list_budgets` and `ynab_budget_summary` remain accepted aliases for the plan-named tools. `budgetId` and `YNAB_BUDGET_ID` are deprecated but still accepted; there is no removal date. Use `planId` and `YNAB_PLAN_ID` for new integrations.

@@ -1,3 +1,4 @@
+import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
@@ -6,7 +7,8 @@ import { toDollars, toMilliunits } from "./money.js";
 export const name = "ynab_update_transaction";
 export const description = "Updates an existing transaction. All fields except transactionId are optional - only provide fields you want to change.";
 export const inputSchema = {
-  budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),
+  planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
+  budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   transactionId: z.string().describe("The ID of the transaction to update"),
   accountId: z.string().optional().describe("Move transaction to a different account"),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("The date of the transaction in ISO format (e.g. 2024-03-24)"),
@@ -21,6 +23,7 @@ export const inputSchema = {
 };
 
 interface UpdateTransactionInput {
+  planId?: string;
   budgetId?: string;
   transactionId: string;
   accountId?: string;
@@ -35,13 +38,6 @@ interface UpdateTransactionInput {
   flagColor?: "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "";
 }
 
-function getBudgetId(inputBudgetId?: string): string {
-  const budgetId = inputBudgetId || process.env.YNAB_BUDGET_ID || "";
-  if (!budgetId) {
-    throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.");
-  }
-  return budgetId;
-}
 
 function mapClearedStatus(cleared: string): ynab.TransactionClearedStatus {
   switch (cleared) {
@@ -56,7 +52,7 @@ function mapClearedStatus(cleared: string): ynab.TransactionClearedStatus {
 
 export async function execute(input: UpdateTransactionInput, api: ynab.API) {
   try {
-    const budgetId = getBudgetId(input.budgetId);
+    const budgetId = resolvePlanId(input);
 
     // Build the update object with only provided fields
     const transactionUpdate: ynab.ExistingTransaction = {};

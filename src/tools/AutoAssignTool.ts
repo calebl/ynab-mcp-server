@@ -1,3 +1,4 @@
+import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
@@ -6,13 +7,15 @@ import { toDollars, toMilliunits } from "./money.js";
 export const name = "ynab_auto_assign";
 export const description = "Distributes Ready to Assign across categories whose monthly goal is not yet fully funded, largest shortfall first, until the money runs out. Set dryRun to see the plan without changing anything.";
 export const inputSchema = {
-  budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),
+  planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
+  budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   month: z.string().regex(/^(current|\d{4}-\d{2}-\d{2})$/).optional().describe("The budget month in ISO format (e.g. 2024-01-01, must be the first of the month), or 'current'. Defaults to 'current'."),
   dryRun: z.boolean().optional().describe("Return the proposed assignments without writing them (default: false)"),
   maxTotal: z.number().positive().optional().describe("Only assign up to this many dollars, even if more is available in Ready to Assign"),
 };
 
 interface AutoAssignInput {
+  planId?: string;
   budgetId?: string;
   month?: string;
   dryRun?: boolean;
@@ -30,13 +33,6 @@ interface PlannedAssignment {
   newBudgetedMilliunits: number;
 }
 
-function getBudgetId(inputBudgetId?: string): string {
-  const budgetId = inputBudgetId || process.env.YNAB_BUDGET_ID || "";
-  if (!budgetId) {
-    throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.");
-  }
-  return budgetId;
-}
 
 /** Builds the assignment plan in milliunits, biggest shortfall first. */
 function planAssignments(
@@ -79,7 +75,7 @@ function forOutput({ newBudgetedMilliunits, ...rest }: PlannedAssignment) {
 
 export async function execute(input: AutoAssignInput, api: ynab.API) {
   try {
-    const budgetId = getBudgetId(input.budgetId);
+    const budgetId = resolvePlanId(input);
     const month = input.month || "current";
 
     const monthResponse = await api.months.getPlanMonth(budgetId, month);

@@ -3,6 +3,8 @@ export interface WorkerEnv {
   /** YNAB Personal Access Token. Secret — never sent to the client. */
   YNAB_API_TOKEN: string;
   /** Optional default budget, so tool calls can omit budgetId. */
+  YNAB_PLAN_ID?: string;
+  /** Deprecated but still accepted compatibility alias; no removal date. */
   YNAB_BUDGET_ID?: string;
   /** GitHub OAuth app credentials, used only to identify the caller. */
   GITHUB_CLIENT_ID: string;

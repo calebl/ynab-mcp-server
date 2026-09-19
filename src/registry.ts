@@ -2,9 +2,9 @@ import * as ynab from "ynab";
 import { z } from "zod";
 
 // Import all tools
-import * as ListBudgetsTool from "./tools/ListBudgetsTool.js";
+import * as ListPlansTool from "./tools/ListPlansTool.js";
 import * as GetUnapprovedTransactionsTool from "./tools/GetUnapprovedTransactionsTool.js";
-import * as BudgetSummaryTool from "./tools/BudgetSummaryTool.js";
+import * as PlanSummaryTool from "./tools/PlanSummaryTool.js";
 import * as CreateTransactionTool from "./tools/CreateTransactionTool.js";
 import * as ApproveTransactionTool from "./tools/ApproveTransactionTool.js";
 import * as UpdateCategoryBudgetTool from "./tools/UpdateCategoryBudgetTool.js";
@@ -60,10 +60,15 @@ const refineCreateTransaction = (schema: z.ZodObject<z.ZodRawShape>) =>
       path: ["payeeId"],
     });
 
+const listBudgetsAlias = { ...ListPlansTool, name: "ynab_list_budgets", description: "Former name of ynab_list_plans." };
+const budgetSummaryAlias = { ...PlanSummaryTool, name: "ynab_budget_summary", description: "Former name of ynab_plan_summary." };
+
 export const tools: ToolEntry[] = [
-  { title: "List Budgets", module: ListBudgetsTool, writes: false },
+  { title: "List Plans", module: ListPlansTool, writes: false },
+  { title: "List Budgets (legacy)", module: listBudgetsAlias, writes: false },
   { title: "Get Unapproved Transactions", module: GetUnapprovedTransactionsTool, writes: false },
-  { title: "Budget Summary", module: BudgetSummaryTool, writes: false },
+  { title: "Plan Summary", module: PlanSummaryTool, writes: false },
+  { title: "Budget Summary (legacy)", module: budgetSummaryAlias, writes: false },
   { title: "Create Transaction", module: CreateTransactionTool, writes: true, refine: refineCreateTransaction },
   { title: "Approve Transaction", module: ApproveTransactionTool, writes: true, idempotent: true },
   { title: "Update Category Budget", module: UpdateCategoryBudgetTool, writes: true, idempotent: true },

@@ -2,8 +2,8 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage, toolError } from "./errorUtils.js";
 
-export const name = "ynab_list_budgets";
-export const description = "Lists all available budgets from YNAB API";
+export const name = "ynab_list_plans";
+export const description = "Lists all available plans from YNAB API";
 export const inputSchema = {};
 
 export async function execute(_input: Record<string, unknown>, api: ynab.API) {

@@ -1,3 +1,4 @@
+import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
@@ -7,28 +8,23 @@ import { round2 } from "./spending.js";
 export const name = "ynab_cash_flow";
 export const description = "Income versus spending, month by month, so you can see whether you are running a surplus. Uses YNAB's own monthly totals rather than re-adding transactions.";
 export const inputSchema = {
-  budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),
+  planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
+  budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   months: z.number().int().positive().optional().describe("How many of the most recent months to report on (default: 6)"),
   sinceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Only include months on or after this date (ISO format: 2024-01-01). Overrides the months count."),
 };
 
 interface CashFlowInput {
+  planId?: string;
   budgetId?: string;
   months?: number;
   sinceDate?: string;
 }
 
-function getBudgetId(inputBudgetId?: string): string {
-  const budgetId = inputBudgetId || process.env.YNAB_BUDGET_ID || "";
-  if (!budgetId) {
-    throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.");
-  }
-  return budgetId;
-}
 
 export async function execute(input: CashFlowInput, api: ynab.API) {
   try {
-    const budgetId = getBudgetId(input.budgetId);
+    const budgetId = resolvePlanId(input);
 
     const response = await api.months.getPlanMonths(budgetId);
     const allMonths: ynab.MonthSummary[] = response.data.months

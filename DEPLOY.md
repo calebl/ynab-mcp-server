@@ -12,10 +12,10 @@ questions, and neither substitutes for the other. The Worker uses one
 server-wide YNAB token, so anyone admitted through GitHub reaches the
 deployer's YNAB account, money, and every budget available to that token—not
 their own YNAB account.
-`ynab_list_budgets` lists all of those budgets, and a caller-supplied `budgetId`
-overrides the optional `YNAB_BUDGET_ID` default. That matters: the tool set
+`ynab_list_plans` lists all of those plans, and a caller-supplied `planId`
+overrides the optional `YNAB_PLAN_ID` default. That matters: the tool set
 includes create, update and delete, so an unauthenticated endpoint would let
-anyone who finds the URL rewrite those budgets.
+anyone who finds the URL rewrite those plans.
 
 ## One-time setup
 
@@ -59,10 +59,10 @@ npx wrangler secret put GITHUB_CLIENT_ID
 npx wrangler secret put GITHUB_CLIENT_SECRET
 ```
 
-Optionally pin a default budget so tool calls can omit `budgetId`:
+Optionally pin a default budget so tool calls can omit `planId`:
 
 ```bash
-npx wrangler secret put YNAB_BUDGET_ID
+npx wrangler secret put YNAB_PLAN_ID
 ```
 
 Category suggestions are a separate, default-off integration. To opt in, store
