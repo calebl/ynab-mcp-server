@@ -1,6 +1,6 @@
 /**
  * YNAB stores every monetary value in "milliunits" - thousandths of the
- * budget's currency unit. Tools accept and return plain currency numbers, so
+ * plan's currency unit. Tools accept and return plain currency numbers, so
  * all conversion happens here rather than being open-coded per tool.
  */
 

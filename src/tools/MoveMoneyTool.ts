@@ -33,7 +33,7 @@ export async function execute(input: MoveMoneyInput, api: ynab.API) {
   let source: ynab.Category;
   let destination: ynab.Category;
 
-  // Phase 1: everything that can fail without changing the budget.
+  // Phase 1: everything that can fail without changing the plan.
   try {
     budgetId = resolvePlanId(input);
 

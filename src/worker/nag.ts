@@ -148,7 +148,7 @@ export async function getPendingWork(
   /**
    * Live, real transactions. Transfers between your own accounts show up as
    * uncategorized in YNAB but never need a category, and they dominate the
-   * raw counts — 77 of 80 in the budget this was built against. Nagging about
+   * raw counts — 77 of 80 in the plan this was built against. Nagging about
    * them would be pure noise.
    */
   const live = (list: ynab.TransactionDetail[]) =>

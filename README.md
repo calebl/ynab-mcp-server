@@ -281,9 +281,13 @@ Useful references:
 - YNAB SDK types: `node_modules/ynab/dist/index.d.ts`
 - YNAB OpenAPI spec: <https://api.ynab.com/papi/open_api_spec.yaml>
 
+## Compatibility
+
+`ynab_list_budgets` and `ynab_budget_summary` remain accepted aliases for the
+plan-named tools. `budgetId` and `YNAB_BUDGET_ID` are deprecated but still
+accepted; there is no removal date. Use `planId` and `YNAB_PLAN_ID` for new
+integrations.
+
 ## License
 
 See [LICENSE](./LICENSE).
-
-### Compatibility
-`ynab_list_budgets` and `ynab_budget_summary` remain accepted aliases for the plan-named tools. `budgetId` and `YNAB_BUDGET_ID` are deprecated but still accepted; there is no removal date. Use `planId` and `YNAB_PLAN_ID` for new integrations.

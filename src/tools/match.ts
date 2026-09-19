@@ -4,7 +4,7 @@
  *
  * Matching is deliberately conservative: an ambiguous or unrecognised name
  * raises rather than guessing, because the caller is usually about to write to
- * the budget.
+ * the plan.
  */
 
 export interface NamedEntity {
