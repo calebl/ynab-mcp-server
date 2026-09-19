@@ -537,17 +537,26 @@ describe("SuggestCategoriesTool", () => {
   });
 
   it.each([
-    ["an omitted transactionIds field", {}],
-    ["a null transactionIds field", { transactionIds: null }],
-    ["an empty transactionIds array", { transactionIds: [] }],
-  ])("fetches uncategorized transactions for %s", async (_label, input) => {
-    const api = makeApi({ candidates: [] });
+    ["an omitted transactionIds field", { limit: 1 }],
+    ["a null transactionIds field", { transactionIds: null, limit: 1 }],
+    ["an empty transactionIds array", { transactionIds: [], limit: 1 }],
+  ])("fetches uncategorized transactions and honors limit for %s", async (_label, input) => {
+    const api = makeApi({
+      candidates: [
+        transaction("first", { amount: 1000 }),
+        transaction("beyond-limit", { amount: 2000 }),
+      ],
+    });
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     const output = await result(input, api);
 
     expect(output.success).toBe(true);
+    expect(output.transaction_count).toBe(1);
+    expect(output.transactions).toEqual([
+      expect.objectContaining({ transaction_id: "first", status: "skipped_inflow" }),
+    ]);
     expect(api.transactions.getTransactions).toHaveBeenNthCalledWith(
       1,
       "budget-id",
