@@ -2,6 +2,16 @@
  * Extracts a meaningful error message from various error types,
  * including YNAB API error responses.
  */
+export function toolError(error: string) {
+  return {
+    content: [{
+      type: "text" as const,
+      text: JSON.stringify({ success: false, error }, null, 2),
+    }],
+    isError: true,
+  };
+}
+
 export function getErrorMessage(error: unknown): string {
   // Handle standard Error objects
   if (error instanceof Error) {

@@ -23,6 +23,7 @@ import * as SpendingByCategoryTool from "./tools/SpendingByCategoryTool.js";
 import * as SpendingByPayeeTool from "./tools/SpendingByPayeeTool.js";
 import * as CashFlowTool from "./tools/CashFlowTool.js";
 import * as SuggestCategoriesTool from "./tools/SuggestCategoriesTool.js";
+import { getErrorMessage, toolError } from "./tools/errorUtils.js";
 
 /** A tool module as exported by every file in src/tools. */
 interface ToolModule {
@@ -120,6 +121,7 @@ function omitNullOptionalInputs(input: Record<string, unknown>, inputSchema: Rec
 
 /** A tool result that reports failure through the `{success: false}` text convention every tool follows. */
 function isFailureResult(result: unknown): boolean {
+  if ((result as { isError?: unknown } | undefined)?.isError === true) return true;
   const text = (result as { content?: Array<{ text?: unknown }> } | undefined)?.content?.[0]?.text;
   if (typeof text !== "string") return false;
   try {
@@ -135,13 +137,7 @@ async function executeTool(module: ToolModule, input: unknown, api: ynab.API) {
     const result = await module.execute(input, api);
     return isFailureResult(result) ? { ...result, isError: true } : result;
   } catch (error) {
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      }, null, 2) }],
-      isError: true,
-    };
+    return toolError(getErrorMessage(error));
   }
 }
 

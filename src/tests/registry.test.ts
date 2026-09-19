@@ -91,6 +91,19 @@ describe("tool registration", () => {
     }
   });
 
+  it("marks the registered list-budgets missing-token failure as isError", async () => {
+    vi.stubEnv("YNAB_API_TOKEN", "");
+    const registered = register();
+
+    const result = await registered.get("ynab_list_budgets")!.callback({});
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toEqual({
+      success: false,
+      error: "YNAB API Token is not set",
+    });
+  });
+
   it("marks a thrown execute failure as isError", async () => {
     const entry = {
       title: "Throwing tool test",
