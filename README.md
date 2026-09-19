@@ -1,8 +1,15 @@
 # ynab-mcp-server
 
+A Model Context Protocol (MCP) server for interacting with your YNAB budgets setup at https://ynab.com
+
+In order to have an AI interact with this tool, you will need to get your Personal Access Token
+from YNAB: https://api.ynab.com/#personal-access-tokens. When adding this MCP server to any
+client, you will need to provide your personal access token as YNAB_API_TOKEN. **This token
+is never directly sent to the LLM.** It is stored privately in an environment variable for
+use with the YNAB api.
+
 A [Model Context Protocol](https://modelcontextprotocol.io) server that lets an AI
-assistant read and modify a [YNAB](https://ynab.com) budget. Forked from
-[calebl/ynab-mcp-server](https://github.com/calebl/ynab-mcp-server).
+assistant read and modify a [YNAB](https://ynab.com) budget.
 
 The server talks to the YNAB API through the official
 [`ynab` SDK](https://github.com/ynab/ynab-sdk-js). Your Personal Access Token
@@ -18,6 +25,15 @@ It runs two ways from one codebase:
 
 Both entry points register the same tools from `src/registry.ts`, so a tool
 written once is available in both.
+
+Other providers:
+
+<a href="https://glama.ai/mcp/servers/@calebl/ynab-mcp-server">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@calebl/ynab-mcp-server/badge" alt="YNAB Server MCP server" />
+</a>
+
+[![LightNow](https://lightnow.ai/badge/io.github.calebl/ynab-mcp-server)](https://lightnow.ai/servers/io.github.calebl/ynab-mcp-server)
+
 
 ## Setup
 
