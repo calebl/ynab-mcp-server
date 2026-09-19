@@ -139,9 +139,9 @@ describe('ListCategoriesTool', () => {
 
       const response = JSON.parse(result.content[0].text);
       const rentCategory = response.category_groups[0].categories[0];
-      expect(rentCategory.budgeted).toBe('1500.00');
-      expect(rentCategory.activity).toBe('-1500.00');
-      expect(rentCategory.balance).toBe('0.00');
+      expect(rentCategory.budgeted).toBe(1500);
+      expect(rentCategory.activity).toBe(-1500);
+      expect(rentCategory.balance).toBe(0);
     });
 
     it('should include goal information', async () => {
@@ -155,7 +155,7 @@ describe('ListCategoriesTool', () => {
       const response = JSON.parse(result.content[0].text);
       const rentCategory = response.category_groups[0].categories[0];
       expect(rentCategory.goal_type).toBe('TB');
-      expect(rentCategory.goal_target).toBe('1500.00');
+      expect(rentCategory.goal_target).toBe(1500);
       expect(rentCategory.goal_percentage_complete).toBe(100);
     });
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
+import { toDollars } from "./money.js";
 
 export const name = "ynab_list_accounts";
 export const description = "Lists all accounts in a budget. Useful for finding account IDs when creating transactions.";
@@ -39,9 +40,9 @@ export async function execute(input: ListAccountsInput, api: ynab.API) {
         type: account.type,
         on_budget: account.on_budget,
         closed: account.closed,
-        balance: (account.balance / 1000).toFixed(2),
-        cleared_balance: (account.cleared_balance / 1000).toFixed(2),
-        uncleared_balance: (account.uncleared_balance / 1000).toFixed(2),
+        balance: toDollars(account.balance),
+        cleared_balance: toDollars(account.cleared_balance),
+        uncleared_balance: toDollars(account.uncleared_balance),
         transfer_payee_id: account.transfer_payee_id,
       }));
 

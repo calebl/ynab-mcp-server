@@ -62,7 +62,7 @@ describe('UpdateCategoryBudgetTool', () => {
       const response = JSON.parse(result.content[0].text);
       expect(response.success).toBe(true);
       expect(response.category.name).toBe('Groceries');
-      expect(response.category.budgeted).toBe('500.00');
+      expect(response.category.budgeted).toBe(500);
     });
 
     it('should use YNAB_BUDGET_ID from env when budgetId not provided', async () => {

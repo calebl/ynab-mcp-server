@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
+import { toDollars } from "./money.js";
 
 export const name = "ynab_list_scheduled_transactions";
 export const description = "Lists all scheduled (recurring) transactions in a budget.";
@@ -35,7 +36,7 @@ export async function execute(input: ListScheduledTransactionsInput, api: ynab.A
         date_first: txn.date_first,
         date_next: txn.date_next,
         frequency: txn.frequency,
-        amount: (txn.amount / 1000).toFixed(2),
+        amount: toDollars(txn.amount),
         memo: txn.memo,
         flag_color: txn.flag_color,
         account_id: txn.account_id,

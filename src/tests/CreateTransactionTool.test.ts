@@ -9,6 +9,12 @@ describe('CreateTransactionTool', () => {
     transactions: {
       createTransaction: Mock;
     };
+    accounts: {
+      getAccounts: Mock;
+    };
+    categories: {
+      getCategories: Mock;
+    };
   };
 
   beforeEach(() => {
@@ -17,6 +23,36 @@ describe('CreateTransactionTool', () => {
     mockApi = {
       transactions: {
         createTransaction: vi.fn(),
+      },
+      accounts: {
+        getAccounts: vi.fn().mockResolvedValue({
+          data: {
+            accounts: [
+              { id: 'account-checking', name: 'Ally Checking', deleted: false, closed: false },
+              { id: 'account-card', name: 'Apple Card', deleted: false, closed: false },
+              { id: 'account-old', name: 'Old Checking', deleted: false, closed: true },
+            ],
+          },
+        }),
+      },
+      categories: {
+        getCategories: vi.fn().mockResolvedValue({
+          data: {
+            category_groups: [
+              {
+                id: 'group-1',
+                name: 'Everyday',
+                deleted: false,
+                hidden: false,
+                categories: [
+                  { id: 'category-groceries', name: 'Groceries', deleted: false, hidden: false },
+                  { id: 'category-dining', name: 'Dining Out', deleted: false, hidden: false },
+                  { id: 'category-hidden', name: 'Retired Category', deleted: false, hidden: true },
+                ],
+              },
+            ],
+          },
+        }),
       },
     };
 
@@ -346,6 +382,92 @@ describe('CreateTransactionTool', () => {
           }),
         })
       );
+    });
+  });
+
+  describe('name resolution', () => {
+    beforeEach(() => {
+      mockApi.transactions.createTransaction.mockResolvedValue({
+        data: { transaction: { id: 'transaction-123' } },
+      });
+    });
+
+    const byName = (overrides = {}) =>
+      CreateTransactionTool.execute(
+        { date: '2024-03-01', amount: -12, payeeName: 'Coffee Place', ...overrides } as any,
+        mockApi as any
+      );
+
+    it('resolves an account name to an id', async () => {
+      const result = await byName({ accountName: 'ally checking' });
+      const response = JSON.parse(result.content[0].text);
+
+      expect(response.success).toBe(true);
+      expect(response.matchedAccount).toBe('Ally Checking');
+      expect(mockApi.transactions.createTransaction.mock.calls[0][1].transaction.account_id)
+        .toBe('account-checking');
+    });
+
+    it('resolves a category name to an id', async () => {
+      const result = await byName({ accountName: 'apple card', categoryName: 'groceries' });
+      const response = JSON.parse(result.content[0].text);
+
+      expect(response.matchedCategory).toBe('Groceries');
+      expect(mockApi.transactions.createTransaction.mock.calls[0][1].transaction.category_id)
+        .toBe('category-groceries');
+    });
+
+    it('skips the lookup entirely when ids are given', async () => {
+      await byName({ accountId: 'account-explicit', categoryId: 'category-explicit' });
+
+      expect(mockApi.accounts.getAccounts).not.toHaveBeenCalled();
+      expect(mockApi.categories.getCategories).not.toHaveBeenCalled();
+    });
+
+    it('prefers an explicit id over a name', async () => {
+      await byName({ accountId: 'account-explicit', accountName: 'ally checking' });
+
+      expect(mockApi.accounts.getAccounts).not.toHaveBeenCalled();
+      expect(mockApi.transactions.createTransaction.mock.calls[0][1].transaction.account_id)
+        .toBe('account-explicit');
+    });
+
+    it('does not match closed accounts or hidden categories', async () => {
+      const closed = JSON.parse((await byName({ accountName: 'old' })).content[0].text);
+      expect(closed.success).toBe(false);
+      expect(closed.error).toContain('No account matching');
+
+      const hidden = JSON.parse(
+        (await byName({ accountName: 'apple card', categoryName: 'retired' })).content[0].text
+      );
+      expect(hidden.success).toBe(false);
+      expect(hidden.error).toContain('No category matching');
+    });
+
+    it('refuses to guess between equally good matches', async () => {
+      mockApi.accounts.getAccounts.mockResolvedValue({
+        data: {
+          accounts: [
+            { id: 'a1', name: 'Ally Checking', deleted: false, closed: false },
+            { id: 'a2', name: 'Ally Savings', deleted: false, closed: false },
+          ],
+        },
+      });
+
+      const result = await byName({ accountName: 'ally' });
+      const response = JSON.parse(result.content[0].text);
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('ambiguous');
+      expect(mockApi.transactions.createTransaction).not.toHaveBeenCalled();
+    });
+
+    it('requires either an account id or an account name', async () => {
+      const result = await byName({});
+      const response = JSON.parse(result.content[0].text);
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('Either accountId or accountName must be provided');
     });
   });
 
