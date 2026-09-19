@@ -1,7 +1,4 @@
-/**
- * Extracts a meaningful error message from various error types,
- * including YNAB API error responses.
- */
+/** Builds the shared MCP error-result shape used by tools. */
 export function toolError(error: string) {
   return {
     content: [{
@@ -12,6 +9,10 @@ export function toolError(error: string) {
   };
 }
 
+/**
+ * Extracts a meaningful error message from various error types,
+ * including YNAB API error responses.
+ */
 export function getErrorMessage(error: unknown): string {
   // Handle standard Error objects
   if (error instanceof Error) {
