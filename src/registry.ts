@@ -80,6 +80,31 @@ export interface RegisterOptions {
   readOnly?: boolean;
 }
 
+interface InputSchema {
+  safeParse(value: unknown): { success: boolean };
+  nullable(): unknown;
+}
+
+function acceptsUndefined(schema: unknown): schema is InputSchema {
+  return typeof schema === "object" && schema !== null &&
+    "safeParse" in schema && typeof schema.safeParse === "function" &&
+    "nullable" in schema && typeof schema.nullable === "function" &&
+    schema.safeParse(undefined).success;
+}
+
+function nullCompatibleInputSchema(inputSchema: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(inputSchema).map(([key, schema]) => [
+    key,
+    acceptsUndefined(schema) ? schema.nullable() : schema,
+  ]));
+}
+
+function omitNullOptionalInputs(input: Record<string, unknown>, inputSchema: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(input).filter(([key, value]) =>
+    value !== null || !acceptsUndefined(inputSchema[key])
+  ));
+}
+
 /** Register every tool (or only the read-only ones) against a server instance. */
 export function registerAll(server: ToolRegistrar, api: ynab.API, options: RegisterOptions = {}) {
   const selected = tools.filter((tool) =>
@@ -91,8 +116,8 @@ export function registerAll(server: ToolRegistrar, api: ynab.API, options: Regis
     server.registerTool(module.name, {
       title,
       description: module.description,
-      inputSchema: module.inputSchema,
-    }, async (input: any) => module.execute(input, api));
+      inputSchema: nullCompatibleInputSchema(module.inputSchema),
+    }, async (input: any) => module.execute(omitNullOptionalInputs(input, module.inputSchema), api));
   }
 
   return selected.length;

@@ -538,6 +538,7 @@ describe("SuggestCategoriesTool", () => {
 
   it.each([
     ["an omitted transactionIds field", {}],
+    ["a null transactionIds field", { transactionIds: null }],
     ["an empty transactionIds array", { transactionIds: [] }],
   ])("fetches uncategorized transactions for %s", async (_label, input) => {
     const api = makeApi({ candidates: [] });
