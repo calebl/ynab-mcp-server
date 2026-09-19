@@ -67,7 +67,7 @@ function makeApi(options: {
       getTransactions: vi.fn().mockImplementation(
         async (_budgetId: string, _sinceDate?: string, type?: ynab.GetTransactionsTypeEnum) => ({
           data: {
-            transactions: type === ynab.GetTransactionsTypeEnum.Uncategorized
+            transactions: type === ynab.GetTransactionsTypeEnum.Unapproved
               ? candidates
               : oldTransactions,
           },
@@ -544,6 +544,79 @@ describe("SuggestCategoriesTool", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("fetches unapproved rows, drops categorized rows, and summarizes approval, reconciliation, and balance adjustments", async () => {
+    const candidates = [
+      transaction("approved", { approved: true }),
+      transaction("reconciled", { cleared: "reconciled" }),
+      transaction("starting-balance", { payee_name: "Starting Balance" }),
+      transaction("manual-adjustment", { payee_name: "Manual Balance Adjustment" }),
+      transaction("reconciliation-adjustment", { payee_name: "Reconciliation Balance Adjustment" }),
+      transaction("categorized", { category_id: "cat-grocery" }),
+      transaction("eligible"),
+    ];
+    const api = makeApi({ candidates });
+    const fetchMock = vi.fn().mockResolvedValue(choiceResponse({
+      t00: answer("leave_uncategorized", 0.9, { c000: 0.05, c001: 0.05, leave_uncategorized: 0.9 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(api.transactions.getTransactions).toHaveBeenNthCalledWith(
+      1,
+      "budget-id",
+      undefined,
+      ynab.GetTransactionsTypeEnum.Unapproved,
+    );
+    expect(output.transaction_count).toBe(1);
+    expect(output.eligible_transaction_count).toBe(1);
+    expect(output.transactions).toEqual([
+      expect.objectContaining({ transaction_id: "eligible", status: "left_uncategorized" }),
+    ]);
+    expect(output.skipped).toEqual({
+      total_count: 5,
+      skipped_approved: { count: 1, transaction_ids: ["approved"] },
+      skipped_reconciled: { count: 1, transaction_ids: ["reconciled"] },
+      skipped_balance_adjustment: {
+        count: 3,
+        transaction_ids: ["starting-balance", "manual-adjustment", "reconciliation-adjustment"],
+      },
+      skipped_transfer: { count: 0, transaction_ids: [] },
+      skipped_inflow: { count: 0, transaction_ids: [] },
+      skipped_split: { count: 0, transaction_ids: [] },
+      skipped_already_categorized: { count: 0, transaction_ids: [] },
+    });
+    const request = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(request.state.transactions).toHaveLength(1);
+  });
+
+  it("returns the new skip reasons individually for explicit transaction IDs", async () => {
+    const candidates = [
+      transaction("approved", { approved: true }),
+      transaction("reconciled", { cleared: "reconciled" }),
+      transaction("starting-balance", { payee_name: "Starting Balance" }),
+      transaction("manual-adjustment", { payee_name: "Manual Balance Adjustment" }),
+      transaction("reconciliation-adjustment", { payee_name: "Reconciliation Balance Adjustment" }),
+      transaction("eligible"),
+    ];
+    const api = makeApi({ candidates });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(choiceResponse({
+      t00: answer("leave_uncategorized", 0.9, { c000: 0.05, c001: 0.05, leave_uncategorized: 0.9 }),
+    })));
+
+    const output = await result({ transactionIds: candidates.map((candidate) => candidate.id) }, api);
+
+    expect(output.transactions.map((row: any) => [row.transaction_id, row.status])).toEqual([
+      ["approved", "skipped_approved"],
+      ["reconciled", "skipped_reconciled"],
+      ["starting-balance", "skipped_balance_adjustment"],
+      ["manual-adjustment", "skipped_balance_adjustment"],
+      ["reconciliation-adjustment", "skipped_balance_adjustment"],
+      ["eligible", "left_uncategorized"],
+    ]);
+    expect(output.skipped).toBeUndefined();
+  });
+
   it("applies the default-mode limit after eligibility and summarizes all skipped rows", async () => {
     const transfers = Array.from({ length: 15 }, (_, index) =>
       transaction(`transfer-${index}`, { transfer_account_id: `account-${index}` })
@@ -573,6 +646,9 @@ describe("SuggestCategoriesTool", () => {
     ]);
     expect(output.skipped).toEqual({
       total_count: 25,
+      skipped_approved: { count: 0, transaction_ids: [] },
+      skipped_reconciled: { count: 0, transaction_ids: [] },
+      skipped_balance_adjustment: { count: 0, transaction_ids: [] },
       skipped_transfer: {
         count: 15,
         transaction_ids: transfers.map((transaction) => transaction.id),
@@ -619,7 +695,7 @@ describe("SuggestCategoriesTool", () => {
       1,
       "budget-id",
       undefined,
-      ynab.GetTransactionsTypeEnum.Uncategorized,
+      ynab.GetTransactionsTypeEnum.Unapproved,
     );
     expect(api.transactions.getTransactionById).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -647,7 +723,7 @@ describe("SuggestCategoriesTool", () => {
     expect(api.transactions.getTransactions.mock.calls).not.toContainEqual([
       "budget-id",
       undefined,
-      ynab.GetTransactionsTypeEnum.Uncategorized,
+      ynab.GetTransactionsTypeEnum.Unapproved,
     ]);
   });
 });

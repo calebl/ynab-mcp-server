@@ -5,10 +5,10 @@ import { getErrorMessage } from "./errorUtils.js";
 import { toDollars } from "./money.js";
 
 export const name = "ynab_suggest_categories";
-export const description = "Previews category suggestions for uncategorized outflows, using a history rule only when at least three retained exact-payee rows unanimously use one eligible category and TypeSafe Jev otherwise. A disagreement between the history plurality and Jev always requires review. Never writes to YNAB.";
+export const description = "Previews category suggestions for unapproved, uncategorized ordinary outflows. Approved, reconciled, transfer, split, inflow, categorized, and YNAB balance-adjustment rows are excluded before exact-payee history or TypeSafe Jev processing. A disagreement between the history plurality and Jev always requires review. Never writes to YNAB.";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The budget ID (defaults to YNAB_BUDGET_ID)"),
-  transactionIds: z.array(z.string()).max(100).optional().describe("Specific transaction IDs to inspect; omission, null, or an empty array fetches uncategorized transactions"),
+  transactionIds: z.array(z.string()).max(100).optional().describe("Specific transaction IDs to inspect; omission, null, or an empty array fetches unapproved, uncategorized transactions"),
   limit: z.number().int().min(1).max(100).optional().describe("Maximum rows to inspect when transactionIds is omitted (default: 20, maximum: 100)"),
 };
 
@@ -88,6 +88,9 @@ interface TypeSafeResponse {
 }
 
 type SkipReason =
+  | "skipped_approved"
+  | "skipped_reconciled"
+  | "skipped_balance_adjustment"
   | "skipped_transfer"
   | "skipped_inflow"
   | "skipped_split"
@@ -100,6 +103,9 @@ interface SkipReasonSummary {
 
 interface SkippedSummary {
   total_count: number;
+  skipped_approved: SkipReasonSummary;
+  skipped_reconciled: SkipReasonSummary;
+  skipped_balance_adjustment: SkipReasonSummary;
   skipped_transfer: SkipReasonSummary;
   skipped_inflow: SkipReasonSummary;
   skipped_split: SkipReasonSummary;
@@ -148,6 +154,13 @@ const EXCLUDED_CATEGORY_IDS = new Set([
   "uncategorized",
   "immediate income subcategory",
   "deferred income subcategory",
+]);
+
+// YNAB creates these system payees, which the API exposes only by name.
+const BALANCE_ADJUSTMENT_PAYEE_NAMES = new Set([
+  "Starting Balance",
+  "Manual Balance Adjustment",
+  "Reconciliation Balance Adjustment",
 ]);
 
 /** Selects only categories YNAB accepts on an ordinary categorized transaction. */
@@ -210,6 +223,11 @@ function skippedStatus(
   transaction: ynab.TransactionDetail,
   payeesById: Map<string, ynab.Payee>,
 ): SkipReason | null {
+  if (transaction.approved) return "skipped_approved";
+  if (transaction.cleared === "reconciled") return "skipped_reconciled";
+  if (transaction.payee_name && BALANCE_ADJUSTMENT_PAYEE_NAMES.has(transaction.payee_name)) {
+    return "skipped_balance_adjustment";
+  }
   if (isTransfer(transaction, payeesById)) return "skipped_transfer";
   if (activeSubtransactions(transaction).length > 0) return "skipped_split";
   if (transaction.category_id) return "skipped_already_categorized";
@@ -220,6 +238,9 @@ function skippedStatus(
 function emptySkippedSummary(): SkippedSummary {
   return {
     total_count: 0,
+    skipped_approved: { count: 0, transaction_ids: [] },
+    skipped_reconciled: { count: 0, transaction_ids: [] },
+    skipped_balance_adjustment: { count: 0, transaction_ids: [] },
     skipped_transfer: { count: 0, transaction_ids: [] },
     skipped_inflow: { count: 0, transaction_ids: [] },
     skipped_split: { count: 0, transaction_ids: [] },
@@ -283,14 +304,16 @@ async function loadCandidates(
     const response = await api.transactions.getTransactions(
       budgetId,
       undefined,
-      ynab.GetTransactionsTypeEnum.Uncategorized,
+      ynab.GetTransactionsTypeEnum.Unapproved,
     );
     const limit = input.limit ?? DEFAULT_LIMIT;
     if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
       throw new Error(`limit must be an integer between 1 and ${MAX_LIMIT}`);
     }
     return {
-      transactions: response.data.transactions.filter((transaction) => !transaction.deleted),
+      transactions: response.data.transactions.filter(
+        (transaction) => !transaction.deleted && !transaction.category_id
+      ),
       failures: [],
       mode: "uncategorized",
       limit,
