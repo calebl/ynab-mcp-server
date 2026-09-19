@@ -252,7 +252,7 @@ describe('ListPlansTool', () => {
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       expect(ListPlansTool.name).toBe('ynab_list_plans');
-      expect(ListPlansTool.description).toBe('Lists all available budgets from YNAB API');
+      expect(ListPlansTool.description).toBe('Lists all available plans from YNAB API');
     });
 
     it('should have empty input schema', () => {

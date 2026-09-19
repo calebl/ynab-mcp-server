@@ -333,7 +333,7 @@ describe('PlanSummaryTool', () => {
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       expect(PlanSummaryTool.name).toBe('ynab_plan_summary');
-      expect(PlanSummaryTool.description).toContain('Get a summary of the budget for a specific month');
+      expect(PlanSummaryTool.description).toContain('Get a summary of the plan for a specific month');
     });
 
     it('should have correct input schema', () => {
