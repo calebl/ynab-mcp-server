@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
+import { z } from 'zod';
 import * as SpendingByCategoryTool from '../tools/SpendingByCategoryTool';
 import * as SpendingByPayeeTool from '../tools/SpendingByPayeeTool';
 import * as CashFlowTool from '../tools/CashFlowTool';
@@ -236,6 +237,17 @@ describe('spending reports', () => {
 
       expect(response.success).toBe(false);
       expect(response.error).toContain('Unauthorized');
+    });
+  });
+
+  describe('schema tightening', () => {
+    it('rejects a non-integer limit on spending by category and payee', () => {
+      expect((SpendingByCategoryTool.inputSchema.limit as z.ZodType).safeParse(1.5).success).toBe(false);
+      expect((SpendingByPayeeTool.inputSchema.limit as z.ZodType).safeParse(1.5).success).toBe(false);
+    });
+
+    it('rejects a non-integer months on cash flow', () => {
+      expect((CashFlowTool.inputSchema.months as z.ZodType).safeParse(1.5).success).toBe(false);
     });
   });
 });

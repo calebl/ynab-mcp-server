@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
+import { z } from 'zod';
 import * as ynab from 'ynab';
 import * as UpdateTransactionTool from '../tools/UpdateTransactionTool';
 
@@ -127,6 +128,43 @@ describe('UpdateTransactionTool', () => {
           },
         }
       );
+    });
+
+    it('should clear a flag when flagColor is an empty string', async () => {
+      mockApi.transactions.updateTransaction.mockResolvedValue(mockTransactionResponse);
+
+      await UpdateTransactionTool.execute(
+        {
+          transactionId: 'txn-1',
+          flagColor: '',
+        },
+        mockApi as any
+      );
+
+      expect(mockApi.transactions.updateTransaction).toHaveBeenCalledWith(
+        'test-budget-id',
+        'txn-1',
+        {
+          transaction: {
+            flag_color: '',
+          },
+        }
+      );
+    });
+
+    it('should reject an invalid flag color at the schema level', () => {
+      const result = (UpdateTransactionTool.inputSchema.flagColor as z.ZodType).safeParse('chartreuse');
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject an invalid cleared value at the schema level', () => {
+      const result = (UpdateTransactionTool.inputSchema.cleared as z.ZodType).safeParse('invalid');
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject a date not in YYYY-MM-DD format at the schema level', () => {
+      const result = (UpdateTransactionTool.inputSchema.date as z.ZodType).safeParse('01/15/2024');
+      expect(result.success).toBe(false);
     });
 
     it('should convert amount to milliunits', async () => {

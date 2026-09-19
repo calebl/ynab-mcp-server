@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
+import { z } from 'zod';
 import * as ynab from 'ynab';
 import * as GetUnapprovedTransactionsTool from '../tools/GetUnapprovedTransactionsTool';
 
@@ -260,6 +261,11 @@ describe('GetUnapprovedTransactionsTool', () => {
     it('should have correct input schema', () => {
       expect(GetUnapprovedTransactionsTool.inputSchema).toHaveProperty('budgetId');
       expect(GetUnapprovedTransactionsTool.inputSchema).toHaveProperty('sinceDate');
+    });
+
+    it('should reject a sinceDate not in YYYY-MM-DD format', () => {
+      const result = (GetUnapprovedTransactionsTool.inputSchema.sinceDate as z.ZodType).safeParse('01/01/2024');
+      expect(result.success).toBe(false);
     });
   });
 });

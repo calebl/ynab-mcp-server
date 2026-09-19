@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
+import { z } from 'zod';
 import * as ynab from 'ynab';
 import * as GetTransactionsTool from '../tools/GetTransactionsTool';
 
@@ -411,6 +412,20 @@ describe('GetTransactionsTool', () => {
       expect(GetTransactionsTool.inputSchema).toHaveProperty('categoryId');
       expect(GetTransactionsTool.inputSchema).toHaveProperty('payeeId');
       expect(GetTransactionsTool.inputSchema).toHaveProperty('limit');
+    });
+
+    it('should reject a sinceDate not in YYYY-MM-DD format', () => {
+      const result = (GetTransactionsTool.inputSchema.sinceDate as z.ZodType).safeParse('01/01/2024');
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject a non-integer, non-positive, or too-large limit', () => {
+      const limit = GetTransactionsTool.inputSchema.limit as z.ZodType;
+      expect(limit.safeParse(1.5).success).toBe(false);
+      expect(limit.safeParse(-5).success).toBe(false);
+      expect(limit.safeParse(0).success).toBe(false);
+      expect(limit.safeParse(1e9).success).toBe(false);
+      expect(limit.safeParse(100).success).toBe(true);
     });
   });
 });

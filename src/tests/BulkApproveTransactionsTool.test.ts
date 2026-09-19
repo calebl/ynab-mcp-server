@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
+import { z } from 'zod';
 import * as ynab from 'ynab';
 import * as BulkApproveTransactionsTool from '../tools/BulkApproveTransactionsTool';
 
@@ -209,6 +210,13 @@ describe('BulkApproveTransactionsTool', () => {
     it('should have required input schema fields', () => {
       expect(BulkApproveTransactionsTool.inputSchema).toHaveProperty('budgetId');
       expect(BulkApproveTransactionsTool.inputSchema).toHaveProperty('transactionIds');
+    });
+
+    it('should require at least one transaction ID and cap the maximum', () => {
+      const transactionIds = BulkApproveTransactionsTool.inputSchema.transactionIds as z.ZodType;
+      expect(transactionIds.safeParse([]).success).toBe(false);
+      expect(transactionIds.safeParse(['txn-1']).success).toBe(true);
+      expect(transactionIds.safeParse(Array(501).fill('txn')).success).toBe(false);
     });
   });
 });

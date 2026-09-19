@@ -9,7 +9,7 @@ export const inputSchema = {
   budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),
   sinceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Start of the range, inclusive (ISO format: 2024-01-01). Defaults to 30 days ago."),
   untilDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("End of the range, inclusive (ISO format: 2024-01-31). Defaults to no end date."),
-  limit: z.number().positive().optional().describe("Only return the top N categories by spend"),
+  limit: z.number().int().positive().optional().describe("Only return the top N categories by spend"),
 };
 
 interface SpendingByCategoryInput {

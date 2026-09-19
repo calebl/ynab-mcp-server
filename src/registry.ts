@@ -82,7 +82,9 @@ export interface RegisterOptions {
 
 interface InputSchema {
   safeParse(value: unknown): { success: boolean };
-  nullable(): unknown;
+  nullable(): InputSchema;
+  describe(description: string): InputSchema;
+  description?: string;
 }
 
 function acceptsUndefined(schema: unknown): schema is InputSchema {
@@ -92,10 +94,21 @@ function acceptsUndefined(schema: unknown): schema is InputSchema {
     schema.safeParse(undefined).success;
 }
 
+/**
+ * `.nullable()` wraps the schema in an `anyOf`, which moves a `.describe()`d
+ * property's description into the first `anyOf` branch instead of the
+ * property itself - re-attach it so clients and model schema renderers still
+ * see it.
+ */
+function nullCompatible(schema: InputSchema): InputSchema {
+  const nullable = schema.nullable();
+  return schema.description ? nullable.describe(schema.description) : nullable;
+}
+
 function nullCompatibleInputSchema(inputSchema: Record<string, unknown>) {
   return Object.fromEntries(Object.entries(inputSchema).map(([key, schema]) => [
     key,
-    acceptsUndefined(schema) ? schema.nullable() : schema,
+    acceptsUndefined(schema) ? nullCompatible(schema) : schema,
   ]));
 }
 
@@ -103,6 +116,33 @@ function omitNullOptionalInputs(input: Record<string, unknown>, inputSchema: Rec
   return Object.fromEntries(Object.entries(input).filter(([key, value]) =>
     value !== null || !acceptsUndefined(inputSchema[key])
   ));
+}
+
+/** A tool result that reports failure through the `{success: false}` text convention every tool follows. */
+function isFailureResult(result: unknown): boolean {
+  const text = (result as { content?: Array<{ text?: unknown }> } | undefined)?.content?.[0]?.text;
+  if (typeof text !== "string") return false;
+  try {
+    return JSON.parse(text)?.success === false;
+  } catch {
+    return false;
+  }
+}
+
+/** Runs a tool's execute, guaranteeing a failure - thrown or `{success: false}` - comes back as `isError: true`. */
+async function executeTool(module: ToolModule, input: unknown, api: ynab.API) {
+  try {
+    const result = await module.execute(input, api);
+    return isFailureResult(result) ? { ...result, isError: true } : result;
+  } catch (error) {
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      }, null, 2) }],
+      isError: true,
+    };
+  }
 }
 
 /** Register every tool (or only the read-only ones) against a server instance. */
@@ -117,7 +157,7 @@ export function registerAll(server: ToolRegistrar, api: ynab.API, options: Regis
       title,
       description: module.description,
       inputSchema: nullCompatibleInputSchema(module.inputSchema),
-    }, async (input: any) => module.execute(omitNullOptionalInputs(input, module.inputSchema), api));
+    }, async (input: any) => executeTool(module, omitNullOptionalInputs(input, module.inputSchema), api));
   }
 
   return selected.length;
