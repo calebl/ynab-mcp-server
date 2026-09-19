@@ -119,7 +119,7 @@ plain currency amounts, never YNAB's milliunits; conversion happens in
 | `ynab_list_scheduled_transactions` | Scheduled/recurring transactions. |
 | `ynab_get_transactions` | Transactions filtered by `sinceDate`, `accountId`, `categoryId`, `payeeId`, `type` (`all`/`uncategorized`/`unapproved`) and `limit` (default 100). |
 | `ynab_get_unapproved_transactions` | Unapproved transactions, optionally from `sinceDate` onward. |
-| `ynab_suggest_categories` | Opt-in, read-only category previews for uncategorized outflows. Hidden/internal/payment categories, transfers, splits, inflows and categorized rows are excluded or reported as skipped. |
+| `ynab_suggest_categories` | Opt-in, read-only category previews for uncategorized outflows. Hidden/internal/payment categories are excluded; transfers, splits, inflows, deleted rows, and categorized rows are reported as skipped. |
 
 ### Category suggestions (optional)
 
@@ -128,19 +128,27 @@ operator-owned `TYPESAFE_API_KEY` and `YNAB_AI_CATEGORIZATION=true`, then restar
 the server. The API key is read from the environment (or a Worker secret), never
 from a tool argument. Omit `transactionIds`, pass `null`, or pass an empty
 array to fetch uncategorized transactions; provide IDs to inspect only those
-transactions.
+transactions. In uncategorized-fetch mode, the tool checks every returned row
+for deterministic eligibility and then applies `limit` to the first eligible
+outflows in YNAB's returned order. Skipped rows do not consume the limit.
 
 The tool is a dry-run preview: it never writes to YNAB, approves a transaction,
 or changes the behavior of `ynab_update_transaction`. It first handles exact
-facts in code—transfers, splits, inflows, existing categories, and
-hidden/internal categories. The history rule applies only when at least three
-retained exact-payee rows all use the same still-eligible category. Any mixed
+facts in code—deleted rows, transfers, splits, inflows, existing categories,
+and hidden/internal categories. In uncategorized-fetch mode, `transactions`
+contains only the eligible rows inspected, `transaction_count` is that row
+count, and `eligible_transaction_count` reports all eligible rows available
+before the limit. The top-level `skipped` object reports `total_count` and, for
+each `skipped_*` reason, a `count` and `transaction_ids` list. With explicit
+`transactionIds`, every requested row remains an individual result, including
+rows carrying a `skipped_*` status. The history rule applies only when at least
+three retained exact-payee rows all use the same still-eligible category. Any mixed
 history goes to TypeSafe's pinned `jev-1.13.0` System One model in batches of
 ten, and any disagreement between its plurality and the model forces
-`needs_review`. Every row includes a status, content fingerprint, proposed
-category, confidence, winning probability, up to three alternatives, and
-history summary. Applying a suggestion remains a separate human decision using
-`ynab_update_transaction`.
+`needs_review`. Every inspected eligible row includes a status, content
+fingerprint, proposed category, confidence, winning probability, up to three
+alternatives, and history summary. Applying a suggestion remains a separate
+human decision using `ynab_update_transaction`.
 
 Enabling this feature sends the transaction's display payee, imported/original
 payee, memo, amount, date, and account name/type/on-budget status, plus visible

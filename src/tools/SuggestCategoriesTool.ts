@@ -87,9 +87,32 @@ interface TypeSafeResponse {
   };
 }
 
+type SkipReason =
+  | "skipped_transfer"
+  | "skipped_inflow"
+  | "skipped_split"
+  | "skipped_already_categorized"
+  | "skipped_deleted";
+
+interface SkipReasonSummary {
+  count: number;
+  transaction_ids: string[];
+}
+
+interface SkippedSummary {
+  total_count: number;
+  skipped_transfer: SkipReasonSummary;
+  skipped_inflow: SkipReasonSummary;
+  skipped_split: SkipReasonSummary;
+  skipped_already_categorized: SkipReasonSummary;
+  skipped_deleted: SkipReasonSummary;
+}
+
 interface CandidateLoad {
   transactions: ynab.TransactionDetail[];
   failures: Array<{ transactionId: string; error: string }>;
+  mode: "uncategorized" | "explicit";
+  limit?: number;
 }
 
 interface Preflight {
@@ -188,12 +211,30 @@ function isTransfer(
 function skippedStatus(
   transaction: ynab.TransactionDetail,
   payeesById: Map<string, ynab.Payee>,
-): string | null {
+): SkipReason | null {
+  if (transaction.deleted) return "skipped_deleted";
   if (isTransfer(transaction, payeesById)) return "skipped_transfer";
   if (activeSubtransactions(transaction).length > 0) return "skipped_split";
   if (transaction.category_id) return "skipped_already_categorized";
   if (transaction.amount >= 0) return "skipped_inflow";
   return null;
+}
+
+function emptySkippedSummary(): SkippedSummary {
+  return {
+    total_count: 0,
+    skipped_transfer: { count: 0, transaction_ids: [] },
+    skipped_inflow: { count: 0, transaction_ids: [] },
+    skipped_split: { count: 0, transaction_ids: [] },
+    skipped_already_categorized: { count: 0, transaction_ids: [] },
+    skipped_deleted: { count: 0, transaction_ids: [] },
+  };
+}
+
+function recordSkipped(summary: SkippedSummary, reason: SkipReason, transactionId: string) {
+  summary.total_count += 1;
+  summary[reason].count += 1;
+  summary[reason].transaction_ids.push(transactionId);
 }
 
 function displayFields(transaction: ynab.TransactionDetail) {
@@ -253,8 +294,10 @@ async function loadCandidates(
       throw new Error(`limit must be an integer between 1 and ${MAX_LIMIT}`);
     }
     return {
-      transactions: response.data.transactions.filter((transaction) => !transaction.deleted).slice(0, limit),
+      transactions: response.data.transactions,
       failures: [],
+      mode: "uncategorized",
+      limit,
     };
   }
 
@@ -269,12 +312,12 @@ async function loadCandidates(
   const failures: CandidateLoad["failures"] = [];
   settled.forEach((result, index) => {
     if (result.status === "fulfilled") {
-      if (!result.value.data.transaction.deleted) transactions.push(result.value.data.transaction);
+      transactions.push(result.value.data.transaction);
     } else {
       failures.push({ transactionId: ids[index], error: getErrorMessage(result.reason) });
     }
   });
-  return { transactions, failures };
+  return { transactions, failures, mode: "explicit" };
 }
 
 function buildHistorySummary(
@@ -524,6 +567,8 @@ interface ToolResponseOptions {
   success: boolean;
   transactions?: any[];
   transactionOrder?: string[];
+  skipped?: SkippedSummary;
+  eligibleTransactionCount?: number;
   error?: string;
   eligibleCategoryCount?: number;
   providerCalls?: number;
@@ -552,6 +597,8 @@ function toolResponse(options: ToolResponseOptions) {
         dry_run: true,
         transactions,
         transaction_count: transactions.length,
+        ...(options.eligibleTransactionCount === undefined ? {} : { eligible_transaction_count: options.eligibleTransactionCount }),
+        ...(options.skipped === undefined ? {} : { skipped: options.skipped }),
         ...(options.error ? { error: options.error } : {}),
         ...(options.eligibleCategoryCount === undefined ? {} : { eligible_category_count: options.eligibleCategoryCount }),
         requested_model: PINNED_MODEL,
@@ -608,16 +655,21 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
     const outputRows: any[] = candidates.failures.map((failure) =>
       failedRow(failure.transactionId, `YNAB transaction request failed: ${failure.error}`)
     );
-    const remainingTransactions: ynab.TransactionDetail[] = [];
+    const eligibleTransactions: ynab.TransactionDetail[] = [];
+    const skippedSummary = candidates.mode === "uncategorized" ? emptySkippedSummary() : undefined;
 
     for (const transaction of candidates.transactions) {
-      const fingerprint = await contentFingerprint(transaction);
-      fingerprints.set(transaction.id, fingerprint);
       const skip = skippedStatus(transaction, payeesById);
       if (!skip) {
-        remainingTransactions.push(transaction);
+        eligibleTransactions.push(transaction);
         continue;
       }
+      if (skippedSummary) {
+        recordSkipped(skippedSummary, skip, transaction.id);
+        continue;
+      }
+      const fingerprint = await contentFingerprint(transaction);
+      fingerprints.set(transaction.id, fingerprint);
       const history = categoriesResponse && payeesResponse && historyResponse
         ? buildHistorySummary(transaction, historyResponse.data.transactions, payeesById, categoriesById)
         : emptyHistorySummary();
@@ -635,6 +687,19 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
       });
     }
 
+    const remainingTransactions = candidates.mode === "uncategorized"
+      ? eligibleTransactions.slice(0, candidates.limit)
+      : eligibleTransactions;
+    for (const transaction of remainingTransactions) {
+      fingerprints.set(transaction.id, await contentFingerprint(transaction));
+    }
+    const transactionOrder = candidates.mode === "explicit"
+      ? [...new Set(input.transactionIds ?? [])]
+      : remainingTransactions.map((transaction) => transaction.id);
+    const selectionMetadata = candidates.mode === "uncategorized"
+      ? { skipped: skippedSummary, eligibleTransactionCount: eligibleTransactions.length }
+      : {};
+
     if (prerequisiteFailures.length > 0) {
       const error = `YNAB prerequisite request failed (${prerequisiteFailures.join("; ")})`;
       outputRows.push(...remainingTransactions.map((transaction) =>
@@ -643,9 +708,8 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
       return toolResponse({
         success: true,
         transactions: outputRows,
-        transactionOrder: input.transactionIds
-          ? [...new Set(input.transactionIds)]
-          : candidates.transactions.map((transaction) => transaction.id),
+        transactionOrder,
+        ...selectionMetadata,
       });
     }
 
@@ -661,9 +725,8 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
       return toolResponse({
         success: true,
         transactions: outputRows,
-        transactionOrder: input.transactionIds
-          ? [...new Set(input.transactionIds)]
-          : candidates.transactions.map((transaction) => transaction.id),
+        transactionOrder,
+        ...selectionMetadata,
         eligibleCategoryCount: categories.length,
       });
     }
@@ -826,9 +889,8 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
     return toolResponse({
       success: true,
       transactions: outputRows,
-      transactionOrder: input.transactionIds
-        ? [...new Set(input.transactionIds)]
-        : candidates.transactions.map((transaction) => transaction.id),
+      transactionOrder,
+      ...selectionMetadata,
       eligibleCategoryCount: categories.length,
       providerCalls,
       responseModels,

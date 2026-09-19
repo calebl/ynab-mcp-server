@@ -64,10 +64,20 @@ function makeApi(options: {
   const oldTransactions = options.history ?? [];
   return {
     transactions: {
-      getTransactions: vi.fn()
-        .mockResolvedValueOnce({ data: { transactions: candidates } })
-        .mockResolvedValueOnce({ data: { transactions: oldTransactions } }),
-      getTransactionById: vi.fn(),
+      getTransactions: vi.fn().mockImplementation(
+        async (_budgetId: string, _sinceDate?: string, type?: ynab.GetTransactionsTypeEnum) => ({
+          data: {
+            transactions: type === ynab.GetTransactionsTypeEnum.Uncategorized
+              ? candidates
+              : oldTransactions,
+          },
+        }),
+      ),
+      getTransactionById: vi.fn().mockImplementation(async (_budgetId: string, transactionId: string) => {
+        const found = candidates.find((candidate) => candidate.id === transactionId);
+        if (!found) throw new Error("not found");
+        return { data: { transaction: found } };
+      }),
     },
     categories: {
       getCategories: vi.fn().mockResolvedValue({
@@ -190,9 +200,10 @@ describe("SuggestCategoriesTool", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const output = await result({}, api);
+    const output = await result({ transactionIds: candidates.map((candidate) => candidate.id) }, api);
 
     expect(output.transactions.map((row: any) => [row.transaction_id, row.status])).toEqual([
+      ["deleted", "skipped_deleted"],
       ["row-transfer", "skipped_transfer"],
       ["payee-transfer", "skipped_transfer"],
       ["deleted-payee-transfer", "skipped_transfer"],
@@ -202,7 +213,6 @@ describe("SuggestCategoriesTool", () => {
       ["inflow", "skipped_inflow"],
       ["eligible", "suggested"],
     ]);
-    expect(output.transactions.some((row: any) => row.transaction_id === "deleted")).toBe(false);
     expect(output.transactions.find((row: any) => row.transaction_id === "row-transfer").history).toMatchObject({
       sample_size: 1,
       dominant_category_id: "cat-grocery",
@@ -435,7 +445,7 @@ describe("SuggestCategoriesTool", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("preserves deterministic skips and zero spend metadata when a YNAB prerequisite fails", async () => {
+  it("summarizes deterministic skips and preserves zero spend metadata when a YNAB prerequisite fails", async () => {
     const api = makeApi({ candidates: [
       transaction("transfer", { transfer_account_id: "other-account" }),
       transaction("eligible"),
@@ -457,23 +467,20 @@ describe("SuggestCategoriesTool", () => {
         projected_cost_usd: 0,
       },
     });
-    expect(output.transactions).toMatchObject([
-      {
-        transaction_id: "transfer",
-        status: "skipped_transfer",
-        history: { sample_size: 0, agreement: "not_applicable" },
-      },
-      {
-        transaction_id: "eligible",
-        status: "failed",
-        history: { sample_size: 0, agreement: "not_applicable" },
-        error: expect.stringContaining("categories unavailable"),
-      },
-    ]);
+    expect(output.transactions).toMatchObject([{
+      transaction_id: "eligible",
+      status: "failed",
+      history: { sample_size: 0, agreement: "not_applicable" },
+      error: expect.stringContaining("categories unavailable"),
+    }]);
+    expect(output.skipped).toMatchObject({
+      total_count: 1,
+      skipped_transfer: { count: 1, transaction_ids: ["transfer"] },
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("preserves skipped rows when no eligible categories are available", async () => {
+  it("summarizes skipped rows when no eligible categories are available", async () => {
     const api = makeApi({
       candidates: [
         transaction("transfer", { transfer_account_id: "other-account" }),
@@ -487,19 +494,20 @@ describe("SuggestCategoriesTool", () => {
     const output = await result({}, api);
 
     expect(output.success).toBe(true);
-    expect(output.transactions).toMatchObject([
-      { transaction_id: "transfer", status: "skipped_transfer" },
-      {
-        transaction_id: "eligible",
-        status: "failed",
-        error: "No visible writable categories are available in this budget.",
-      },
-    ]);
+    expect(output.transactions).toMatchObject([{
+      transaction_id: "eligible",
+      status: "failed",
+      error: "No visible writable categories are available in this budget.",
+    }]);
+    expect(output.skipped).toMatchObject({
+      total_count: 1,
+      skipped_transfer: { count: 1, transaction_ids: ["transfer"] },
+    });
     expect(output.usage).toMatchObject({ input_tokens: 0, output_tokens: 0, projected_cost_usd: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("preserves skipped rows when refusing more than 255 Choice options", async () => {
+  it("summarizes skipped rows when refusing more than 255 Choice options", async () => {
     const categories = Array.from({ length: 255 }, (_, index) => category(`cat-${index}`, `Category ${index}`));
     const api = makeApi({
       candidates: [
@@ -514,15 +522,16 @@ describe("SuggestCategoriesTool", () => {
     const output = await result({}, api);
 
     expect(output.success).toBe(true);
-    expect(output.transactions).toMatchObject([
-      { transaction_id: "transfer", status: "skipped_transfer" },
-      {
-        transaction_id: "eligible",
-        status: "failed",
-        error: expect.stringContaining("255 eligible categories plus leave_uncategorized"),
-      },
-    ]);
-    expect(output.transactions[1].error).toContain("No categories were truncated");
+    expect(output.transactions).toMatchObject([{
+      transaction_id: "eligible",
+      status: "failed",
+      error: expect.stringContaining("255 eligible categories plus leave_uncategorized"),
+    }]);
+    expect(output.transactions[0].error).toContain("No categories were truncated");
+    expect(output.skipped).toMatchObject({
+      total_count: 1,
+      skipped_transfer: { count: 1, transaction_ids: ["transfer"] },
+    });
     expect(output).toMatchObject({
       requested_model: Tool.PINNED_MODEL,
       model: Tool.PINNED_MODEL,
@@ -536,26 +545,77 @@ describe("SuggestCategoriesTool", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("applies the default-mode limit after eligibility and summarizes all skipped rows", async () => {
+    const transfers = Array.from({ length: 15 }, (_, index) =>
+      transaction(`transfer-${index}`, { transfer_account_id: `account-${index}` })
+    );
+    const inflows = Array.from({ length: 10 }, (_, index) =>
+      transaction(`inflow-${index}`, { amount: 1000 + index })
+    );
+    const eligible = Array.from({ length: 5 }, (_, index) =>
+      transaction(`eligible-${index}`, { memo: `eligible memo ${index}` })
+    );
+    const api = makeApi({ candidates: [...transfers, ...inflows, ...eligible] });
+    const fetchMock = vi.fn().mockResolvedValue(choiceResponse({
+      t00: answer("leave_uncategorized", 0.9, { c000: 0.05, c001: 0.05, leave_uncategorized: 0.9 }),
+      t01: answer("leave_uncategorized", 0.9, { c000: 0.05, c001: 0.05, leave_uncategorized: 0.9 }),
+      t02: answer("leave_uncategorized", 0.9, { c000: 0.05, c001: 0.05, leave_uncategorized: 0.9 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({ limit: 3 }, api);
+
+    expect(output.transaction_count).toBe(3);
+    expect(output.eligible_transaction_count).toBe(5);
+    expect(output.transactions.map((row: any) => row.transaction_id)).toEqual([
+      "eligible-0",
+      "eligible-1",
+      "eligible-2",
+    ]);
+    expect(output.skipped).toEqual({
+      total_count: 25,
+      skipped_transfer: {
+        count: 15,
+        transaction_ids: transfers.map((transaction) => transaction.id),
+      },
+      skipped_inflow: {
+        count: 10,
+        transaction_ids: inflows.map((transaction) => transaction.id),
+      },
+      skipped_split: { count: 0, transaction_ids: [] },
+      skipped_already_categorized: { count: 0, transaction_ids: [] },
+      skipped_deleted: { count: 0, transaction_ids: [] },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(request.state.transactions).toHaveLength(3);
+    expect(request.state.transactions.map((transaction: any) => transaction.memo)).toEqual([
+      "eligible memo 0",
+      "eligible memo 1",
+      "eligible memo 2",
+    ]);
+  });
+
   it.each([
     ["an omitted transactionIds field", { limit: 1 }],
     ["a null transactionIds field", { transactionIds: null, limit: 1 }],
     ["an empty transactionIds array", { transactionIds: [], limit: 1 }],
   ])("fetches uncategorized transactions and honors limit for %s", async (_label, input) => {
     const api = makeApi({
-      candidates: [
-        transaction("first", { amount: 1000 }),
-        transaction("beyond-limit", { amount: 2000 }),
-      ],
+      candidates: [transaction("first"), transaction("beyond-limit")],
     });
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(choiceResponse({
+      t00: answer("leave_uncategorized", 0.9, { c000: 0.05, c001: 0.05, leave_uncategorized: 0.9 }),
+    }));
     vi.stubGlobal("fetch", fetchMock);
 
     const output = await result(input, api);
 
     expect(output.success).toBe(true);
     expect(output.transaction_count).toBe(1);
+    expect(output.eligible_transaction_count).toBe(2);
     expect(output.transactions).toEqual([
-      expect.objectContaining({ transaction_id: "first", status: "skipped_inflow" }),
+      expect.objectContaining({ transaction_id: "first", status: "left_uncategorized" }),
     ]);
     expect(api.transactions.getTransactions).toHaveBeenNthCalledWith(
       1,
@@ -564,7 +624,7 @@ describe("SuggestCategoriesTool", () => {
       ynab.GetTransactionsTypeEnum.Uncategorized,
     );
     expect(api.transactions.getTransactionById).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("uses explicit transaction IDs instead of the uncategorized fetch", async () => {
