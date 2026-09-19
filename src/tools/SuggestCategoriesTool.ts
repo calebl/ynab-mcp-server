@@ -91,8 +91,7 @@ type SkipReason =
   | "skipped_transfer"
   | "skipped_inflow"
   | "skipped_split"
-  | "skipped_already_categorized"
-  | "skipped_deleted";
+  | "skipped_already_categorized";
 
 interface SkipReasonSummary {
   count: number;
@@ -105,7 +104,6 @@ interface SkippedSummary {
   skipped_inflow: SkipReasonSummary;
   skipped_split: SkipReasonSummary;
   skipped_already_categorized: SkipReasonSummary;
-  skipped_deleted: SkipReasonSummary;
 }
 
 interface CandidateLoad {
@@ -212,7 +210,6 @@ function skippedStatus(
   transaction: ynab.TransactionDetail,
   payeesById: Map<string, ynab.Payee>,
 ): SkipReason | null {
-  if (transaction.deleted) return "skipped_deleted";
   if (isTransfer(transaction, payeesById)) return "skipped_transfer";
   if (activeSubtransactions(transaction).length > 0) return "skipped_split";
   if (transaction.category_id) return "skipped_already_categorized";
@@ -227,7 +224,6 @@ function emptySkippedSummary(): SkippedSummary {
     skipped_inflow: { count: 0, transaction_ids: [] },
     skipped_split: { count: 0, transaction_ids: [] },
     skipped_already_categorized: { count: 0, transaction_ids: [] },
-    skipped_deleted: { count: 0, transaction_ids: [] },
   };
 }
 
@@ -294,7 +290,7 @@ async function loadCandidates(
       throw new Error(`limit must be an integer between 1 and ${MAX_LIMIT}`);
     }
     return {
-      transactions: response.data.transactions,
+      transactions: response.data.transactions.filter((transaction) => !transaction.deleted),
       failures: [],
       mode: "uncategorized",
       limit,
@@ -312,7 +308,9 @@ async function loadCandidates(
   const failures: CandidateLoad["failures"] = [];
   settled.forEach((result, index) => {
     if (result.status === "fulfilled") {
-      transactions.push(result.value.data.transaction);
+      if (!result.value.data.transaction.deleted) {
+        transactions.push(result.value.data.transaction);
+      }
     } else {
       failures.push({ transactionId: ids[index], error: getErrorMessage(result.reason) });
     }

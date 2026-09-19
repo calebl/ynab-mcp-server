@@ -174,7 +174,7 @@ describe("SuggestCategoriesTool", () => {
     }]);
   });
 
-  it("returns every deterministic skip reason and sends only eligible rows to TypeSafe", async () => {
+  it("drops deleted rows, returns deterministic skip reasons, and sends only eligible rows to TypeSafe", async () => {
     const candidates = [
       transaction("deleted", { deleted: true }),
       transaction("row-transfer", { transfer_account_id: "other-account" }),
@@ -203,7 +203,6 @@ describe("SuggestCategoriesTool", () => {
     const output = await result({ transactionIds: candidates.map((candidate) => candidate.id) }, api);
 
     expect(output.transactions.map((row: any) => [row.transaction_id, row.status])).toEqual([
-      ["deleted", "skipped_deleted"],
       ["row-transfer", "skipped_transfer"],
       ["payee-transfer", "skipped_transfer"],
       ["deleted-payee-transfer", "skipped_transfer"],
@@ -555,7 +554,7 @@ describe("SuggestCategoriesTool", () => {
     const eligible = Array.from({ length: 5 }, (_, index) =>
       transaction(`eligible-${index}`, { memo: `eligible memo ${index}` })
     );
-    const api = makeApi({ candidates: [...transfers, ...inflows, ...eligible] });
+    const api = makeApi({ candidates: [transaction("deleted", { deleted: true }), ...transfers, ...inflows, ...eligible] });
     const fetchMock = vi.fn().mockResolvedValue(choiceResponse({
       t00: answer("leave_uncategorized", 0.9, { c000: 0.05, c001: 0.05, leave_uncategorized: 0.9 }),
       t01: answer("leave_uncategorized", 0.9, { c000: 0.05, c001: 0.05, leave_uncategorized: 0.9 }),
@@ -584,7 +583,6 @@ describe("SuggestCategoriesTool", () => {
       },
       skipped_split: { count: 0, transaction_ids: [] },
       skipped_already_categorized: { count: 0, transaction_ids: [] },
-      skipped_deleted: { count: 0, transaction_ids: [] },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const request = JSON.parse(fetchMock.mock.calls[0][1].body);
