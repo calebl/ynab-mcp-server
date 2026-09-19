@@ -18,6 +18,8 @@ RUN npm run build
 # Set environment variable placeholder (user should override these values in production)
 ENV YNAB_API_TOKEN=""
 # optional:
+# ENV YNAB_PLAN_ID=""
+# Deprecated alias, still accepted with no removal date:
 # ENV YNAB_BUDGET_ID=""
 
 # Define the command to run your app using node

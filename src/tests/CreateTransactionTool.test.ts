@@ -301,7 +301,8 @@ describe('CreateTransactionTool', () => {
       expect(result).toEqual(expectedResult);
     });
 
-    it('should throw error when no budget ID is provided', async () => {
+    it('should return an error when no plan ID is provided', async () => {
+      delete process.env.YNAB_PLAN_ID;
       delete process.env.YNAB_BUDGET_ID;
 
       const result = await CreateTransactionTool.execute(validTransactionInput, mockApi as any);
@@ -311,7 +312,7 @@ describe('CreateTransactionTool', () => {
           type: "text",
           text: JSON.stringify({
             success: false,
-            error: "No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.",
+            error: "No plan ID provided. Please provide planId or set the YNAB_PLAN_ID environment variable.",
           }, null, 2)
         }]
       };

@@ -9,7 +9,7 @@ export const description = "Updates the budgeted amount for a category in a spec
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
-  month: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("The budget month in ISO format (e.g. 2024-01-01). Must be the first day of the month."),
+  month: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("The plan month in ISO format (e.g. 2024-01-01). Must be the first day of the month."),
   categoryId: z.string().describe("The ID of the category to update"),
   budgeted: z.number().describe("The amount to budget in dollars (e.g. 500.00). This sets the total budgeted amount, not an increment."),
 };

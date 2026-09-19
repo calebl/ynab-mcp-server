@@ -65,6 +65,9 @@ Optionally pin a default plan so tool calls can omit `planId`:
 npx wrangler secret put YNAB_PLAN_ID
 ```
 
+`YNAB_BUDGET_ID` is deprecated but still accepted as an alias; there is no
+removal date. Use `YNAB_PLAN_ID` for new deployments.
+
 Category suggestions are a separate, default-off integration. To opt in, store
 the operator-owned TypeSafe credential as a Worker secret:
 

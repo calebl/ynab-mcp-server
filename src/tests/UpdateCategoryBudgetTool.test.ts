@@ -116,7 +116,8 @@ describe('UpdateCategoryBudgetTool', () => {
       );
     });
 
-    it('should return error when no budget ID available', async () => {
+    it('should return error when no plan ID is available', async () => {
+      delete process.env.YNAB_PLAN_ID;
       delete process.env.YNAB_BUDGET_ID;
 
       const result = await UpdateCategoryBudgetTool.execute(
@@ -130,7 +131,7 @@ describe('UpdateCategoryBudgetTool', () => {
 
       const response = JSON.parse(result.content[0].text);
       expect(response.success).toBe(false);
-      expect(response.error).toContain('No budget ID provided');
+      expect(response.error).toContain('No plan ID provided');
     });
 
     it('should handle API error', async () => {

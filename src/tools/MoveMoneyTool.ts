@@ -9,7 +9,7 @@ export const description = "Moves budgeted money from one category to another in
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
-  month: z.string().regex(/^(current|\d{4}-\d{2}-\d{2})$/).optional().describe("The budget month in ISO format (e.g. 2024-01-01, must be the first of the month), or 'current'. Defaults to 'current'."),
+  month: z.string().regex(/^(current|\d{4}-\d{2}-\d{2})$/).optional().describe("The plan month in ISO format (e.g. 2024-01-01, must be the first of the month), or 'current'. Defaults to 'current'."),
   fromCategoryId: z.string().describe("The ID of the category to take money from"),
   toCategoryId: z.string().describe("The ID of the category to give money to"),
   amount: z.number().positive().describe("The amount to move in dollars (e.g. 25.00). Must be positive."),
