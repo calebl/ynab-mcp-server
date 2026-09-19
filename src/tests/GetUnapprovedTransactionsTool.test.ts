@@ -258,7 +258,7 @@ describe('GetUnapprovedTransactionsTool', () => {
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       expect(GetUnapprovedTransactionsTool.name).toBe('ynab_get_unapproved_transactions');
-      expect(GetUnapprovedTransactionsTool.description).toContain('Gets every unapproved transaction in a budget');
+      expect(GetUnapprovedTransactionsTool.description).toContain('Gets every unapproved transaction in a plan');
     });
 
     it('should have correct input schema', () => {
