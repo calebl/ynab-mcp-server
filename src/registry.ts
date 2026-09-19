@@ -22,6 +22,7 @@ import * as AutoAssignTool from "./tools/AutoAssignTool.js";
 import * as SpendingByCategoryTool from "./tools/SpendingByCategoryTool.js";
 import * as SpendingByPayeeTool from "./tools/SpendingByPayeeTool.js";
 import * as CashFlowTool from "./tools/CashFlowTool.js";
+import * as SuggestCategoriesTool from "./tools/SuggestCategoriesTool.js";
 
 /** A tool module as exported by every file in src/tools. */
 interface ToolModule {
@@ -36,6 +37,8 @@ export interface ToolEntry {
   module: ToolModule;
   /** True when the tool changes data in YNAB rather than only reading it. */
   writes: boolean;
+  /** Tool is omitted unless the operator explicitly enables AI categorization. */
+  requiresAiCategorization?: boolean;
 }
 
 export const tools: ToolEntry[] = [
@@ -60,6 +63,7 @@ export const tools: ToolEntry[] = [
   { title: "Spending By Category", module: SpendingByCategoryTool, writes: false },
   { title: "Spending By Payee", module: SpendingByPayeeTool, writes: false },
   { title: "Cash Flow", module: CashFlowTool, writes: false },
+  { title: "Suggest Categories", module: SuggestCategoriesTool, writes: false, requiresAiCategorization: true },
 ];
 
 /**
@@ -76,16 +80,44 @@ export interface RegisterOptions {
   readOnly?: boolean;
 }
 
+interface InputSchema {
+  safeParse(value: unknown): { success: boolean };
+  nullable(): unknown;
+}
+
+function acceptsUndefined(schema: unknown): schema is InputSchema {
+  return typeof schema === "object" && schema !== null &&
+    "safeParse" in schema && typeof schema.safeParse === "function" &&
+    "nullable" in schema && typeof schema.nullable === "function" &&
+    schema.safeParse(undefined).success;
+}
+
+function nullCompatibleInputSchema(inputSchema: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(inputSchema).map(([key, schema]) => [
+    key,
+    acceptsUndefined(schema) ? schema.nullable() : schema,
+  ]));
+}
+
+function omitNullOptionalInputs(input: Record<string, unknown>, inputSchema: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(input).filter(([key, value]) =>
+    value !== null || !acceptsUndefined(inputSchema[key])
+  ));
+}
+
 /** Register every tool (or only the read-only ones) against a server instance. */
 export function registerAll(server: ToolRegistrar, api: ynab.API, options: RegisterOptions = {}) {
-  const selected = options.readOnly ? tools.filter((t) => !t.writes) : tools;
+  const selected = tools.filter((tool) =>
+    (!options.readOnly || !tool.writes) &&
+    (!tool.requiresAiCategorization || SuggestCategoriesTool.isCategorySuggestionEnabled())
+  );
 
   for (const { title, module } of selected) {
     server.registerTool(module.name, {
       title,
       description: module.description,
-      inputSchema: module.inputSchema,
-    }, async (input: any) => module.execute(input, api));
+      inputSchema: nullCompatibleInputSchema(module.inputSchema),
+    }, async (input: any) => module.execute(omitNullOptionalInputs(input, module.inputSchema), api));
   }
 
   return selected.length;

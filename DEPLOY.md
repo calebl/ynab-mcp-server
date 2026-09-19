@@ -65,6 +65,18 @@ Optionally pin a default budget so tool calls can omit `budgetId`:
 npx wrangler secret put YNAB_BUDGET_ID
 ```
 
+Category suggestions are a separate, default-off integration. To opt in, store
+the operator-owned TypeSafe credential as a Worker secret:
+
+```bash
+npx wrangler secret put TYPESAFE_API_KEY
+```
+
+Then add `"YNAB_AI_CATEGORIZATION": "true"` under `vars` in
+`wrangler.jsonc`. Both settings are required; the key never belongs in
+`wrangler.jsonc` or a tool argument. Without either setting,
+`ynab_suggest_categories` is omitted from `tools/list`.
+
 ### 6. Deploy
 
 ```bash
@@ -143,11 +155,35 @@ npm run deploy
   hourly and acts only in the configured local hour, holding its wall-clock
   slot year round.
 
+## TypeSafe category preview (optional)
+
+When enabled as described above, `ynab_suggest_categories` proposes categories
+for eligible uncategorized outflows. It is a preview only: it never writes to
+YNAB, and applying a proposal still requires a separate human-approved
+`ynab_update_transaction` call.
+
+The request sends display payee and imported/original payee text, memo, amount,
+date, account name/type/on-budget status, and visible category group/category
+names to **TypeSafe as a third-party processor**. It does not send YNAB UUIDs,
+balances, goals, cleared/approved flags, or raw payee history. The tool uses the
+pinned `jev-1.13.0` model. Its published price at the time of writing is $0.042
+per million input tokens with output free; provider pricing and limits can
+change. Each tool response reports preflight estimates, actual token usage,
+and the projected cost. The implementation defaults to 20 rows, caps calls at
+100 rows, batches ten questions, and refuses oversized request/cost estimates.
+
+The evaluation behind this opt-in was synthetic and single-evaluator (98.3%
+exact labels, 98.9% top-three, and 60/60 expected abstentions over 40 unique
+fixtures). That supports a narrow preview, not default-on categorization or
+AI-triggered writes.
+
 ## Read-only mode
 
 To expose only the tools that read data and none that change it, set
 `YNAB_READ_ONLY` to `"true"` in `wrangler.jsonc` and redeploy. The write tools
-disappear from `tools/list` entirely rather than failing when called.
+disappear from `tools/list` entirely rather than failing when called. The
+TypeSafe preview is registered as read-only and remains available in this mode
+only when both its feature flag and secret are configured.
 
 ## Local development
 

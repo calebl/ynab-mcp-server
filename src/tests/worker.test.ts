@@ -59,14 +59,33 @@ describe("worker MCP handler", () => {
     const result = await readResult(response);
 
     const names = result.result.tools.map((t: { name: string }) => t.name);
-    expect(names).toHaveLength(tools.length);
+    expect(names).toHaveLength(tools.filter((tool) => !tool.requiresAiCategorization).length);
     expect(names).toContain("ynab_budget_summary");
     expect(names).toContain("ynab_create_transaction");
+    expect(names).not.toContain("ynab_suggest_categories");
+  });
+
+  it("exposes category suggestions only with both opt-in settings", async () => {
+    const onlyFlag = await call(
+      { jsonrpc: "2.0", id: 3, method: "tools/list" },
+      { YNAB_AI_CATEGORIZATION: "true" },
+    );
+    const onlyFlagResult = await readResult(onlyFlag);
+    expect(onlyFlagResult.result.tools.map((t: { name: string }) => t.name)).not.toContain("ynab_suggest_categories");
+
+    const enabled = await call(
+      { jsonrpc: "2.0", id: 4, method: "tools/list" },
+      { YNAB_AI_CATEGORIZATION: "true", TYPESAFE_API_KEY: "typesafe-secret", YNAB_READ_ONLY: "true" },
+    );
+    const enabledResult = await readResult(enabled);
+    const names = enabledResult.result.tools.map((t: { name: string }) => t.name);
+    expect(names).toContain("ynab_suggest_categories");
+    expect(names).not.toContain("ynab_create_transaction");
   });
 
   it("hides write tools when YNAB_READ_ONLY is true", async () => {
     const response = await call(
-      { jsonrpc: "2.0", id: 3, method: "tools/list" },
+      { jsonrpc: "2.0", id: 5, method: "tools/list" },
       { YNAB_READ_ONLY: "true" },
     );
     const result = await readResult(response);
