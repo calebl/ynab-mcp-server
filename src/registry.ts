@@ -1,4 +1,5 @@
 import * as ynab from "ynab";
+import { z } from "zod";
 
 // Import all tools
 import * as ListBudgetsTool from "./tools/ListBudgetsTool.js";
@@ -38,22 +39,39 @@ export interface ToolEntry {
   module: ToolModule;
   /** True when the tool changes data in YNAB rather than only reading it. */
   writes: boolean;
+  /** True when the tool's effect cannot be undone. Defaults to false. */
+  destructive?: boolean;
+  /** True when repeating the call with the same arguments has no further effect. Defaults to false. */
+  idempotent?: boolean;
   /** Tool is omitted unless the operator explicitly enables AI categorization. */
   requiresAiCategorization?: boolean;
+  /** Cross-field validation applied to the wrapped input schema at registration. */
+  refine?: (schema: z.ZodObject<z.ZodRawShape>) => z.ZodTypeAny;
 }
+
+const refineCreateTransaction = (schema: z.ZodObject<z.ZodRawShape>) =>
+  schema
+    .refine((data) => Boolean((data as { accountId?: unknown }).accountId || (data as { accountName?: unknown }).accountName), {
+      message: "Either accountId or accountName must be provided",
+      path: ["accountId"],
+    })
+    .refine((data) => Boolean((data as { payeeId?: unknown }).payeeId || (data as { payeeName?: unknown }).payeeName), {
+      message: "Either payeeId or payeeName must be provided",
+      path: ["payeeId"],
+    });
 
 export const tools: ToolEntry[] = [
   { title: "List Budgets", module: ListBudgetsTool, writes: false },
   { title: "Get Unapproved Transactions", module: GetUnapprovedTransactionsTool, writes: false },
   { title: "Budget Summary", module: BudgetSummaryTool, writes: false },
-  { title: "Create Transaction", module: CreateTransactionTool, writes: true },
-  { title: "Approve Transaction", module: ApproveTransactionTool, writes: true },
-  { title: "Update Category Budget", module: UpdateCategoryBudgetTool, writes: true },
-  { title: "Update Transaction", module: UpdateTransactionTool, writes: true },
-  { title: "Bulk Approve Transactions", module: BulkApproveTransactionsTool, writes: true },
+  { title: "Create Transaction", module: CreateTransactionTool, writes: true, refine: refineCreateTransaction },
+  { title: "Approve Transaction", module: ApproveTransactionTool, writes: true, idempotent: true },
+  { title: "Update Category Budget", module: UpdateCategoryBudgetTool, writes: true, idempotent: true },
+  { title: "Update Transaction", module: UpdateTransactionTool, writes: true, idempotent: true },
+  { title: "Bulk Approve Transactions", module: BulkApproveTransactionsTool, writes: true, idempotent: true },
   { title: "List Payees", module: ListPayeesTool, writes: false },
   { title: "Get Transactions", module: GetTransactionsTool, writes: false },
-  { title: "Delete Transaction", module: DeleteTransactionTool, writes: true },
+  { title: "Delete Transaction", module: DeleteTransactionTool, writes: true, destructive: true },
   { title: "List Categories", module: ListCategoriesTool, writes: false },
   { title: "List Accounts", module: ListAccountsTool, writes: false },
   { title: "List Scheduled Transactions", module: ListScheduledTransactionsTool, writes: false },
@@ -113,6 +131,17 @@ function nullCompatibleInputSchema(inputSchema: Record<string, unknown>) {
   ]));
 }
 
+/** Derives the MCP ToolAnnotations advertised for a tool from its registry entry. */
+function buildAnnotations(tool: ToolEntry) {
+  return {
+    title: tool.title,
+    readOnlyHint: !tool.writes,
+    destructiveHint: Boolean(tool.destructive),
+    idempotentHint: Boolean(tool.idempotent),
+    openWorldHint: true,
+  };
+}
+
 function omitNullOptionalInputs(input: Record<string, unknown>, inputSchema: Record<string, unknown>) {
   return Object.fromEntries(Object.entries(input).filter(([key, value]) =>
     value !== null || !acceptsUndefined(inputSchema[key])
@@ -148,11 +177,16 @@ export function registerAll(server: ToolRegistrar, api: ynab.API, options: Regis
     (!tool.requiresAiCategorization || SuggestCategoriesTool.isCategorySuggestionEnabled())
   );
 
-  for (const { title, module } of selected) {
+  for (const tool of selected) {
+    const { title, module } = tool;
+    const wrapped = z.object(nullCompatibleInputSchema(module.inputSchema) as z.ZodRawShape);
+    const inputSchema = tool.refine ? tool.refine(wrapped) : wrapped;
+
     server.registerTool(module.name, {
       title,
       description: module.description,
-      inputSchema: nullCompatibleInputSchema(module.inputSchema),
+      inputSchema,
+      annotations: buildAnnotations(tool),
     }, async (input: any) => executeTool(module, omitNullOptionalInputs(input, module.inputSchema), api));
   }
 

@@ -33,11 +33,12 @@ describe("tool registration", () => {
     for (const { module } of tools) {
       const registeredSchema = registered.get(module.name)?.config.inputSchema;
       expect(registeredSchema, module.name).toBeDefined();
+      const shape = (registeredSchema as z.ZodObject<z.ZodRawShape>).shape;
 
       for (const [name, schema] of Object.entries(module.inputSchema)) {
         if ((schema as z.ZodType).safeParse(undefined).success) {
           expect(
-            (registeredSchema[name] as z.ZodType).safeParse(null).success,
+            (shape[name] as z.ZodType).safeParse(null).success,
             `${module.name}.${name}`,
           ).toBe(true);
         }
@@ -53,13 +54,104 @@ describe("tool registration", () => {
     for (const { module } of tools) {
       const registeredSchema = registered.get(module.name)?.config.inputSchema;
       expect(registeredSchema, module.name).toBeDefined();
+      const shape = (registeredSchema as z.ZodObject<z.ZodRawShape>).shape;
 
-      for (const [name, schema] of Object.entries(registeredSchema)) {
+      for (const [name, schema] of Object.entries(shape)) {
         const jsonSchema = z.toJSONSchema(schema as z.ZodType) as { description?: unknown };
         expect(typeof jsonSchema.description, `${module.name}.${name}`).toBe("string");
         expect((jsonSchema.description as string).length, `${module.name}.${name}`).toBeGreaterThan(0);
       }
     }
+  });
+
+  it("wraps every tool's input schema in z.object()", () => {
+    vi.stubEnv("YNAB_AI_CATEGORIZATION", "true");
+    vi.stubEnv("TYPESAFE_API_KEY", "test-key");
+    const registered = register();
+
+    for (const { module } of tools) {
+      const registeredSchema = registered.get(module.name)?.config.inputSchema;
+      expect(registeredSchema, module.name).toBeInstanceOf(z.ZodObject);
+    }
+  });
+
+  it("advertises the JSON Schema unchanged apart from the z.object() wrapping", () => {
+    vi.stubEnv("YNAB_AI_CATEGORIZATION", "true");
+    vi.stubEnv("TYPESAFE_API_KEY", "test-key");
+    const registered = register();
+
+    for (const { module } of tools) {
+      const registeredSchema = registered.get(module.name)?.config.inputSchema as z.ZodObject<z.ZodRawShape>;
+      const rawObjectSchema = z.object(module.inputSchema as z.ZodRawShape);
+
+      const wrappedJsonSchema = z.toJSONSchema(registeredSchema);
+      const rawJsonSchema = z.toJSONSchema(rawObjectSchema);
+
+      // Only field-level nullability differs (added by nullCompatibleInputSchema), so
+      // compare property descriptions and required-ness rather than a strict deep-equal.
+      for (const [name, prop] of Object.entries(rawJsonSchema.properties ?? {})) {
+        const wrappedProp = (wrappedJsonSchema.properties ?? {})[name] as { description?: unknown };
+        expect(wrappedProp, `${module.name}.${name}`).toBeDefined();
+        expect(wrappedProp.description, `${module.name}.${name}`).toBe((prop as { description?: unknown }).description);
+      }
+    }
+  });
+
+  it("publishes annotations derived from the registry for every tool", () => {
+    vi.stubEnv("YNAB_AI_CATEGORIZATION", "true");
+    vi.stubEnv("TYPESAFE_API_KEY", "test-key");
+    const registered = register();
+
+    for (const tool of tools) {
+      const annotations = registered.get(tool.module.name)?.config.annotations;
+      expect(annotations, tool.module.name).toEqual({
+        title: tool.title,
+        readOnlyHint: !tool.writes,
+        destructiveHint: Boolean(tool.destructive),
+        idempotentHint: Boolean(tool.idempotent),
+        openWorldHint: true,
+      });
+    }
+
+    // Spot-check the specific hints called out for this tool set.
+    expect(registered.get("ynab_delete_transaction")?.config.annotations.destructiveHint).toBe(true);
+    expect(registered.get("ynab_create_transaction")?.config.annotations.destructiveHint).toBe(false);
+    expect(registered.get("ynab_approve_transaction")?.config.annotations.idempotentHint).toBe(true);
+    expect(registered.get("ynab_update_transaction")?.config.annotations.idempotentHint).toBe(true);
+    expect(registered.get("ynab_bulk_approve_transactions")?.config.annotations.idempotentHint).toBe(true);
+    expect(registered.get("ynab_update_category_budget")?.config.annotations.idempotentHint).toBe(true);
+    expect(registered.get("ynab_create_transaction")?.config.annotations.idempotentHint).toBe(false);
+    expect(registered.get("ynab_move_money")?.config.annotations.idempotentHint).toBe(false);
+    expect(registered.get("ynab_auto_assign")?.config.annotations.idempotentHint).toBe(false);
+    expect(registered.get("ynab_import_transactions")?.config.annotations.idempotentHint).toBe(false);
+  });
+
+  it("rejects ynab_create_transaction input missing both accountId and accountName", () => {
+    const registered = register();
+    const schema = registered.get("ynab_create_transaction")!.config.inputSchema as z.ZodType;
+
+    const result = schema.safeParse({
+      date: "2024-03-24",
+      amount: 10,
+      payeeName: "Some Payee",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.some((issue) => issue.message === "Either accountId or accountName must be provided")).toBe(true);
+  });
+
+  it("rejects ynab_create_transaction input missing both payeeId and payeeName", () => {
+    const registered = register();
+    const schema = registered.get("ynab_create_transaction")!.config.inputSchema as z.ZodType;
+
+    const result = schema.safeParse({
+      date: "2024-03-24",
+      amount: 10,
+      accountName: "Checking",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.some((issue) => issue.message === "Either payeeId or payeeName must be provided")).toBe(true);
   });
 
   it("passes null optional inputs to tools as omissions", async () => {
