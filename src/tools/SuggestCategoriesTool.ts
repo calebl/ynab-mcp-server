@@ -8,7 +8,7 @@ export const name = "ynab_suggest_categories";
 export const description = "Previews category suggestions for uncategorized outflows, using a history rule only when at least three retained exact-payee rows unanimously use one eligible category and TypeSafe Jev otherwise. A disagreement between the history plurality and Jev always requires review. Never writes to YNAB.";
 export const inputSchema = {
   budgetId: z.string().optional().describe("The budget ID (defaults to YNAB_BUDGET_ID)"),
-  transactionIds: z.array(z.string()).min(1).max(100).optional().describe("Specific transaction IDs to inspect instead of fetching uncategorized transactions"),
+  transactionIds: z.array(z.string()).max(100).optional().describe("Specific transaction IDs to inspect instead of fetching uncategorized transactions; an empty array fetches uncategorized transactions"),
   limit: z.number().int().min(1).max(100).optional().describe("Maximum rows to inspect when transactionIds is omitted (default: 20, maximum: 100)"),
 };
 
@@ -242,7 +242,7 @@ async function loadCandidates(
   budgetId: string,
   api: ynab.API,
 ): Promise<CandidateLoad> {
-  if (!input.transactionIds) {
+  if (!input.transactionIds || input.transactionIds.length === 0) {
     const response = await api.transactions.getTransactions(
       budgetId,
       undefined,
@@ -259,8 +259,8 @@ async function loadCandidates(
   }
 
   const ids = [...new Set(input.transactionIds)];
-  if (ids.length === 0 || ids.length > MAX_LIMIT) {
-    throw new Error(`transactionIds must contain between 1 and ${MAX_LIMIT} unique IDs`);
+  if (ids.length > MAX_LIMIT) {
+    throw new Error(`transactionIds must contain at most ${MAX_LIMIT} unique IDs`);
   }
   const settled = await Promise.allSettled(
     ids.map((transactionId) => api.transactions.getTransactionById(budgetId, transactionId)),

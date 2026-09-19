@@ -536,7 +536,28 @@ describe("SuggestCategoriesTool", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("marks explicitly requested transaction fetch failures per row", async () => {
+  it.each([
+    ["an omitted transactionIds field", {}],
+    ["an empty transactionIds array", { transactionIds: [] }],
+  ])("fetches uncategorized transactions for %s", async (_label, input) => {
+    const api = makeApi({ candidates: [] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result(input, api);
+
+    expect(output.success).toBe(true);
+    expect(api.transactions.getTransactions).toHaveBeenNthCalledWith(
+      1,
+      "budget-id",
+      undefined,
+      ynab.GetTransactionsTypeEnum.Uncategorized,
+    );
+    expect(api.transactions.getTransactionById).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses explicit transaction IDs instead of the uncategorized fetch", async () => {
     const api = makeApi();
     api.transactions.getTransactionById
       .mockResolvedValueOnce({ data: { transaction: transaction("ok") } })
@@ -554,5 +575,11 @@ describe("SuggestCategoriesTool", () => {
       ["missing", "failed"],
     ]);
     expect(output.transactions[1].error).toContain("not found");
+    expect(api.transactions.getTransactionById).toHaveBeenCalledTimes(2);
+    expect(api.transactions.getTransactions.mock.calls).not.toContainEqual([
+      "budget-id",
+      undefined,
+      ynab.GetTransactionsTypeEnum.Uncategorized,
+    ]);
   });
 });
