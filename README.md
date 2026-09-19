@@ -100,9 +100,11 @@ which is worth considering for a connector you will mostly use on a phone.
 
 ## Tools
 
-Every tool takes an optional `budgetId` that falls back to `YNAB_BUDGET_ID`.
-All monetary values — in both directions — are plain currency amounts, never
-YNAB's milliunits; conversion happens in `src/tools/money.ts`.
+Budget-scoped tools take an optional `budgetId` that falls back to
+`YNAB_BUDGET_ID`. Optional tool inputs may be `null`; the server treats `null`
+the same as omitting that input. All monetary values — in both directions — are
+plain currency amounts, never YNAB's milliunits; conversion happens in
+`src/tools/money.ts`.
 
 ### Reading
 
@@ -124,7 +126,9 @@ YNAB's milliunits; conversion happens in `src/tools/money.ts`.
 `ynab_suggest_categories` is off by default. To expose it, set both an
 operator-owned `TYPESAFE_API_KEY` and `YNAB_AI_CATEGORIZATION=true`, then restart
 the server. The API key is read from the environment (or a Worker secret), never
-from a tool argument.
+from a tool argument. Omit `transactionIds`, pass `null`, or pass an empty
+array to fetch uncategorized transactions; provide IDs to inspect only those
+transactions.
 
 The tool is a dry-run preview: it never writes to YNAB, approves a transaction,
 or changes the behavior of `ynab_update_transaction`. It first handles exact

@@ -44,9 +44,9 @@ Each tool in `src/tools/` exports:
 Tools are listed in `src/registry.ts`; `registerAll` passes the shared YNAB `api` instance to each handler.
 
 ### Environment Variables
-- `YNAB_API_TOKEN` (required) - Personal Access Token from YNAB API
-- `YNAB_BUDGET_ID` (optional) - Default budget ID
-- `YNAB_READ_ONLY` (optional, Worker) - `"true"` serves only the read-only tools
+
+The user-facing configuration is owned by the environment-variable table in
+`README.md` and the Worker-specific settings in `DEPLOY.md`.
 
 The tool modules read `process.env` directly. The Worker has no ambient
 environment, so `src/worker/mcp.ts` mirrors its bindings onto `process.env`
