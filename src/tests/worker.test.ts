@@ -73,7 +73,7 @@ describe("worker MCP handler", () => {
     const result = await readResult(response);
     expect(result.result.serverInfo).toEqual({
       name: "ynab-mcp-server",
-      version: "0.2.1",
+      version: "0.3.0",
     });
   });
 
