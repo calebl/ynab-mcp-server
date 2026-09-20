@@ -25,7 +25,7 @@ ALWAYS use conventional commits format (Refer to https://www.conventionalcommits
 
 ## Architecture Overview
 
-This is a **Model Context Protocol (MCP) server** that provides AI tools for interacting with YNAB (You Need A Budget) budgets. Built with `@modelcontextprotocol/sdk`.
+This is a **Model Context Protocol (MCP) server** that provides AI tools for interacting with YNAB (You Need A Budget) plans. Built with `@modelcontextprotocol/sdk`.
 
 ### Core Structure
 - **Tool registry**: `src/registry.ts` - the single list of tools, shared by both entry points
@@ -58,25 +58,26 @@ before building the server.
 ```typescript
 import { z } from "zod";
 import * as ynab from "ynab";
+import { resolvePlanId } from "./planId.js";
 
 export const name = "my_tool";
 export const description = "What this tool does";
 export const inputSchema = {
-  budgetId: z.string().optional().describe("Budget ID (optional, uses YNAB_BUDGET_ID env var if not provided)"),
+  planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
+  budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   requiredParam: z.string().describe("Description of required param"),
 };
 
 interface MyToolInput {
+  planId?: string;
   budgetId?: string;
   requiredParam: string;
 }
 
 export async function execute(input: MyToolInput, api: ynab.API) {
   try {
-    const budgetId = input.budgetId || process.env.YNAB_BUDGET_ID;
-    if (!budgetId) throw new Error("No budget ID provided");
-
-    const result = await api.someMethod(budgetId, input.requiredParam);
+    const planId = resolvePlanId(input);
+    const result = await api.someMethod(planId, input.requiredParam);
 
     return {
       content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }]
@@ -119,7 +120,7 @@ See https://api.ynab.com/ for the API reference and https://github.com/ynab/ynab
 
 - Transaction listing endpoints filter server-side only by a since date, an until date, and a single `type` of either `uncategorized` or `unapproved` (see `GetTransactionsTypeEnum` in `node_modules/ynab/dist/apis/TransactionsApi.d.ts`). Approval state, cleared state, and payee are never filterable server-side; filter those in code.
 - YNAB's built-in payees "Starting Balance", "Manual Balance Adjustment", and "Reconciliation Balance Adjustment" carry no distinguishing field on the `Payee` model — match on exact name.
-- SDK 4.x renamed budget to plan internally (`planId` parameters, `PlansApi`, response fields `data.plan`, `data.plans`, `default_plan`); the old `/budgets` paths are still accepted by the server. This server keeps `budgetId` as its tool-facing input name regardless.
+- SDK 4.x renamed budget to plan internally (`planId` parameters, `PlansApi`, response fields `data.plan`, `data.plans`, `default_plan`). This server uses `planId` as the canonical tool input; `src/tools/planId.ts` owns compatibility and precedence for the legacy aliases.
 - SDK 4.x inserted `untilDate` before `type` in every transaction-listing method signature, so a positional call that only wants a `type` filter must pass an explicit `undefined` for `untilDate`.
 
 ## Maintaining this file

@@ -148,7 +148,7 @@ export async function getPendingWork(
   /**
    * Live, real transactions. Transfers between your own accounts show up as
    * uncategorized in YNAB but never need a category, and they dominate the
-   * raw counts — 77 of 80 in the budget this was built against. Nagging about
+   * raw counts — 77 of 80 in the plan this was built against. Nagging about
    * them would be pure noise.
    */
   const live = (list: ynab.TransactionDetail[]) =>
@@ -205,9 +205,9 @@ export async function runNag(env: WorkerEnv, now = new Date()): Promise<NagOutco
     return { ran: false, reason: `local hour ${hour}, today's slot is ${target}` };
   }
 
-  const budgetId = env.YNAB_BUDGET_ID;
+  const budgetId = env.YNAB_PLAN_ID || env.YNAB_BUDGET_ID;
   if (!budgetId) {
-    return { ran: false, reason: "YNAB_BUDGET_ID is not set" };
+    return { ran: false, reason: "YNAB_PLAN_ID is not set" };
   }
 
   const api = new ynab.API(env.YNAB_API_TOKEN);

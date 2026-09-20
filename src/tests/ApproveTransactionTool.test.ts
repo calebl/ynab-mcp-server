@@ -208,7 +208,8 @@ describe('ApproveTransactionTool', () => {
       expect(response.error).toContain('Failed to update transaction - no transaction data returned');
     });
 
-    it('should throw error when no budget ID is provided', async () => {
+    it('should return an error when no plan ID is provided', async () => {
+      delete process.env.YNAB_PLAN_ID;
       delete process.env.YNAB_BUDGET_ID;
 
       const result = await ApproveTransactionTool.execute(
@@ -218,7 +219,7 @@ describe('ApproveTransactionTool', () => {
 
       const response = JSON.parse(result.content[0].text);
       expect(response.success).toBe(false);
-      expect(response.error).toContain('No budget ID provided');
+      expect(response.error).toContain('No plan ID provided');
       expect(mockApi.transactions.getTransactionById).not.toHaveBeenCalled();
       expect(mockApi.transactions.updateTransaction).not.toHaveBeenCalled();
     });
@@ -324,7 +325,7 @@ describe('ApproveTransactionTool', () => {
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       expect(ApproveTransactionTool.name).toBe('ynab_approve_transaction');
-      expect(ApproveTransactionTool.description).toContain('Approves an existing transaction in your YNAB budget');
+      expect(ApproveTransactionTool.description).toContain('Approves an existing transaction in your YNAB plan');
     });
 
     it('should have correct input schema', () => {

@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
 import * as ynab from 'ynab';
-import * as BudgetSummaryTool from '../tools/BudgetSummaryTool';
+import * as PlanSummaryTool from '../tools/PlanSummaryTool';
 
 vi.mock('ynab');
 
-describe('BudgetSummaryTool', () => {
+describe('PlanSummaryTool', () => {
   let mockApi: {
     accounts: {
       getAccounts: Mock;
@@ -126,7 +126,7 @@ describe('BudgetSummaryTool', () => {
         data: mockMonthData,
       });
 
-      const result = await BudgetSummaryTool.execute({}, mockApi as any);
+      const result = await PlanSummaryTool.execute({}, mockApi as any);
 
       expect(mockApi.accounts.getAccounts).toHaveBeenCalledWith('test-budget-id');
       expect(mockApi.months.getPlanMonth).toHaveBeenCalledWith('test-budget-id', 'current');
@@ -171,7 +171,7 @@ describe('BudgetSummaryTool', () => {
         },
       });
 
-      const result = await BudgetSummaryTool.execute({}, mockApi as any);
+      const result = await PlanSummaryTool.execute({}, mockApi as any);
       const parsedResult = JSON.parse(result.content[0].text);
 
       // Only Groceries is negative; hidden and deleted categories are excluded.
@@ -200,7 +200,7 @@ describe('BudgetSummaryTool', () => {
         data: mockMonthData,
       });
 
-      const result = await BudgetSummaryTool.execute(
+      const result = await PlanSummaryTool.execute(
         { month: '2023-01-01' },
         mockApi as any
       );
@@ -216,7 +216,7 @@ describe('BudgetSummaryTool', () => {
         data: mockMonthData,
       });
 
-      const result = await BudgetSummaryTool.execute(
+      const result = await PlanSummaryTool.execute(
         { budgetId: 'custom-budget-id' },
         mockApi as any
       );
@@ -238,7 +238,7 @@ describe('BudgetSummaryTool', () => {
         },
       });
 
-      const result = await BudgetSummaryTool.execute({}, mockApi as any);
+      const result = await PlanSummaryTool.execute({}, mockApi as any);
 
       const parsedResult = JSON.parse(result.content[0].text);
       expect(parsedResult.accounts).toEqual([]);
@@ -274,7 +274,7 @@ describe('BudgetSummaryTool', () => {
         data: mockMonthData,
       });
 
-      const result = await BudgetSummaryTool.execute({}, mockApi as any);
+      const result = await PlanSummaryTool.execute({}, mockApi as any);
 
       const parsedResult = JSON.parse(result.content[0].text);
       expect(parsedResult.accounts).toHaveLength(2); // Only the 2 valid accounts
@@ -284,7 +284,7 @@ describe('BudgetSummaryTool', () => {
       const apiError = new Error('Accounts API Error');
       mockApi.accounts.getAccounts.mockRejectedValue(apiError);
 
-      const result = await BudgetSummaryTool.execute({}, mockApi as any);
+      const result = await PlanSummaryTool.execute({}, mockApi as any);
 
       const response = JSON.parse(result.content[0].text);
       expect(response.success).toBe(false);
@@ -298,21 +298,22 @@ describe('BudgetSummaryTool', () => {
       const apiError = new Error('Month API Error');
       mockApi.months.getPlanMonth.mockRejectedValue(apiError);
 
-      const result = await BudgetSummaryTool.execute({}, mockApi as any);
+      const result = await PlanSummaryTool.execute({}, mockApi as any);
 
       const response = JSON.parse(result.content[0].text);
       expect(response.success).toBe(false);
       expect(response.error).toContain('Month API Error');
     });
 
-    it('should throw error when no budget ID is provided', async () => {
+    it('should return an error when no plan ID is provided', async () => {
+      delete process.env.YNAB_PLAN_ID;
       delete process.env.YNAB_BUDGET_ID;
 
-      const result = await BudgetSummaryTool.execute({}, mockApi as any);
+      const result = await PlanSummaryTool.execute({}, mockApi as any);
 
       const response = JSON.parse(result.content[0].text);
       expect(response.success).toBe(false);
-      expect(response.error).toContain('No budget ID provided');
+      expect(response.error).toContain('No plan ID provided');
     });
 
     it('should validate month format with regex', () => {
@@ -332,13 +333,14 @@ describe('BudgetSummaryTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(BudgetSummaryTool.name).toBe('ynab_budget_summary');
-      expect(BudgetSummaryTool.description).toContain('Get a summary of the budget for a specific month');
+      expect(PlanSummaryTool.name).toBe('ynab_plan_summary');
+      expect(PlanSummaryTool.description).toContain('Get a summary of the plan for a specific month');
     });
 
     it('should have correct input schema', () => {
-      expect(BudgetSummaryTool.inputSchema).toHaveProperty('budgetId');
-      expect(BudgetSummaryTool.inputSchema).toHaveProperty('month');
+      expect(PlanSummaryTool.inputSchema).toHaveProperty('planId');
+      expect(PlanSummaryTool.inputSchema).toHaveProperty('budgetId');
+      expect(PlanSummaryTool.inputSchema).toHaveProperty('month');
     });
   });
 });

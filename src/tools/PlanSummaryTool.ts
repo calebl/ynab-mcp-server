@@ -1,27 +1,23 @@
+import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 import { toDollars } from "./money.js";
 
-export const name = "ynab_budget_summary";
-export const description = "Get a summary of the budget for a specific month highlighting overspent categories that need attention and categories with a positive balance that are doing well.";
+export const name = "ynab_plan_summary";
+export const description = "Get a summary of the plan for a specific month highlighting overspent categories that need attention and categories with a positive balance that are doing well.";
 export const inputSchema = {
-  budgetId: z.string().optional().describe("The ID of the budget to get a summary for (optional, defaults to the budget set in the YNAB_BUDGET_ID environment variable)"),
-  month: z.string().regex(/^(current|\d{4}-\d{2}-\d{2})$/).default("current").describe("The budget month in ISO format (e.g. 2016-12-01). The string 'current' can also be used to specify the current calendar month (UTC)"),
+  planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
+  budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
+  month: z.string().regex(/^(current|\d{4}-\d{2}-\d{2})$/).default("current").describe("The plan month in ISO format (e.g. 2016-12-01). The string 'current' can also be used to specify the current calendar month (UTC)"),
 };
 
 interface BudgetSummaryInput {
+  planId?: string;
   budgetId?: string;
   month?: string;
 }
 
-function getBudgetId(inputBudgetId?: string): string {
-  const budgetId = inputBudgetId || process.env.YNAB_BUDGET_ID || "";
-  if (!budgetId) {
-    throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.");
-  }
-  return budgetId;
-}
 
 function summarizeCategory(category: ynab.Category) {
   return {
@@ -36,10 +32,10 @@ function summarizeCategory(category: ynab.Category) {
 
 export async function execute(input: BudgetSummaryInput, api: ynab.API) {
   try {
-    const budgetId = getBudgetId(input.budgetId);
+    const budgetId = resolvePlanId(input);
     const month = input.month || "current";
 
-    console.error(`Getting accounts and categories for budget ${budgetId} and month ${month}`);
+    console.error(`Getting accounts and categories for plan ${budgetId} and month ${month}`);
     const accountsResponse = await api.accounts.getAccounts(budgetId);
     const accounts = accountsResponse.data.accounts
       .filter((account) => account.deleted === false && account.closed === false)
@@ -82,7 +78,7 @@ export async function execute(input: BudgetSummaryInput, api: ynab.API) {
     return {
       content: [{ type: "text" as const, text: JSON.stringify({
         month: monthBudget.month,
-        currency: "All amounts are in the budget's currency, not milliunits.",
+        currency: "All amounts are in the plan's currency, not milliunits.",
         income: toDollars(monthBudget.income),
         budgeted: toDollars(monthBudget.budgeted),
         activity: toDollars(monthBudget.activity),
@@ -95,7 +91,7 @@ export async function execute(input: BudgetSummaryInput, api: ynab.API) {
       }, null, 2) }]
     };
   } catch (error: unknown) {
-    console.error("Error getting budget summary:", error);
+    console.error("Error getting plan summary:", error);
     return {
       content: [{ type: "text" as const, text: JSON.stringify({
         success: false,

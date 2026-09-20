@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
 import * as ynab from 'ynab';
-import * as ListBudgetsTool from '../tools/ListBudgetsTool';
+import * as ListPlansTool from '../tools/ListPlansTool';
 
 vi.mock('ynab');
 
-describe('ListBudgetsTool', () => {
+describe('ListPlansTool', () => {
   let mockApi: {
     plans: {
       getPlans: Mock;
@@ -94,7 +94,7 @@ describe('ListBudgetsTool', () => {
         data: { plans: mockBudgetsData },
       });
 
-      const result = await ListBudgetsTool.execute({}, mockApi as any);
+      const result = await ListPlansTool.execute({}, mockApi as any);
 
       expect(mockApi.plans.getPlans).toHaveBeenCalledWith();
 
@@ -117,7 +117,7 @@ describe('ListBudgetsTool', () => {
         data: { plans: [] },
       });
 
-      const result = await ListBudgetsTool.execute({}, mockApi as any);
+      const result = await ListPlansTool.execute({}, mockApi as any);
 
       expect(mockApi.plans.getPlans).toHaveBeenCalledWith();
 
@@ -138,7 +138,7 @@ describe('ListBudgetsTool', () => {
         data: { plans: singleBudget },
       });
 
-      const result = await ListBudgetsTool.execute({}, mockApi as any);
+      const result = await ListPlansTool.execute({}, mockApi as any);
 
       const expectedResult = {
         content: [{
@@ -155,7 +155,7 @@ describe('ListBudgetsTool', () => {
     it('should return error message when YNAB API token is not set', async () => {
       delete process.env.YNAB_API_TOKEN;
 
-      const result = await ListBudgetsTool.execute({}, mockApi as any);
+      const result = await ListPlansTool.execute({}, mockApi as any);
 
       expect(result.isError).toBe(true);
       expect(JSON.parse(result.content[0].text)).toEqual({
@@ -168,7 +168,7 @@ describe('ListBudgetsTool', () => {
     it('should return error message when YNAB API token is empty string', async () => {
       process.env.YNAB_API_TOKEN = '';
 
-      const result = await ListBudgetsTool.execute({}, mockApi as any);
+      const result = await ListPlansTool.execute({}, mockApi as any);
 
       expect(result.isError).toBe(true);
       expect(JSON.parse(result.content[0].text)).toEqual({
@@ -182,7 +182,7 @@ describe('ListBudgetsTool', () => {
       const apiError = new Error('API Error: Unauthorized');
       mockApi.plans.getPlans.mockRejectedValue(apiError);
 
-      const result = await ListBudgetsTool.execute({}, mockApi as any);
+      const result = await ListPlansTool.execute({}, mockApi as any);
 
       const response = JSON.parse(result.content[0].text);
       expect(response.success).toBe(false);
@@ -233,7 +233,7 @@ describe('ListBudgetsTool', () => {
         data: { plans: specialBudgets },
       });
 
-      const result = await ListBudgetsTool.execute({}, mockApi as any);
+      const result = await ListPlansTool.execute({}, mockApi as any);
 
       const expectedResult = {
         content: [{
@@ -251,12 +251,12 @@ describe('ListBudgetsTool', () => {
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
-      expect(ListBudgetsTool.name).toBe('ynab_list_budgets');
-      expect(ListBudgetsTool.description).toBe('Lists all available budgets from YNAB API');
+      expect(ListPlansTool.name).toBe('ynab_list_plans');
+      expect(ListPlansTool.description).toBe('Lists all available plans from YNAB API');
     });
 
     it('should have empty input schema', () => {
-      expect(ListBudgetsTool.inputSchema).toEqual({});
+      expect(ListPlansTool.inputSchema).toEqual({});
     });
   });
 });

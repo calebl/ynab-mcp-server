@@ -214,14 +214,15 @@ describe('GetUnapprovedTransactionsTool', () => {
       expect(response.error).toContain('API Error: Unauthorized');
     });
 
-    it('should throw error when no budget ID is provided', async () => {
+    it('should return an error when no plan ID is provided', async () => {
+      delete process.env.YNAB_PLAN_ID;
       delete process.env.YNAB_BUDGET_ID;
 
       const result = await GetUnapprovedTransactionsTool.execute({}, mockApi as any);
 
       const response = JSON.parse(result.content[0].text);
       expect(response.success).toBe(false);
-      expect(response.error).toContain('No budget ID provided');
+      expect(response.error).toContain('No plan ID provided');
     });
 
     it('should convert milliunits to dollars correctly', async () => {
@@ -257,7 +258,7 @@ describe('GetUnapprovedTransactionsTool', () => {
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       expect(GetUnapprovedTransactionsTool.name).toBe('ynab_get_unapproved_transactions');
-      expect(GetUnapprovedTransactionsTool.description).toContain('Gets every unapproved transaction in a budget');
+      expect(GetUnapprovedTransactionsTool.description).toContain('Gets every unapproved transaction in a plan');
     });
 
     it('should have correct input schema', () => {

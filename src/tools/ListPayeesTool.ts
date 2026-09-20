@@ -1,28 +1,24 @@
+import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 
 export const name = "ynab_list_payees";
-export const description = "Lists all payees in a budget. Useful for finding payee IDs when creating transactions.";
+export const description = "Lists all payees in a plan. Useful for finding payee IDs when creating transactions.";
 export const inputSchema = {
-  budgetId: z.string().optional().describe("The ID of the budget (optional, defaults to YNAB_BUDGET_ID environment variable)"),
+  planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
+  budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
 };
 
 interface ListPayeesInput {
+  planId?: string;
   budgetId?: string;
 }
 
-function getBudgetId(inputBudgetId?: string): string {
-  const budgetId = inputBudgetId || process.env.YNAB_BUDGET_ID || "";
-  if (!budgetId) {
-    throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.");
-  }
-  return budgetId;
-}
 
 export async function execute(input: ListPayeesInput, api: ynab.API) {
   try {
-    const budgetId = getBudgetId(input.budgetId);
+    const budgetId = resolvePlanId(input);
 
     console.error(`Listing payees for budget ${budgetId}`);
     const response = await api.payees.getPayees(budgetId);

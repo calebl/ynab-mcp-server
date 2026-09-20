@@ -1,3 +1,4 @@
+import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
@@ -5,28 +6,23 @@ import { toDollars } from "./money.js";
 import { mapSubtransactions } from "./splits.js";
 
 export const name = "ynab_get_unapproved_transactions";
-export const description = "Gets every unapproved transaction in a budget, optionally limited to those on or after a given date.";
+export const description = "Gets every unapproved transaction in a plan, optionally limited to those on or after a given date.";
 export const inputSchema = {
-  budgetId: z.string().optional().describe("The ID of the budget to fetch transactions for (optional, defaults to the budget set in the YNAB_BUDGET_ID environment variable)"),
+  planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
+  budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   sinceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Only return transactions on or after this date (ISO format: 2024-01-01). Omit to return all unapproved transactions."),
 };
 
 interface GetUnapprovedTransactionsInput {
+  planId?: string;
   budgetId?: string;
   sinceDate?: string;
 }
 
-function getBudgetId(inputBudgetId?: string): string {
-  const budgetId = inputBudgetId || process.env.YNAB_BUDGET_ID || "";
-  if (!budgetId) {
-    throw new Error("No budget ID provided. Please provide a budget ID or set the YNAB_BUDGET_ID environment variable.");
-  }
-  return budgetId;
-}
 
 export async function execute(input: GetUnapprovedTransactionsInput, api: ynab.API) {
   try {
-    const budgetId = getBudgetId(input.budgetId);
+    const budgetId = resolvePlanId(input);
 
     console.error(`Getting unapproved transactions for budget ${budgetId}`);
 
