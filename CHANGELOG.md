@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-20
+
+### Added
+- Added the opt-in read-only `ynab_suggest_categories` preview tool with TypeSafe Jev eligibility rules and skip summaries.
+- Added MCP tool annotations.
+- Added plan-named tools `ynab_list_plans` and `ynab_plan_summary` with `planId` and `YNAB_PLAN_ID`.
+
+### Changed
+- Upgraded the `ynab` SDK from 2.10 to 4.5, including its budget-to-plan internal rename.
+- Reported tool failures as MCP error results and restored field descriptions in advertised schemas.
+- Used YNAB enums for create-transaction cleared/flagColor values, including reconciled and flag clearing.
+- Tightened input validation, allowed null optional inputs, and pinned the MCP inspector dev dependency.
+
+### Deprecated
+- `ynab_list_budgets`, `ynab_budget_summary`, `budgetId`, and `YNAB_BUDGET_ID` remain accepted aliases. `YNAB_BUDGET_ID` is deprecated and still accepted, with no removal date stated.
+
+### Fixed
+- Fixed transaction-listing filter argument order after the SDK upgrade.
+- Accepted empty or null `transactionIds`.
+
 ## [0.2.1] - 2026-09-17
 
 ### Changed
