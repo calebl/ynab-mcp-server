@@ -136,8 +136,13 @@ plain currency amounts, never YNAB's milliunits; conversion happens in
 | `ynab_get_transactions` | Transactions filtered by `sinceDate`, `accountId`, `categoryId`, `payeeId`, `type` (`all`/`uncategorized`/`unapproved`) and `limit` (default 100). |
 | `ynab_get_unapproved_transactions` | Unapproved transactions, optionally from `sinceDate` onward. |
 | `ynab_suggest_categories` | Opt-in, read-only category previews for unapproved, uncategorized ordinary outflows. Deleted and categorized rows are dropped in default mode; approved, reconciled, balance-adjustment, transfer, split, and inflow rows are skipped as applicable. |
+| `ynab_apply_category_suggestions` | Explicitly applies up to 25 category suggestions after refetching and fingerprint checks; supports dry-run and returns a pre-write undo manifest. Never auto-applies, approves, or calls TypeSafe. |
 
 ### Category suggestions (optional)
+
+`ynab_apply_category_suggestions` is a separate write tool: provide explicit
+`transaction_id`, `category_id`, and `expected_content_fingerprint` rows. It does
+not call TypeSafe and never approves transactions.
 
 `ynab_suggest_categories` is off by default. To expose it, set both an
 operator-owned `TYPESAFE_API_KEY` and `YNAB_AI_CATEGORIZATION=true`, then restart
