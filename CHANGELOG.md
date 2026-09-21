@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added the opt-in read-only `ynab_suggest_categories` preview tool with TypeSafe Jev eligibility rules and skip summaries.
+- Added `ynab_apply_category_suggestions` for explicit, guarded bulk application with dry-run and undo manifests.
 - Added MCP tool annotations.
 - Added plan-named tools `ynab_list_plans` and `ynab_plan_summary` with `planId` and `YNAB_PLAN_ID`.
 

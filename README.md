@@ -136,13 +136,16 @@ plain currency amounts, never YNAB's milliunits; conversion happens in
 | `ynab_get_transactions` | Transactions filtered by `sinceDate`, `accountId`, `categoryId`, `payeeId`, `type` (`all`/`uncategorized`/`unapproved`) and `limit` (default 100). |
 | `ynab_get_unapproved_transactions` | Unapproved transactions, optionally from `sinceDate` onward. |
 | `ynab_suggest_categories` | Opt-in, read-only category previews for unapproved, uncategorized ordinary outflows. Deleted and categorized rows are dropped in default mode; approved, reconciled, balance-adjustment, transfer, split, and inflow rows are skipped as applicable. |
-| `ynab_apply_category_suggestions` | Explicitly applies up to 25 category suggestions after refetching and fingerprint checks; supports dry-run and returns a pre-write undo manifest. Never auto-applies, approves, or calls TypeSafe. |
 
 ### Category suggestions (optional)
 
-`ynab_apply_category_suggestions` is a separate write tool: provide explicit
-`transaction_id`, `category_id`, and `expected_content_fingerprint` rows. It does
-not call TypeSafe and never approves transactions.
+`ynab_apply_category_suggestions` is a separate write tool that is available
+without enabling the TypeSafe preview. Provide up to 25 explicit
+`transaction_id`, `category_id`, and `expected_content_fingerprint` rows. The
+tool refetches each transaction and rejects stale or ineligible changes; a retry
+whose category is already applied is a no-op. It supports validation-only dry
+runs and returns a pre-write undo manifest, but does not perform the undo. It
+never auto-applies suggestions, calls TypeSafe, or approves transactions.
 
 `ynab_suggest_categories` is off by default. To expose it, set both an
 operator-owned `TYPESAFE_API_KEY` and `YNAB_AI_CATEGORIZATION=true`, then restart
@@ -174,8 +177,9 @@ goes to TypeSafe's pinned `jev-1.13.0` System One model in batches of ten. Any
 disagreement between the history plurality and the model forces
 `needs_review`. Every inspected eligible row includes a status, content
 fingerprint, proposed category, confidence, winning probability, up to three
-alternatives, and history summary. Applying a suggestion remains a separate
-human decision using `ynab_update_transaction`.
+alternatives, and history summary. Applying a suggestion remains a separate,
+explicit human decision using `ynab_apply_category_suggestions` (or the general
+`ynab_update_transaction` tool).
 
 Enabling this feature sends the transaction's display payee, imported/original
 payee, memo, amount, date, and account name/type/on-budget status, plus visible
@@ -211,6 +215,7 @@ accounts are excluded, so these report spending rather than money movement.
 | `ynab_delete_transaction` | Deletes a transaction. Not undoable. |
 | `ynab_approve_transaction` | Approves (or un-approves) one transaction. |
 | `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call. |
+| `ynab_apply_category_suggestions` | Applies up to 25 explicit category suggestions with refetch and stale-data checks, dry-run support, and a pre-write undo manifest. Never auto-applies or approves transactions. |
 | `ynab_update_category_budget` | Sets the total budgeted amount for a category in a month. Not an increment. |
 | `ynab_import_transactions` | Triggers an import from linked institutions, the same as hitting Import in the YNAB app. |
 | `ynab_move_money` | Moves budgeted money between two categories in a month, for covering overspending. |

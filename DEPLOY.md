@@ -161,9 +161,10 @@ npm run deploy
 ## TypeSafe category preview (optional)
 
 When enabled as described above, `ynab_suggest_categories` proposes categories
-for eligible uncategorized outflows. It is a preview only: it never writes to
-YNAB, and applying a proposal still requires a separate human-approved
-`ynab_update_transaction` call.
+for eligible uncategorized outflows. It is a preview only and never writes to
+YNAB. Applying a proposal requires a separate explicit write; see
+[Category suggestions](./README.md#category-suggestions-optional) for the apply
+tool and its safeguards.
 
 The request sends display payee and imported/original payee text, memo, amount,
 date, account name/type/on-budget status, and visible category group/category

@@ -60,10 +60,20 @@ function makeApi(currentTransaction: ReturnType<typeof transaction>) {
   };
 }
 
-async function execute(currentTransaction: ReturnType<typeof transaction>, expectedFingerprint: string) {
+async function execute(
+  currentTransaction: ReturnType<typeof transaction>,
+  expectedFingerprint: string,
+  options: { dryRun?: boolean; updatedTransaction?: ReturnType<typeof transaction> } = {},
+) {
   const api = makeApi(currentTransaction);
+  if (options.updatedTransaction) {
+    api.transactions.updateTransactions.mockResolvedValue({
+      data: { transactions: [options.updatedTransaction] },
+    });
+  }
   const response = await ApplyTool.execute({
     planId: "plan-id",
+    dry_run: options.dryRun,
     suggestions: [{
       transaction_id: "txn-1",
       category_id: "cat-grocery",
@@ -75,6 +85,55 @@ async function execute(currentTransaction: ReturnType<typeof transaction>, expec
 }
 
 describe("ApplyCategorySuggestionsTool", () => {
+  it("applies an explicit suggestion without approving and returns its undo manifest", async () => {
+    const currentTransaction = transaction();
+    const expectedFingerprint = await contentFingerprint(currentTransaction as ynab.TransactionDetail);
+    const { api, output } = await execute(currentTransaction, expectedFingerprint, {
+      updatedTransaction: transaction({ category_id: "cat-grocery", category_name: "Groceries" }),
+    });
+
+    expect(api.transactions.updateTransactions).toHaveBeenCalledWith("plan-id", {
+      transactions: [{ id: "txn-1", category_id: "cat-grocery" }],
+    });
+    expect(output).toMatchObject({
+      success: true,
+      dry_run: false,
+      undo_manifest: [{
+        transaction_id: "txn-1",
+        category_id: null,
+        approved: false,
+        requested_category_id: "cat-grocery",
+      }],
+      rows: [{ transaction_id: "txn-1", status: "applied" }],
+    });
+  });
+
+  it("validates a dry run and does not write", async () => {
+    const currentTransaction = transaction();
+    const expectedFingerprint = await contentFingerprint(currentTransaction as ynab.TransactionDetail);
+    const { api, output } = await execute(currentTransaction, expectedFingerprint, { dryRun: true });
+
+    expect(api.transactions.updateTransactions).not.toHaveBeenCalled();
+    expect(output).toMatchObject({
+      success: true,
+      dry_run: true,
+      undo_manifest: [{ transaction_id: "txn-1", category_id: null, approved: false }],
+      rows: [{ transaction_id: "txn-1", status: "would_apply" }],
+    });
+  });
+
+  it("rejects a stale suggestion without writing", async () => {
+    const expectedFingerprint = await contentFingerprint(transaction({ memo: "old memo" }) as ynab.TransactionDetail);
+    const { api, output } = await execute(transaction({ memo: "changed memo" }), expectedFingerprint);
+
+    expect(output.rows).toEqual([expect.objectContaining({
+      transaction_id: "txn-1",
+      status: "rejected",
+      reason: "fingerprint_mismatch",
+    })]);
+    expect(api.transactions.updateTransactions).not.toHaveBeenCalled();
+  });
+
   it("treats a retried successful suggestion as already applied", async () => {
     const expectedFingerprint = await contentFingerprint(transaction() as ynab.TransactionDetail);
     const { api, output } = await execute(
