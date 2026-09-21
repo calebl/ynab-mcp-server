@@ -77,12 +77,13 @@ claude.ai or the Claude mobile app, deploy `src/worker/` to Cloudflare Workers
 and add it as a custom connector. [DEPLOY.md](./DEPLOY.md) has the full walk
 through; the shape of it:
 
-1. `npx wrangler login`, then `npx wrangler kv namespace create OAUTH_KV`
+1. Copy `wrangler.example.jsonc` to the git-ignored `wrangler.jsonc`, run
+   `npx wrangler login`, then create the `OAUTH_KV` namespace
 2. `npm run deploy` once to learn your `*.workers.dev` hostname
 3. Create a GitHub OAuth app whose callback is `https://<host>/callback`
-4. Set `ALLOWED_GITHUB_LOGIN` in `wrangler.jsonc` to the one account allowed in
-5. `npx wrangler secret put` for `YNAB_API_TOKEN`, `GITHUB_CLIENT_ID` and
-   `GITHUB_CLIENT_SECRET`, then `npm run deploy` again
+4. Use `npx wrangler secret put` for `ALLOWED_GITHUB_LOGIN`, `YNAB_API_TOKEN`,
+   `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `TYPESAFE_API_KEY`
+5. Run `npm run deploy` again
 6. Add `https://<host>/mcp` as a custom connector in claude.ai
 
 The YNAB token stays a Worker secret and never reaches the client. GitHub sign-in
