@@ -206,7 +206,7 @@ function activeSubtransactions(transaction: ynab.TransactionDetail): ynab.SubTra
   return (transaction.subtransactions ?? []).filter((sub) => !sub.deleted);
 }
 
-function isTransfer(
+export function isTransfer(
   transaction: ynab.TransactionDetail,
   payeesById: Map<string, ynab.Payee>,
 ): boolean {
@@ -280,7 +280,7 @@ function stableFingerprintPayload(transaction: ynab.TransactionDetail): string {
   });
 }
 
-async function contentFingerprint(transaction: ynab.TransactionDetail): Promise<string> {
+export async function contentFingerprint(transaction: ynab.TransactionDetail): Promise<string> {
   const bytes = new TextEncoder().encode(stableFingerprintPayload(transaction));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return `sha256:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
