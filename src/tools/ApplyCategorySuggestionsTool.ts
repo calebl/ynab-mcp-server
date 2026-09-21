@@ -35,11 +35,14 @@ export async function execute(input: Input, api: ynab.API) {
       let transaction: ynab.TransactionDetail;
       try { transaction = (await api.transactions.getTransactionById(planId, row.transaction_id)).data.transaction; }
       catch (error) { rows.push({ ...row, status: "rejected", reason: `refetch_failed: ${getErrorMessage(error)}` }); continue; }
+      if (transaction.category_id === row.category_id) { rows.push({ ...row, status: "already_applied" }); continue; }
       const actual = await contentFingerprint(transaction);
       if (actual !== row.expected_content_fingerprint) { rows.push({ ...row, status: "rejected", reason: "fingerprint_mismatch", current_content_fingerprint: actual }); continue; }
-      if (transaction.category_id === row.category_id) { rows.push({ ...row, status: "already_applied" }); continue; }
       let reason: string | undefined;
-      if (!eligible.has(row.category_id)) reason = "ineligible_category";
+      if (transaction.deleted) reason = "deleted";
+      else if (transaction.approved) reason = "approved";
+      else if (transaction.cleared === "reconciled") reason = "reconciled";
+      else if (!eligible.has(row.category_id)) reason = "ineligible_category";
       else if (transaction.transfer_account_id || isTransfer(transaction, new Map())) reason = "transfer";
       else if ((transaction.subtransactions ?? []).some(s => !s.deleted)) reason = "split";
       else if (transaction.category_id) reason = "not_uncategorized";
