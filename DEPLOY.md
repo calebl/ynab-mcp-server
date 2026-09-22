@@ -19,9 +19,13 @@ anyone who finds the URL rewrite those plans.
 
 ## One-time setup
 
-### 1. Cloudflare account and login
+### 1. Create your local Wrangler config and log in
+
+The repository provides a template; the real config is git-ignored because it
+contains your account-specific KV namespace ID.
 
 ```bash
+cp wrangler.example.jsonc wrangler.jsonc
 npx wrangler login
 ```
 
@@ -31,7 +35,9 @@ npx wrangler login
 npx wrangler kv namespace create OAUTH_KV
 ```
 
-Copy the printed `id` into `wrangler.jsonc`, replacing `REPLACE_WITH_KV_NAMESPACE_ID`.
+Copy the printed `id` into your local `wrangler.jsonc`, replacing
+`REPLACE_WITH_KV_NAMESPACE_ID`. Do not edit `wrangler.example.jsonc` with your
+account-specific value.
 
 ### 3. Create a GitHub OAuth app
 
@@ -43,17 +49,14 @@ At <https://github.com/settings/developers> → **New OAuth App**:
 You get the exact hostname after the first `npm run deploy`; deploy once, then
 fill these in and update them if the name changes.
 
-### 4. Set the allowed login
+### 4. Set deployment values and secrets
 
-In `wrangler.jsonc`, set `ALLOWED_GITHUB_LOGIN` to your GitHub username. Only
-that account can complete sign-in.
-
-### 5. Set the secrets
-
-Run each of these and paste the value when prompted. Secrets never go in
-`wrangler.jsonc`.
+Run each command and paste the value when prompted. Keep deployment-specific
+values out of `wrangler.jsonc`; Wrangler stores them remotely on the Worker.
+Only the GitHub username stored in `ALLOWED_GITHUB_LOGIN` can complete sign-in.
 
 ```bash
+npx wrangler secret put ALLOWED_GITHUB_LOGIN
 npx wrangler secret put YNAB_API_TOKEN
 npx wrangler secret put GITHUB_CLIENT_ID
 npx wrangler secret put GITHUB_CLIENT_SECRET
@@ -68,17 +71,16 @@ npx wrangler secret put YNAB_PLAN_ID
 `YNAB_BUDGET_ID` is deprecated but still accepted as an alias; there is no
 removal date. Use `YNAB_PLAN_ID` for new deployments.
 
-Category suggestions are a separate, default-off integration. To opt in, store
-the operator-owned TypeSafe credential as a Worker secret:
+Set the operator-owned TypeSafe credential as a Worker secret:
 
 ```bash
 npx wrangler secret put TYPESAFE_API_KEY
 ```
 
-Then add `"YNAB_AI_CATEGORIZATION": "true"` under `vars` in
-`wrangler.jsonc`. Both settings are required; the key never belongs in
-`wrangler.jsonc` or a tool argument. Without either setting,
-`ynab_suggest_categories` is omitted from `tools/list`.
+Category suggestions remain off unless you also add
+`"YNAB_AI_CATEGORIZATION": "true"` under `vars` in `wrangler.jsonc`. Both
+settings are required to expose `ynab_suggest_categories`; the key never
+belongs in `wrangler.jsonc` or a tool argument.
 
 ### 6. Deploy
 
@@ -123,10 +125,12 @@ or groups" → add the service account's email with **Make changes to events**.
 
 ### 3. Configure and deploy
 
-Set `NAG_CALENDAR_ID`, `NAG_TIMEZONE`, the `NAG_HOUR_MIN`/`NAG_HOUR_MAX`
-window and `NAG_SINCE_DAYS` in `wrangler.jsonc`, then store the key file as a secret:
+Set the deployment-specific calendar ID and service-account key as Worker
+secrets. Configure `NAG_TIMEZONE`, the `NAG_HOUR_MIN`/`NAG_HOUR_MAX` window,
+and `NAG_SINCE_DAYS` in `wrangler.jsonc` if their defaults do not suit you:
 
 ```bash
+npx wrangler secret put NAG_CALENDAR_ID
 npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON < service-account.json
 npm run deploy
 ```
@@ -161,9 +165,10 @@ npm run deploy
 ## TypeSafe category preview (optional)
 
 When enabled as described above, `ynab_suggest_categories` proposes categories
-for eligible uncategorized outflows. It is a preview only: it never writes to
-YNAB, and applying a proposal still requires a separate human-approved
-`ynab_update_transaction` call.
+for eligible uncategorized outflows. It is a preview only and never writes to
+YNAB. Applying a proposal requires a separate explicit write; see
+[Category suggestions](./README.md#category-suggestions-optional) for the apply
+tool and its safeguards.
 
 The request sends display payee and imported/original payee text, memo, amount,
 date, account name/type/on-budget status, and visible category group/category

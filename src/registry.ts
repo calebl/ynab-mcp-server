@@ -24,6 +24,7 @@ import * as SpendingByCategoryTool from "./tools/SpendingByCategoryTool.js";
 import * as SpendingByPayeeTool from "./tools/SpendingByPayeeTool.js";
 import * as CashFlowTool from "./tools/CashFlowTool.js";
 import * as SuggestCategoriesTool from "./tools/SuggestCategoriesTool.js";
+import * as ApplyCategorySuggestionsTool from "./tools/ApplyCategorySuggestionsTool.js";
 import { getErrorMessage, toolError } from "./tools/errorUtils.js";
 
 /** A tool module as exported by every file in src/tools. */
@@ -88,6 +89,7 @@ export const tools: ToolEntry[] = [
   { title: "Spending By Payee", module: SpendingByPayeeTool, writes: false },
   { title: "Cash Flow", module: CashFlowTool, writes: false },
   { title: "Suggest Categories", module: SuggestCategoriesTool, writes: false, requiresAiCategorization: true },
+  { title: "Apply Category Suggestions", module: ApplyCategorySuggestionsTool, writes: true, idempotent: true },
 ];
 
 /**

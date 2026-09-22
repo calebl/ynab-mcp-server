@@ -19,21 +19,16 @@
 			// OAuth grants and tokens. Create with:
 			//   npx wrangler kv namespace create OAUTH_KV
 			"binding": "OAUTH_KV",
-			"id": "7bcc07072913466b93a2a333514741ed",
+			"id": "REPLACE_WITH_KV_NAMESPACE_ID",
 			"remote": true
 		}
 	],
 	"vars": {
-		// Non-secret config. Secrets (YNAB_API_TOKEN, GITHUB_CLIENT_SECRET)
-		// are set with `wrangler secret put`, never here.
-		"ALLOWED_GITHUB_LOGIN": "ianthebeard",
+		// Deployment-specific values and credentials are set with
+		// `wrangler secret put`, never committed here.
 		"YNAB_READ_ONLY": "false",
-		// Plan 2026. Not a secret — a plan ID alone grants no access.
-		"YNAB_PLAN_ID": "82593cdb-bc22-4049-b04d-deaae054aa73",
-		// YNAB_BUDGET_ID is a deprecated, still-accepted alias with no removal date.
-		// Categorize reminder. GOOGLE_SERVICE_ACCOUNT_JSON is a secret; without
-		// it the scheduled job is a no-op.
-		"NAG_CALENDAR_ID": "262a792f16cf742caaee1325fe5bf225671a6f7cbc26a490bc05e92776d5dac6@group.calendar.google.com",
+		// Categorize reminders are disabled unless NAG_CALENDAR_ID and the
+		// GOOGLE_SERVICE_ACCOUNT_JSON secret are configured for a deployment.
 		"NAG_TIMEZONE": "America/Los_Angeles",
 		// The nag lands on a random hour in this window, different each day.
 		"NAG_HOUR_MIN": "8",

@@ -77,12 +77,13 @@ claude.ai or the Claude mobile app, deploy `src/worker/` to Cloudflare Workers
 and add it as a custom connector. [DEPLOY.md](./DEPLOY.md) has the full walk
 through; the shape of it:
 
-1. `npx wrangler login`, then `npx wrangler kv namespace create OAUTH_KV`
+1. Copy `wrangler.example.jsonc` to the git-ignored `wrangler.jsonc`, run
+   `npx wrangler login`, then create the `OAUTH_KV` namespace
 2. `npm run deploy` once to learn your `*.workers.dev` hostname
 3. Create a GitHub OAuth app whose callback is `https://<host>/callback`
-4. Set `ALLOWED_GITHUB_LOGIN` in `wrangler.jsonc` to the one account allowed in
-5. `npx wrangler secret put` for `YNAB_API_TOKEN`, `GITHUB_CLIENT_ID` and
-   `GITHUB_CLIENT_SECRET`, then `npm run deploy` again
+4. Use `npx wrangler secret put` for `ALLOWED_GITHUB_LOGIN`, `YNAB_API_TOKEN`,
+   `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `TYPESAFE_API_KEY`
+5. Run `npm run deploy` again
 6. Add `https://<host>/mcp` as a custom connector in claude.ai
 
 The YNAB token stays a Worker secret and never reaches the client. GitHub sign-in
@@ -139,6 +140,14 @@ plain currency amounts, never YNAB's milliunits; conversion happens in
 
 ### Category suggestions (optional)
 
+`ynab_apply_category_suggestions` is a separate write tool that is available
+without enabling the TypeSafe preview. Provide up to 25 explicit
+`transaction_id`, `category_id`, and `expected_content_fingerprint` rows. The
+tool refetches each transaction and rejects stale or ineligible changes; a retry
+whose category is already applied is a no-op. It supports validation-only dry
+runs and returns a pre-write undo manifest, but does not perform the undo. It
+never auto-applies suggestions, calls TypeSafe, or approves transactions.
+
 `ynab_suggest_categories` is off by default. To expose it, set both an
 operator-owned `TYPESAFE_API_KEY` and `YNAB_AI_CATEGORIZATION=true`, then restart
 the server. The API key is read from the environment (or a Worker secret), never
@@ -169,8 +178,9 @@ goes to TypeSafe's pinned `jev-1.13.0` System One model in batches of ten. Any
 disagreement between the history plurality and the model forces
 `needs_review`. Every inspected eligible row includes a status, content
 fingerprint, proposed category, confidence, winning probability, up to three
-alternatives, and history summary. Applying a suggestion remains a separate
-human decision using `ynab_update_transaction`.
+alternatives, and history summary. Applying a suggestion remains a separate,
+explicit human decision using `ynab_apply_category_suggestions` (or the general
+`ynab_update_transaction` tool).
 
 Enabling this feature sends the transaction's display payee, imported/original
 payee, memo, amount, date, and account name/type/on-budget status, plus visible
@@ -206,6 +216,7 @@ accounts are excluded, so these report spending rather than money movement.
 | `ynab_delete_transaction` | Deletes a transaction. Not undoable. |
 | `ynab_approve_transaction` | Approves (or un-approves) one transaction. |
 | `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call. |
+| `ynab_apply_category_suggestions` | Applies up to 25 explicit category suggestions with refetch and stale-data checks, dry-run support, and a pre-write undo manifest. Never auto-applies or approves transactions. |
 | `ynab_update_category_budget` | Sets the total budgeted amount for a category in a month. Not an increment. |
 | `ynab_import_transactions` | Triggers an import from linked institutions, the same as hitting Import in the YNAB app. |
 | `ynab_move_money` | Moves budgeted money between two categories in a month, for covering overspending. |

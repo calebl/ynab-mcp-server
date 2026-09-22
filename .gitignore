@@ -9,4 +9,5 @@ coverage
 dist
 
 .dev.vars
+wrangler.jsonc
 .wrangler/
