@@ -292,6 +292,15 @@ Useful references:
 - YNAB SDK types: `node_modules/ynab/dist/index.d.ts`
 - YNAB OpenAPI spec: <https://api.ynab.com/papi/open_api_spec.yaml>
 
+## Contributing
+
+Pull requests targeting `main` must be raised through
+[`no-mistakes`](https://github.com/kunchenguid/no-mistakes).
+Install it, run `no-mistakes init`, commit your changes, and push with
+`git push no-mistakes` so the review/test pipeline can open a compliant PR.
+See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/start-here/quick-start/)
+for setup.
+
 ## Compatibility
 
 `ynab_list_budgets` and `ynab_budget_summary` remain accepted aliases for the
