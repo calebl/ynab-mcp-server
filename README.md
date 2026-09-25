@@ -211,7 +211,7 @@ accounts are excluded, so these report spending rather than money movement.
 
 | Tool | What it does |
 | --- | --- |
-| `ynab_create_transaction` | Creates a transaction. Needs `date`, `amount`, an account (`accountId` or `accountName`) and a payee (`payeeId` or `payeeName`); category optional as `categoryId` or `categoryName`. |
+| `ynab_create_transaction` | Creates a transaction. Needs `date`, `amount`, an account (`accountId` or `accountName`) and a payee (`payeeId` or `payeeName`); category optional as `categoryId` or `categoryName`, or `subtransactions` to split it. |
 | `ynab_update_transaction` | Updates any subset of an existing transaction's fields. |
 | `ynab_delete_transaction` | Deletes a transaction. Not undoable. |
 | `ynab_approve_transaction` | Approves (or un-approves) one transaction. |
@@ -230,6 +230,15 @@ Closed accounts and hidden categories are never matched. If a name is ambiguous
 or unrecognised the call fails and names the near misses rather than guessing,
 and successful calls echo back `matchedAccount` / `matchedCategory` so a wrong
 guess is visible.
+
+#### Split transactions
+
+`ynab_create_transaction` splits a transaction across categories when given
+`subtransactions`: two or more entries of `{ amount, category_name, payee_name,
+memo }`, the same shape `ynab_get_transactions` returns for a split. Amounts are
+in dollars and must add up to `amount` exactly; categories go on the splits, not
+on the parent. Split category names are matched like `categoryName` and echoed
+back as `matchedSplitCategories`.
 
 #### Writes that can half-succeed
 
