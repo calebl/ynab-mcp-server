@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `ynab_create_transaction` accepts `subtransactions` to create split transactions, in the same shape transaction listings return.
+- `ynab_create_transaction` and `ynab_update_transaction` accept `subtransactions` to split a transaction, in the same shape transaction listings return. Update refuses to re-split an already-split transaction, which YNAB does not support.
 
 ## [0.3.0] - 2026-09-20
 
