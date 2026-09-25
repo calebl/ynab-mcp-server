@@ -559,6 +559,109 @@ describe('CreateTransactionTool', () => {
     });
   });
 
+  describe('split transactions', () => {
+    beforeEach(() => {
+      mockApi.transactions.createTransaction.mockResolvedValue({
+        data: { transaction: { id: 'transaction-123' } },
+      });
+    });
+
+    const split = (overrides = {}) =>
+      CreateTransactionTool.execute(
+        {
+          accountId: 'account-checking',
+          date: '2024-03-01',
+          amount: -100,
+          payeeName: 'Costco',
+          subtransactions: [
+            { amount: -60, category_name: 'groceries', memo: 'food' },
+            { amount: -40, category_name: 'dining', payee_name: 'Costco Food Court' },
+          ],
+          ...overrides,
+        } as any,
+        mockApi as any
+      );
+
+    it('creates subtransactions with resolved categories and milliunit amounts', async () => {
+      const response = JSON.parse((await split()).content[0].text);
+
+      expect(response.success).toBe(true);
+      expect(response.matchedSplitCategories).toEqual(['Groceries', 'Dining Out']);
+
+      const transaction = mockApi.transactions.createTransaction.mock.calls[0][1].transaction;
+      expect(transaction.category_id).toBeUndefined();
+      expect(transaction.subtransactions).toEqual([
+        { amount: -60000, category_id: 'category-groceries', payee_name: undefined, memo: 'food' },
+        { amount: -40000, category_id: 'category-dining', payee_name: 'Costco Food Court', memo: undefined },
+      ]);
+      expect(mockApi.categories.getCategories).toHaveBeenCalledTimes(1);
+    });
+
+    it('accepts splits exactly as ynab_get_transactions returns them', async () => {
+      const response = JSON.parse((await split({
+        subtransactions: [
+          { amount: -60, category_name: 'Groceries', payee_name: null, memo: null },
+          { amount: -40, category_name: null, payee_name: null, memo: null },
+        ],
+      })).content[0].text);
+
+      expect(response.success).toBe(true);
+      expect(mockApi.transactions.createTransaction.mock.calls[0][1].transaction.subtransactions[1])
+        .toEqual({ amount: -40000, category_id: undefined, payee_name: undefined, memo: undefined });
+    });
+
+    it('rejects splits that do not add up to the transaction amount', async () => {
+      const response = JSON.parse((await split({ amount: -99.99 })).content[0].text);
+
+      expect(response.success).toBe(false);
+      expect(response.error).toBe('Split amounts add up to -100 but the transaction amount is -99.99');
+      expect(mockApi.transactions.createTransaction).not.toHaveBeenCalled();
+    });
+
+    it('sums in milliunits so float cents do not cause false mismatches', async () => {
+      const response = JSON.parse((await split({
+        amount: 0.3,
+        subtransactions: [{ amount: 0.1 }, { amount: 0.2 }],
+      })).content[0].text);
+
+      expect(response.success).toBe(true);
+    });
+
+    it('rejects a category on the parent of a split', async () => {
+      const response = JSON.parse((await split({ categoryName: 'groceries' })).content[0].text);
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('not on a split transaction itself');
+      expect(mockApi.transactions.createTransaction).not.toHaveBeenCalled();
+    });
+
+    it('fails without writing when a split category does not match', async () => {
+      const response = JSON.parse((await split({
+        subtransactions: [
+          { amount: -60, category_name: 'groceries' },
+          { amount: -40, category_name: 'retired' },
+        ],
+      })).content[0].text);
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('No category matching');
+      expect(mockApi.transactions.createTransaction).not.toHaveBeenCalled();
+    });
+
+    it('requires at least two splits at the schema level', () => {
+      const schema = CreateTransactionTool.inputSchema.subtransactions as z.ZodType;
+      expect(schema.safeParse([{ amount: -10 }]).success).toBe(false);
+      expect(schema.safeParse([{ amount: -5 }, { amount: -5 }]).success).toBe(true);
+    });
+
+    it('omits subtransactions from ordinary transactions', async () => {
+      await split({ subtransactions: undefined });
+
+      expect(mockApi.transactions.createTransaction.mock.calls[0][1].transaction)
+        .not.toHaveProperty('subtransactions');
+    });
+  });
+
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       expect(CreateTransactionTool.name).toBe('ynab_create_transaction');
@@ -577,6 +680,7 @@ describe('CreateTransactionTool', () => {
       expect(CreateTransactionTool.inputSchema).toHaveProperty('cleared');
       expect(CreateTransactionTool.inputSchema).toHaveProperty('approved');
       expect(CreateTransactionTool.inputSchema).toHaveProperty('flagColor');
+      expect(CreateTransactionTool.inputSchema).toHaveProperty('subtransactions');
     });
   });
 });

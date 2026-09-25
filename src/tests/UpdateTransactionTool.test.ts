@@ -243,6 +243,123 @@ describe('UpdateTransactionTool', () => {
     });
   });
 
+  describe('split transactions', () => {
+    let api: any;
+
+    beforeEach(() => {
+      api = {
+        transactions: {
+          getTransactionById: vi.fn().mockResolvedValue({
+            data: { transaction: { id: 'txn-1', amount: -100000, subtransactions: [] } },
+          }),
+          updateTransaction: vi.fn().mockResolvedValue({
+            data: {
+              transaction: {
+                id: 'txn-1',
+                amount: -100000,
+                category_name: 'Split',
+                subtransactions: [
+                  { amount: -60000, category_name: 'Groceries', payee_name: null, memo: null, deleted: false },
+                  { amount: -40000, category_name: 'Dining Out', payee_name: null, memo: null, deleted: false },
+                ],
+              },
+            },
+          }),
+        },
+        categories: {
+          getCategories: vi.fn().mockResolvedValue({
+            data: {
+              category_groups: [{
+                deleted: false,
+                hidden: false,
+                categories: [
+                  { id: 'category-groceries', name: 'Groceries', deleted: false, hidden: false },
+                  { id: 'category-dining', name: 'Dining Out', deleted: false, hidden: false },
+                ],
+              }],
+            },
+          }),
+        },
+      };
+    });
+
+    const splits = [
+      { amount: -60, category_name: 'groceries' },
+      { amount: -40, category_name: 'dining' },
+    ];
+
+    const update = async (overrides = {}) =>
+      JSON.parse((await UpdateTransactionTool.execute(
+        { transactionId: 'txn-1', subtransactions: splits, ...overrides } as any,
+        api
+      )).content[0].text);
+
+    it('splits an ordinary transaction against its current amount', async () => {
+      const response = await update();
+
+      expect(response.success).toBe(true);
+      expect(response.matchedSplitCategories).toEqual(['Groceries', 'Dining Out']);
+      expect(response.transaction.subtransactions).toEqual([
+        { amount: -60, category_name: 'Groceries', payee_name: null, memo: null },
+        { amount: -40, category_name: 'Dining Out', payee_name: null, memo: null },
+      ]);
+      expect(api.transactions.updateTransaction).toHaveBeenCalledWith('test-budget-id', 'txn-1', {
+        transaction: {
+          category_id: null,
+          subtransactions: [
+            { amount: -60000, category_id: 'category-groceries', payee_name: undefined, memo: undefined },
+            { amount: -40000, category_id: 'category-dining', payee_name: undefined, memo: undefined },
+          ],
+        },
+      });
+    });
+
+    it('checks the splits against a new amount when one is given', async () => {
+      const response = await update({ amount: -120 });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toBe('Split amounts add up to -100 but the transaction amount is -120');
+      expect(api.transactions.updateTransaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses to re-split a transaction that is already split', async () => {
+      api.transactions.getTransactionById.mockResolvedValue({
+        data: {
+          transaction: {
+            id: 'txn-1',
+            amount: -100000,
+            subtransactions: [
+              { amount: -50000, deleted: false },
+              { amount: -50000, deleted: false },
+            ],
+          },
+        },
+      });
+
+      const response = await update();
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('already split');
+      expect(api.transactions.updateTransaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects a categoryId alongside splits', async () => {
+      const response = await update({ categoryId: 'category-groceries' });
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain('not on a split transaction itself');
+      expect(api.transactions.getTransactionById).not.toHaveBeenCalled();
+    });
+
+    it('does not read the transaction for ordinary updates', async () => {
+      await update({ subtransactions: undefined, memo: 'hi' });
+
+      expect(api.transactions.getTransactionById).not.toHaveBeenCalled();
+      expect(api.transactions.updateTransaction.mock.calls[0][2].transaction)
+        .not.toHaveProperty('subtransactions');
+    });
+  });
+
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       expect(UpdateTransactionTool.name).toBe('ynab_update_transaction');
@@ -255,6 +372,7 @@ describe('UpdateTransactionTool', () => {
       expect(UpdateTransactionTool.inputSchema).toHaveProperty('amount');
       expect(UpdateTransactionTool.inputSchema).toHaveProperty('memo');
       expect(UpdateTransactionTool.inputSchema).toHaveProperty('categoryId');
+      expect(UpdateTransactionTool.inputSchema).toHaveProperty('subtransactions');
     });
   });
 });

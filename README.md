@@ -211,8 +211,8 @@ accounts are excluded, so these report spending rather than money movement.
 
 | Tool | What it does |
 | --- | --- |
-| `ynab_create_transaction` | Creates a transaction. Needs `date`, `amount`, an account (`accountId` or `accountName`) and a payee (`payeeId` or `payeeName`); category optional as `categoryId` or `categoryName`. |
-| `ynab_update_transaction` | Updates any subset of an existing transaction's fields. |
+| `ynab_create_transaction` | Creates a transaction. Needs `date`, `amount`, an account (`accountId` or `accountName`) and a payee (`payeeId` or `payeeName`); category optional as `categoryId` or `categoryName`, or `subtransactions` to split it. |
+| `ynab_update_transaction` | Updates any subset of an existing transaction's fields, or splits an unsplit one with `subtransactions`. |
 | `ynab_delete_transaction` | Deletes a transaction. Not undoable. |
 | `ynab_approve_transaction` | Approves (or un-approves) one transaction. |
 | `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call. |
@@ -230,6 +230,21 @@ Closed accounts and hidden categories are never matched. If a name is ambiguous
 or unrecognised the call fails and names the near misses rather than guessing,
 and successful calls echo back `matchedAccount` / `matchedCategory` so a wrong
 guess is visible.
+
+#### Split transactions
+
+`ynab_create_transaction` and `ynab_update_transaction` split a transaction
+across categories when given `subtransactions`: two or more entries of
+`{ amount, category_name, payee_name, memo }`, the same shape
+`ynab_get_transactions` returns for a split. Amounts are in dollars and must add
+up to the transaction amount exactly (on update, the new `amount` if given,
+otherwise the current one); categories go on the splits, not on the parent.
+Split category names are matched like `categoryName` and echoed back as
+`matchedSplitCategories`.
+
+YNAB cannot change the splits of a transaction that is already split, so
+`ynab_update_transaction` refuses rather than silently dropping the change.
+Delete and recreate the transaction to re-split it.
 
 #### Writes that can half-succeed
 
