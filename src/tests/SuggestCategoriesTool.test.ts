@@ -257,7 +257,7 @@ describe("SuggestCategoriesTool", () => {
     expect(output.usage.input_tokens).toBe(0);
   });
 
-  it("uses categorized history from a payee whose name the truncated payee name begins", async () => {
+  it("sends similar-name category history to Jev for a truncated payee", async () => {
     const api = makeApi({
       candidates: [transaction("txn-1", { payee_id: "payee-better-bl", payee_name: "Better Bl" })],
       history: [
@@ -266,16 +266,23 @@ describe("SuggestCategoriesTool", () => {
         history("old-3", "cat-grocery", { payee_id: "payee-better-blend", payee_name: "Better Blend", date: "2026-06-01" }),
       ],
     });
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(choiceResponse({
+      t00: answer("c001", 0.95, { c000: 0.04, c001: 0.95, leave_uncategorized: 0.01 }),
+    }));
     vi.stubGlobal("fetch", fetchMock);
 
     const output = await result({}, api);
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(request.state.transactions[0].similar_name_history).toEqual({
+      matched_payee_names: ["Better Blend"],
+      category_counts: [{ category_key: "c001", group: "Everyday", name: "Groceries", count: 3 }],
+    });
     expect(output.transactions[0]).toMatchObject({
       transaction_id: "txn-1",
       status: "suggested",
-      source: "history_rule",
+      source: "jev",
       proposed_category: { id: "cat-grocery", name: "Groceries" },
       history: {
         match: "similar_payee_name",
@@ -287,7 +294,7 @@ describe("SuggestCategoriesTool", () => {
     });
   });
 
-  it("matches similar payee names in either direction and flags a Jev disagreement for review", async () => {
+  it("matches similar payee names in either direction without forcing review on disagreement", async () => {
     const api = makeApi({
       candidates: [transaction("txn-1", { payee_id: "payee-full", payee_name: "Better Blend Market #42" })],
       history: [
@@ -302,10 +309,38 @@ describe("SuggestCategoriesTool", () => {
     const output = await result({}, api);
 
     expect(output.transactions[0]).toMatchObject({
-      status: "needs_review",
+      status: "suggested",
       source: "jev",
       proposed_category: { id: "cat-dining" },
       history: { match: "similar_payee_name", sample_size: 2, dominant_category_id: "cat-grocery", conflict: true },
+    });
+  });
+
+  it("does not let a similar-name prefix collision bypass Jev", async () => {
+    const api = makeApi({
+      candidates: [transaction("txn-1", { payee_id: "payee-amazon", payee_name: "Amazon" })],
+      history: [
+        history("old-1", "cat-grocery", { payee_id: "payee-aws", payee_name: "Amazon Web Services" }),
+        history("old-2", "cat-grocery", { payee_id: "payee-aws", payee_name: "Amazon Web Services", date: "2026-07-01" }),
+        history("old-3", "cat-grocery", { payee_id: "payee-aws", payee_name: "Amazon Web Services", date: "2026-06-01" }),
+      ],
+    });
+    const fetchMock = vi.fn().mockResolvedValue(choiceResponse({
+      t00: answer("leave_uncategorized", 0.9, { c000: 0.05, c001: 0.05, leave_uncategorized: 0.9 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(output.transactions[0]).toMatchObject({
+      status: "left_uncategorized",
+      source: "jev",
+      history: {
+        match: "similar_payee_name",
+        matched_payee_names: ["Amazon Web Services"],
+        sample_size: 3,
+      },
     });
   });
 

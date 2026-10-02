@@ -6,7 +6,7 @@ import { getErrorMessage } from "./errorUtils.js";
 import { toDollars } from "./money.js";
 
 export const name = "ynab_suggest_categories";
-export const description = "Previews category suggestions for unapproved, uncategorized ordinary outflows. Approved, reconciled, transfer, split, inflow, categorized, and YNAB balance-adjustment rows are ineligible for history-rule suggestions or TypeSafe Jev processing. A disagreement between the history plurality and Jev always requires review. Never writes to YNAB.";
+export const description = "Previews category suggestions for unapproved, uncategorized ordinary outflows. Approved, reconciled, transfer, split, inflow, categorized, and YNAB balance-adjustment rows are ineligible for history-rule suggestions or TypeSafe Jev processing. Exact-payee history can determine a suggestion or require review; similar-name history only informs Jev. Never writes to YNAB.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
@@ -449,7 +449,9 @@ function modelState(
   transactions: ynab.TransactionDetail[],
   accountsById: Map<string, AccountContext>,
   categories: EligibleCategory[],
+  historyByTransactionId: Map<string, HistorySummary>,
 ) {
+  const categoriesById = new Map(categories.map((category) => [category.id, category]));
   return {
     eligible_categories: categories.map((category) => ({
       key: category.key,
@@ -458,6 +460,7 @@ function modelState(
     })),
     transactions: transactions.map((transaction) => {
       const account = accountsById.get(transaction.account_id);
+      const history = historyByTransactionId.get(transaction.id);
       return {
         payee_name: transaction.payee_name ?? null,
         import_payee_name: transaction.import_payee_name ?? null,
@@ -471,6 +474,18 @@ function modelState(
           type: account?.type ?? "unknown",
           on_budget: account?.onBudget ?? null,
         },
+        similar_name_history: history?.match === "similar_payee_name" ? {
+          matched_payee_names: history.matchedPayeeNames,
+          category_counts: history.counts.map((count) => {
+            const category = categoriesById.get(count.categoryId) as EligibleCategory;
+            return {
+              category_key: category.key,
+              group: count.groupName,
+              name: count.categoryName,
+              count: count.count,
+            };
+          }),
+        } : null,
       };
     }),
   };
@@ -480,6 +495,7 @@ function buildTypeSafeRequest(
   transactions: ynab.TransactionDetail[],
   accountsById: Map<string, AccountContext>,
   categories: EligibleCategory[],
+  historyByTransactionId: Map<string, HistorySummary>,
 ) {
   const criteria: Record<string, string | null> = Object.fromEntries([
     ...categories.map((category) => [category.key, null]),
@@ -494,6 +510,7 @@ function buildTypeSafeRequest(
         rules: [
           "Choose one category key represented in state.eligible_categories.",
           "Use the payee fields, memo, amount direction, account context, and date.",
+          "Weigh similar_name_history when present as suggestive evidence from categorized transactions with prefix-matching payee names, not as proof of merchant identity.",
           "Choose leave_uncategorized when the evidence is insufficient or no listed category fits.",
           "Do not invent a category.",
         ],
@@ -501,7 +518,7 @@ function buildTypeSafeRequest(
       criteria,
     },
   ]));
-  return { state: modelState(transactions, accountsById, categories), model: PINNED_MODEL, questions };
+  return { state: modelState(transactions, accountsById, categories, historyByTransactionId), model: PINNED_MODEL, questions };
 }
 
 /** A conservative UTF-8 byte bound; TypeSafe returns authoritative usage after the call. */
@@ -809,7 +826,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
         categoriesById,
       );
       historyByTransactionId.set(transaction.id, history);
-      if (history.unanimousCategoryId) {
+      if (history.match === "payee" && history.unanimousCategoryId) {
         const category = categoriesById.get(history.unanimousCategoryId) as EligibleCategory;
         outputRows.push({
           transaction_id: transaction.id,
@@ -846,7 +863,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
 
     for (let start = 0; start < modelTransactions.length; start += DEFAULT_BATCH_SIZE) {
       const batch = modelTransactions.slice(start, start + DEFAULT_BATCH_SIZE);
-      const body = buildTypeSafeRequest(batch, accountsById, categories);
+      const body = buildTypeSafeRequest(batch, accountsById, categories, historyByTransactionId);
       const preflight = preflightTypeSafeRequest(body);
       estimatedInputTokens += preflight.estimatedInputTokens;
       estimatedCostUsd += preflight.projectedCostUsd;
@@ -911,7 +928,9 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
           return;
         }
         const conflict = Boolean(
-          history.dominantCategoryId && history.dominantCategoryId !== selectedCategory?.id
+          history.match === "payee" &&
+          history.dominantCategoryId &&
+          history.dominantCategoryId !== selectedCategory?.id
         );
         let status: string;
         if (conflict) status = "needs_review";
