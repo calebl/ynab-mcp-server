@@ -2,7 +2,9 @@ name: Require no-mistakes
 run-name: "PR #${{ github.event.pull_request.number }} body compliance - ${{ github.event.action }} - event ${{ github.run_number }} (run ${{ github.run_id }})"
 
 on:
-  pull_request:
+  # pull_request_target runs with the base repository's context, so this
+  # workflow must never check out or run pull request code.
+  pull_request_target:
     types: [opened, edited, synchronize, reopened]
     branches:
       - main
