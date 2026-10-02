@@ -3,9 +3,15 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 import { toDollars, toMilliunits } from "./money.js";
+import {
+  buildSubtransactions,
+  mapSubtransactions,
+  subtransactionsSchema,
+  type SubtransactionData,
+} from "./splits.js";
 
 export const name = "ynab_update_transaction";
-export const description = "Updates an existing transaction. All fields except transactionId are optional - only provide fields you want to change.";
+export const description = "Updates an existing transaction. All fields except transactionId are optional - only provide fields you want to change. Pass subtransactions to split an ordinary transaction across categories; YNAB cannot re-split a transaction that is already split.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
@@ -20,6 +26,7 @@ export const inputSchema = {
   cleared: z.enum(["cleared", "uncleared", "reconciled"]).optional().describe("The cleared status"),
   approved: z.boolean().optional().describe("Whether the transaction is approved"),
   flagColor: z.enum(["red", "orange", "yellow", "green", "blue", "purple", ""]).optional().describe("The transaction flag color, or an empty string to clear the flag"),
+  subtransactions: subtransactionsSchema.optional().describe("Splits an ordinary transaction across categories, in the same shape ynab_get_transactions returns. Needs at least two entries summing to amount (or the current amount if amount is omitted); omit categoryId. Not allowed on a transaction that is already split."),
 };
 
 interface UpdateTransactionInput {
@@ -36,6 +43,7 @@ interface UpdateTransactionInput {
   cleared?: "cleared" | "uncleared" | "reconciled";
   approved?: boolean;
   flagColor?: "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "";
+  subtransactions?: SubtransactionData[];
 }
 
 
@@ -88,6 +96,33 @@ export async function execute(input: UpdateTransactionInput, api: ynab.API) {
       transactionUpdate.flag_color = input.flagColor;
     }
 
+    let matchedSplitCategories: (string | undefined)[] | undefined;
+    if (input.subtransactions?.length) {
+      if (input.categoryId !== undefined) {
+        throw new Error("Give categories on the subtransactions, not on a split transaction itself");
+      }
+
+      // YNAB ignores subtransactions sent for an existing split, so refuse
+      // rather than report a re-split that never happened.
+      const existing = (await api.transactions.getTransactionById(budgetId, input.transactionId)).data.transaction;
+      if (mapSubtransactions(existing.subtransactions)) {
+        throw new Error(
+          "This transaction is already split, and YNAB does not support changing an existing split. Delete and recreate it with the new splits instead."
+        );
+      }
+
+      const split = await buildSubtransactions(
+        input.subtransactions,
+        transactionUpdate.amount ?? existing.amount,
+        budgetId,
+        api
+      );
+      // YNAB documents null here for a split; the SDK type omits null but passes it through.
+      transactionUpdate.category_id = null as unknown as string;
+      transactionUpdate.subtransactions = split.subtransactions;
+      matchedSplitCategories = split.matchedCategories;
+    }
+
     const response = await api.transactions.updateTransaction(
       budgetId,
       input.transactionId,
@@ -116,7 +151,9 @@ export async function execute(input: UpdateTransactionInput, api: ynab.API) {
             approved: txn.approved,
             account_name: txn.account_name,
             flag_color: txn.flag_color,
+            subtransactions: mapSubtransactions(txn.subtransactions),
           },
+          matchedSplitCategories,
           message: "Transaction updated successfully",
         }, null, 2),
       }],
