@@ -172,12 +172,12 @@ limit. The top-level `skipped` object reports `total_count` and a `count` plus
 `transactionIds`, every non-deleted fetched row remains an individual result,
 including rows carrying a `skipped_*` status; deleted rows are omitted.
 Payee history uses the latest 12 months, capped at 50 qualifying rows. When the
-payee has no exact-payee rows, history falls back to rows from payees with a
-similar name: after Unicode NFC normalization, lowercasing, and removing everything except letters
-and numbers, one name begins the other and the shorter is at least six
-characters, so a truncated bank payee such as "Better Bl" draws on "Better
-Blend" history. Each history summary
-reports `match` (`payee`, `similar_payee_name`, or `null`) and
+payee has no qualifying rows with the same payee ID, history falls back to rows
+from payees with a similar name: after Unicode NFC normalization, lowercasing,
+and removing everything except letters and numbers, one name begins the other
+and the shorter is at least six characters, so a truncated bank payee such as
+"Better Bl" draws on "Better Blend" history. Each history summary reports
+`match` (`payee`, `similar_payee_name`, or `null`) and
 `matched_payee_names`. The deterministic history rule applies only when at
 least three exact-payee rows all use the same still-eligible category. Similar-
 name history always goes to the model as suggestive evidence and never bypasses
@@ -185,8 +185,8 @@ it. Every other eligible row goes to TypeSafe's pinned `jev-1.13.0` System One
 model in batches of ten. A disagreement between exact-payee history plurality
 and the model forces `needs_review`; similar-name disagreement is reported in
 the history summary but does not force review because a prefix match does not
-establish merchant identity. Every inspected eligible row includes a status, content
-fingerprint, proposed category, confidence, winning probability, up to three
+establish merchant identity. Every inspected eligible row includes a status,
+content fingerprint, proposed category, confidence, winning probability, up to three
 alternatives, and history summary. Applying a suggestion remains a separate,
 explicit human decision using `ynab_apply_category_suggestions` (or the general
 `ynab_update_transaction` tool).
@@ -198,8 +198,8 @@ For similar-name matches only, it also sends the matched payee names and
 per-category key, group, name, and count. It does not send YNAB UUIDs, balances,
 goals, approval/cleared state, or raw transaction history. TypeSafe's published
 Jev 1.13 price at the time of this release is **$0.042 per million input tokens;
-output tokens are free**. The tool
-returns preflight estimates, actual token usage, and projected cost on each run
+output tokens are free**. The tool returns preflight estimates, actual token
+usage, and projected cost on each run
 and refuses requests over its per-call token/cost ceilings. Pricing and
 provider limits can change; check <https://docs.typesafe.ai/models>.
 
