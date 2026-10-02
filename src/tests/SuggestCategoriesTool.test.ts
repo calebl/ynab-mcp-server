@@ -313,6 +313,25 @@ describe("SuggestCategoriesTool", () => {
     });
   });
 
+  it("matches payee names whose accents use composed and decomposed forms", async () => {
+    const api = makeApi({
+      candidates: [transaction("txn-1", { payee_id: "payee-composed", payee_name: "Better Café" })],
+      history: [
+        history("old-1", "cat-dining", { payee_id: "payee-decomposed", payee_name: "Better Café" }),
+      ],
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(choiceResponse({
+      t00: answer("c000", 0.9, { c000: 0.9, c001: 0.05, leave_uncategorized: 0.05 }),
+    })));
+
+    const output = await result({}, api);
+
+    expect(output.transactions[0]).toMatchObject({
+      source: "jev",
+      history: { match: "similar_payee_name", sample_size: 1 },
+    });
+  });
+
   it("does not collapse distinct Unicode payee names into the same ASCII suffix", async () => {
     const api = makeApi({
       candidates: [transaction("txn-1", { payee_id: "payee-tokyo", payee_name: "東京 Market" })],

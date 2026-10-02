@@ -173,7 +173,7 @@ limit. The top-level `skipped` object reports `total_count` and a `count` plus
 including rows carrying a `skipped_*` status; deleted rows are omitted.
 Payee history uses the latest 12 months, capped at 50 qualifying rows. When the
 payee has no exact-payee rows, history falls back to rows from payees with a
-similar name: after lowercasing and removing everything except Unicode letters
+similar name: after Unicode NFC normalization, lowercasing, and removing everything except letters
 and numbers, one name begins the other and the shorter is at least six
 characters, so a truncated bank payee such as "Better Bl" draws on "Better
 Blend" history. Each history summary
