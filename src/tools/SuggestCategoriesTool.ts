@@ -6,7 +6,7 @@ import { getErrorMessage } from "./errorUtils.js";
 import { toDollars } from "./money.js";
 
 export const name = "ynab_suggest_categories";
-export const description = "Previews category suggestions for unapproved, uncategorized ordinary outflows. Approved, reconciled, transfer, split, inflow, categorized, and YNAB balance-adjustment rows are ineligible for history-rule suggestions or TypeSafe Jev processing. A disagreement between the history plurality and Jev always requires review. Never writes to YNAB.";
+export const description = "Previews category suggestions for unapproved, uncategorized ordinary outflows. Approved, reconciled, transfer, split, inflow, categorized, and YNAB balance-adjustment rows are ineligible for history-rule suggestions or TypeSafe Jev processing. Exact-payee history can determine a suggestion or require review; similar-name history only informs Jev. Never writes to YNAB.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
@@ -35,6 +35,8 @@ export const MAX_PROJECTED_COST_PER_CALL_USD = 0.01;
 const TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone";
 const TYPESAFE_TIMEOUT_MS = 10_000;
 const HISTORY_MAX_ROWS = 50;
+// Shorter names like "Uber" would also match unrelated payees such as "Uber Eats".
+const MIN_SIMILAR_PAYEE_NAME_LENGTH = 6;
 
 export interface EligibleCategory {
   id: string;
@@ -56,7 +58,11 @@ interface CategoryCount {
   count: number;
 }
 
+type HistoryMatch = "payee" | "similar_payee_name";
+
 interface HistorySummary {
+  match: HistoryMatch | null;
+  matchedPayeeNames: string[];
   sampleSize: number;
   counts: CategoryCount[];
   lastUsedCategoryId: string | null;
@@ -66,6 +72,8 @@ interface HistorySummary {
 
 function emptyHistorySummary(): HistorySummary {
   return {
+    match: null,
+    matchedPayeeNames: [],
     sampleSize: 0,
     counts: [],
     lastUsedCategoryId: null,
@@ -338,26 +346,57 @@ async function loadCandidates(
   return { transactions, failures, mode: "explicit" };
 }
 
+/**
+ * Bank feeds often truncate payee names ("Better Bl" for "Better Blend"), so
+ * YNAB can hold the same merchant under several payees. Two names are similar
+ * when, after NFC normalization, lowercasing, and removing non-letter/number
+ * characters, one begins the other and the shorter is long enough to be distinctive.
+ */
+function compactPayeeName(value: string): string {
+  return value.normalize("NFC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function isSimilarPayeeName(a: string, b: string): boolean {
+  const left = compactPayeeName(a);
+  const right = compactPayeeName(b);
+  const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
+  return shorter.length >= MIN_SIMILAR_PAYEE_NAME_LENGTH && longer.startsWith(shorter);
+}
+
 function buildHistorySummary(
   transaction: ynab.TransactionDetail,
   history: ynab.TransactionDetail[],
   payeesById: Map<string, ynab.Payee>,
   categoriesById: Map<string, EligibleCategory>,
 ): HistorySummary {
-  if (!transaction.payee_id) {
+  const qualifying = history.filter((row) =>
+    row.id !== transaction.id &&
+    !row.deleted &&
+    Boolean(row.category_id) &&
+    categoriesById.has(row.category_id ?? "") &&
+    !isTransfer(row, payeesById) &&
+    activeSubtransactions(row).length === 0
+  );
+
+  // Exact-payee history wins; similar payee names are consulted only without it.
+  let match: HistoryMatch = "payee";
+  let matched = transaction.payee_id
+    ? qualifying.filter((row) => row.payee_id === transaction.payee_id)
+    : [];
+  const payeeName = transaction.payee_name ?? transaction.import_payee_name;
+  if (matched.length === 0 && payeeName) {
+    match = "similar_payee_name";
+    matched = qualifying.filter((row) =>
+      Boolean(row.payee_name) &&
+      !BALANCE_ADJUSTMENT_PAYEE_NAMES.has(row.payee_name as string) &&
+      isSimilarPayeeName(payeeName, row.payee_name as string)
+    );
+  }
+  if (matched.length === 0) {
     return emptyHistorySummary();
   }
 
-  const rows = history
-    .filter((row) =>
-      row.id !== transaction.id &&
-      row.payee_id === transaction.payee_id &&
-      !row.deleted &&
-      Boolean(row.category_id) &&
-      categoriesById.has(row.category_id ?? "") &&
-      !isTransfer(row, payeesById) &&
-      activeSubtransactions(row).length === 0
-    )
+  const rows = matched
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, HISTORY_MAX_ROWS);
 
@@ -378,6 +417,8 @@ function buildHistorySummary(
     : null;
 
   return {
+    match,
+    matchedPayeeNames: [...new Set(rows.flatMap((row) => row.payee_name ? [row.payee_name] : []))].sort(),
     sampleSize: rows.length,
     counts,
     lastUsedCategoryId: rows[0]?.category_id ?? null,
@@ -391,6 +432,8 @@ function historyForOutput(summary: HistorySummary, suggestedCategoryId: string |
     ? summary.dominantCategoryId === suggestedCategoryId
     : null;
   return {
+    match: summary.match,
+    matched_payee_names: summary.matchedPayeeNames,
     sample_size: summary.sampleSize,
     counts: summary.counts.map((count) => ({
       category_id: count.categoryId,
@@ -410,7 +453,9 @@ function modelState(
   transactions: ynab.TransactionDetail[],
   accountsById: Map<string, AccountContext>,
   categories: EligibleCategory[],
+  historyByTransactionId: Map<string, HistorySummary>,
 ) {
+  const categoriesById = new Map(categories.map((category) => [category.id, category]));
   return {
     eligible_categories: categories.map((category) => ({
       key: category.key,
@@ -419,6 +464,7 @@ function modelState(
     })),
     transactions: transactions.map((transaction) => {
       const account = accountsById.get(transaction.account_id);
+      const history = historyByTransactionId.get(transaction.id);
       return {
         payee_name: transaction.payee_name ?? null,
         import_payee_name: transaction.import_payee_name ?? null,
@@ -432,6 +478,18 @@ function modelState(
           type: account?.type ?? "unknown",
           on_budget: account?.onBudget ?? null,
         },
+        similar_name_history: history?.match === "similar_payee_name" ? {
+          matched_payee_names: history.matchedPayeeNames,
+          category_counts: history.counts.map((count) => {
+            const category = categoriesById.get(count.categoryId) as EligibleCategory;
+            return {
+              category_key: category.key,
+              group: count.groupName,
+              name: count.categoryName,
+              count: count.count,
+            };
+          }),
+        } : null,
       };
     }),
   };
@@ -441,6 +499,7 @@ function buildTypeSafeRequest(
   transactions: ynab.TransactionDetail[],
   accountsById: Map<string, AccountContext>,
   categories: EligibleCategory[],
+  historyByTransactionId: Map<string, HistorySummary>,
 ) {
   const criteria: Record<string, string | null> = Object.fromEntries([
     ...categories.map((category) => [category.key, null]),
@@ -455,6 +514,7 @@ function buildTypeSafeRequest(
         rules: [
           "Choose one category key represented in state.eligible_categories.",
           "Use the payee fields, memo, amount direction, account context, and date.",
+          "Weigh similar_name_history when present as suggestive evidence from categorized transactions with prefix-matching payee names, not as proof of merchant identity.",
           "Choose leave_uncategorized when the evidence is insufficient or no listed category fits.",
           "Do not invent a category.",
         ],
@@ -462,7 +522,7 @@ function buildTypeSafeRequest(
       criteria,
     },
   ]));
-  return { state: modelState(transactions, accountsById, categories), model: PINNED_MODEL, questions };
+  return { state: modelState(transactions, accountsById, categories, historyByTransactionId), model: PINNED_MODEL, questions };
 }
 
 /** A conservative UTF-8 byte bound; TypeSafe returns authoritative usage after the call. */
@@ -770,7 +830,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
         categoriesById,
       );
       historyByTransactionId.set(transaction.id, history);
-      if (history.unanimousCategoryId) {
+      if (history.match === "payee" && history.unanimousCategoryId) {
         const category = categoriesById.get(history.unanimousCategoryId) as EligibleCategory;
         outputRows.push({
           transaction_id: transaction.id,
@@ -807,7 +867,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
 
     for (let start = 0; start < modelTransactions.length; start += DEFAULT_BATCH_SIZE) {
       const batch = modelTransactions.slice(start, start + DEFAULT_BATCH_SIZE);
-      const body = buildTypeSafeRequest(batch, accountsById, categories);
+      const body = buildTypeSafeRequest(batch, accountsById, categories, historyByTransactionId);
       const preflight = preflightTypeSafeRequest(body);
       estimatedInputTokens += preflight.estimatedInputTokens;
       estimatedCostUsd += preflight.projectedCostUsd;
@@ -872,7 +932,9 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
           return;
         }
         const conflict = Boolean(
-          history.dominantCategoryId && history.dominantCategoryId !== selectedCategory?.id
+          history.match === "payee" &&
+          history.dominantCategoryId &&
+          history.dominantCategoryId !== selectedCategory?.id
         );
         let status: string;
         if (conflict) status = "needs_review";
