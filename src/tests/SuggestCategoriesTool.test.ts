@@ -257,11 +257,109 @@ describe("SuggestCategoriesTool", () => {
     expect(output.usage.input_tokens).toBe(0);
   });
 
+  it("uses categorized history from a payee whose name the truncated payee name begins", async () => {
+    const api = makeApi({
+      candidates: [transaction("txn-1", { payee_id: "payee-better-bl", payee_name: "Better Bl" })],
+      history: [
+        history("old-1", "cat-grocery", { payee_id: "payee-better-blend", payee_name: "Better Blend" }),
+        history("old-2", "cat-grocery", { payee_id: "payee-better-blend", payee_name: "Better Blend", date: "2026-07-01" }),
+        history("old-3", "cat-grocery", { payee_id: "payee-better-blend", payee_name: "Better Blend", date: "2026-06-01" }),
+      ],
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(output.transactions[0]).toMatchObject({
+      transaction_id: "txn-1",
+      status: "suggested",
+      source: "history_rule",
+      proposed_category: { id: "cat-grocery", name: "Groceries" },
+      history: {
+        match: "similar_payee_name",
+        matched_payee_names: ["Better Blend"],
+        sample_size: 3,
+        dominant_category_id: "cat-grocery",
+        conflict: false,
+      },
+    });
+  });
+
+  it("matches similar payee names in either direction and flags a Jev disagreement for review", async () => {
+    const api = makeApi({
+      candidates: [transaction("txn-1", { payee_id: "payee-full", payee_name: "Better Blend Market #42" })],
+      history: [
+        history("old-1", "cat-grocery", { payee_id: "payee-short", payee_name: "BETTER BLEND" }),
+        history("old-2", "cat-grocery", { payee_id: "payee-short", payee_name: "BETTER BLEND", date: "2026-07-01" }),
+      ],
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(choiceResponse({
+      t00: answer("c000", 0.95, { c000: 0.95, c001: 0.04, leave_uncategorized: 0.01 }),
+    })));
+
+    const output = await result({}, api);
+
+    expect(output.transactions[0]).toMatchObject({
+      status: "needs_review",
+      source: "jev",
+      proposed_category: { id: "cat-dining" },
+      history: { match: "similar_payee_name", sample_size: 2, dominant_category_id: "cat-grocery", conflict: true },
+    });
+  });
+
+  it("prefers exact-payee history over similar payee names", async () => {
+    const api = makeApi({
+      candidates: [transaction("txn-1", { payee_name: "Better Blend" })],
+      history: [
+        history("old-1", "cat-dining", { payee_name: "Better Blend" }),
+        history("old-2", "cat-dining", { payee_name: "Better Blend", date: "2026-07-01" }),
+        history("old-3", "cat-dining", { payee_name: "Better Blend", date: "2026-06-01" }),
+        history("old-4", "cat-grocery", { payee_id: "payee-cafe", payee_name: "Better Blend Cafe" }),
+      ],
+    });
+    vi.stubGlobal("fetch", vi.fn());
+
+    const output = await result({}, api);
+
+    expect(output.transactions[0]).toMatchObject({
+      status: "suggested",
+      source: "history_rule",
+      proposed_category: { id: "cat-dining" },
+      history: { match: "payee", matched_payee_names: ["Better Blend"], sample_size: 3 },
+    });
+  });
+
+  it("does not match similar payee names shorter than the minimum length", async () => {
+    const api = makeApi({
+      candidates: [transaction("txn-1", { payee_id: "payee-uber", payee_name: "Uber" })],
+      history: [
+        history("old-1", "cat-dining", { payee_id: "payee-uber-eats", payee_name: "Uber Eats" }),
+        history("old-2", "cat-dining", { payee_id: "payee-uber-eats", payee_name: "Uber Eats", date: "2026-07-01" }),
+        history("old-3", "cat-dining", { payee_id: "payee-uber-eats", payee_name: "Uber Eats", date: "2026-06-01" }),
+      ],
+    });
+    const fetchMock = vi.fn().mockResolvedValue(choiceResponse({
+      t00: answer("leave_uncategorized", 0.9, { c000: 0.05, c001: 0.05, leave_uncategorized: 0.9 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(output.transactions[0]).toMatchObject({
+      status: "left_uncategorized",
+      source: "jev",
+      history: { match: null, matched_payee_names: [], sample_size: 0 },
+    });
+  });
+
   it("keeps history-rule suggestions when account loading fails", async () => {
     const api = makeApi({
       candidates: [
         transaction("history-rule"),
-        transaction("model-bound", { payee_id: "other-payee" }),
+        transaction("model-bound", { payee_id: "other-payee", payee_name: "Other Payee" }),
       ],
       history: [
         history("old-1", "cat-grocery"),

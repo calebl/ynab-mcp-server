@@ -172,8 +172,13 @@ limit. The top-level `skipped` object reports `total_count` and a `count` plus
 `transactionIds`, every non-deleted fetched row remains an individual result,
 including rows carrying a `skipped_*` status; deleted rows are omitted.
 Payee history uses the latest 12 months, capped at 50 qualifying exact-payee
-rows. The history rule applies only when at least three such rows all use the
-same still-eligible category; every eligible row without that unanimous signal
+rows. When the payee has no such rows, history falls back to rows from payees
+with a similar name: after lowercasing and dropping punctuation, one name
+begins the other and the shorter is at least six characters, so a truncated
+bank payee such as "Better Bl" draws on "Better Blend" history. Each history
+summary reports `match` (`payee`, `similar_payee_name`, or `null`) and
+`matched_payee_names`. The history rule applies only when at least three such
+rows all use the same still-eligible category; every eligible row without that unanimous signal
 goes to TypeSafe's pinned `jev-1.13.0` System One model in batches of ten. Any
 disagreement between the history plurality and the model forces
 `needs_review`. Every inspected eligible row includes a status, content

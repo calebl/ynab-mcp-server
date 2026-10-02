@@ -35,6 +35,8 @@ export const MAX_PROJECTED_COST_PER_CALL_USD = 0.01;
 const TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone";
 const TYPESAFE_TIMEOUT_MS = 10_000;
 const HISTORY_MAX_ROWS = 50;
+// Shorter names like "Uber" would also match unrelated payees such as "Uber Eats".
+const MIN_SIMILAR_PAYEE_NAME_LENGTH = 6;
 
 export interface EligibleCategory {
   id: string;
@@ -56,7 +58,11 @@ interface CategoryCount {
   count: number;
 }
 
+type HistoryMatch = "payee" | "similar_payee_name";
+
 interface HistorySummary {
+  match: HistoryMatch | null;
+  matchedPayeeNames: string[];
   sampleSize: number;
   counts: CategoryCount[];
   lastUsedCategoryId: string | null;
@@ -66,6 +72,8 @@ interface HistorySummary {
 
 function emptyHistorySummary(): HistorySummary {
   return {
+    match: null,
+    matchedPayeeNames: [],
     sampleSize: 0,
     counts: [],
     lastUsedCategoryId: null,
@@ -338,26 +346,53 @@ async function loadCandidates(
   return { transactions, failures, mode: "explicit" };
 }
 
+/**
+ * Bank feeds often truncate payee names ("Better Bl" for "Better Blend"), so
+ * YNAB can hold the same merchant under several payees. Two names are similar
+ * when, after normalization, one begins the other and the shorter is long
+ * enough to be distinctive.
+ */
+function isSimilarPayeeName(a: string, b: string): boolean {
+  const left = normalizeSystemName(a);
+  const right = normalizeSystemName(b);
+  const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
+  return shorter.length >= MIN_SIMILAR_PAYEE_NAME_LENGTH && longer.startsWith(shorter);
+}
+
 function buildHistorySummary(
   transaction: ynab.TransactionDetail,
   history: ynab.TransactionDetail[],
   payeesById: Map<string, ynab.Payee>,
   categoriesById: Map<string, EligibleCategory>,
 ): HistorySummary {
-  if (!transaction.payee_id) {
+  const qualifying = history.filter((row) =>
+    row.id !== transaction.id &&
+    !row.deleted &&
+    Boolean(row.category_id) &&
+    categoriesById.has(row.category_id ?? "") &&
+    !isTransfer(row, payeesById) &&
+    activeSubtransactions(row).length === 0
+  );
+
+  // Exact-payee history wins; similar payee names are consulted only without it.
+  let match: HistoryMatch = "payee";
+  let matched = transaction.payee_id
+    ? qualifying.filter((row) => row.payee_id === transaction.payee_id)
+    : [];
+  const payeeName = transaction.payee_name ?? transaction.import_payee_name;
+  if (matched.length === 0 && payeeName) {
+    match = "similar_payee_name";
+    matched = qualifying.filter((row) =>
+      Boolean(row.payee_name) &&
+      !BALANCE_ADJUSTMENT_PAYEE_NAMES.has(row.payee_name as string) &&
+      isSimilarPayeeName(payeeName, row.payee_name as string)
+    );
+  }
+  if (matched.length === 0) {
     return emptyHistorySummary();
   }
 
-  const rows = history
-    .filter((row) =>
-      row.id !== transaction.id &&
-      row.payee_id === transaction.payee_id &&
-      !row.deleted &&
-      Boolean(row.category_id) &&
-      categoriesById.has(row.category_id ?? "") &&
-      !isTransfer(row, payeesById) &&
-      activeSubtransactions(row).length === 0
-    )
+  const rows = matched
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, HISTORY_MAX_ROWS);
 
@@ -378,6 +413,8 @@ function buildHistorySummary(
     : null;
 
   return {
+    match,
+    matchedPayeeNames: [...new Set(rows.flatMap((row) => row.payee_name ? [row.payee_name] : []))].sort(),
     sampleSize: rows.length,
     counts,
     lastUsedCategoryId: rows[0]?.category_id ?? null,
@@ -391,6 +428,8 @@ function historyForOutput(summary: HistorySummary, suggestedCategoryId: string |
     ? summary.dominantCategoryId === suggestedCategoryId
     : null;
   return {
+    match: summary.match,
+    matched_payee_names: summary.matchedPayeeNames,
     sample_size: summary.sampleSize,
     counts: summary.counts.map((count) => ({
       category_id: count.categoryId,
