@@ -31,7 +31,7 @@
     "personal-finance"
   ],
   "engines": {
-    "node": ">=22"
+    "node": "^22 || >=24"
   },
   "type": "module",
   "bin": {
