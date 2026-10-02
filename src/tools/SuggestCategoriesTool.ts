@@ -353,7 +353,7 @@ async function loadCandidates(
  * shorter is long enough to be distinctive.
  */
 function compactPayeeName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
 function isSimilarPayeeName(a: string, b: string): boolean {

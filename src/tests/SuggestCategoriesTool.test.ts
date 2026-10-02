@@ -313,6 +313,30 @@ describe("SuggestCategoriesTool", () => {
     });
   });
 
+  it("does not collapse distinct Unicode payee names into the same ASCII suffix", async () => {
+    const api = makeApi({
+      candidates: [transaction("txn-1", { payee_id: "payee-tokyo", payee_name: "東京 Market" })],
+      history: [
+        history("old-1", "cat-grocery", { payee_id: "payee-osaka", payee_name: "大阪 Market" }),
+      ],
+    });
+    const fetchMock = vi.fn().mockResolvedValue(choiceResponse({
+      t00: answer("leave_uncategorized", 0.9, { c000: 0.05, c001: 0.05, leave_uncategorized: 0.9 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(request.state.transactions[0].similar_name_history).toBeNull();
+    expect(output.transactions[0]).toMatchObject({
+      status: "left_uncategorized",
+      source: "jev",
+      history: { match: null, matched_payee_names: [], sample_size: 0 },
+    });
+  });
+
   it("matches similar payee names in either direction without forcing review on disagreement", async () => {
     const api = makeApi({
       candidates: [transaction("txn-1", { payee_id: "payee-full", payee_name: "Better Blend Market #42" })],
