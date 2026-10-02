@@ -173,8 +173,8 @@ limit. The top-level `skipped` object reports `total_count` and a `count` plus
 including rows carrying a `skipped_*` status; deleted rows are omitted.
 Payee history uses the latest 12 months, capped at 50 qualifying rows. When the
 payee has no exact-payee rows, history falls back to rows from payees with a
-similar name: after lowercasing and dropping punctuation, one name begins the
-other and the shorter is at least six characters, so a truncated bank payee
+similar name: ignoring case, spaces, and punctuation, one name begins
+the other and the shorter is at least six characters, so a truncated bank payee
 such as "Better Bl" draws on "Better Blend" history. Each history summary
 reports `match` (`payee`, `similar_payee_name`, or `null`) and
 `matched_payee_names`. The deterministic history rule applies only when at

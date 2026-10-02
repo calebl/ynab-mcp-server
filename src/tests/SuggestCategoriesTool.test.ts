@@ -294,6 +294,25 @@ describe("SuggestCategoriesTool", () => {
     });
   });
 
+  it("matches similar payee names that differ only by spacing or punctuation", async () => {
+    const api = makeApi({
+      candidates: [transaction("txn-1", { payee_id: "payee-walmart", payee_name: "Walmart" })],
+      history: [
+        history("old-1", "cat-grocery", { payee_id: "payee-wal-mart", payee_name: "Wal-Mart" }),
+      ],
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(choiceResponse({
+      t00: answer("c001", 0.9, { c000: 0.05, c001: 0.9, leave_uncategorized: 0.05 }),
+    })));
+
+    const output = await result({}, api);
+
+    expect(output.transactions[0]).toMatchObject({
+      source: "jev",
+      history: { match: "similar_payee_name", matched_payee_names: ["Wal-Mart"], sample_size: 1 },
+    });
+  });
+
   it("matches similar payee names in either direction without forcing review on disagreement", async () => {
     const api = makeApi({
       candidates: [transaction("txn-1", { payee_id: "payee-full", payee_name: "Better Blend Market #42" })],
