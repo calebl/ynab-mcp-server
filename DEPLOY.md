@@ -170,20 +170,9 @@ YNAB. Applying a proposal requires a separate explicit write; see
 [Category suggestions](./README.md#category-suggestions-optional) for the apply
 tool and its safeguards.
 
-The request sends display payee and imported/original payee text, memo, amount,
-date, account name/type/on-budget status, and visible category group/category
-names to **TypeSafe as a third-party processor**. It does not send YNAB UUIDs,
-balances, goals, cleared/approved flags, or raw payee history. The tool uses the
-pinned `jev-1.13.0` model. Its published price at the time of writing is $0.042
-per million input tokens with output free; provider pricing and limits can
-change. Each tool response reports preflight estimates, actual token usage,
-and the projected cost. The implementation defaults to 20 rows, caps calls at
-100 rows, batches ten questions, and refuses oversized request/cost estimates.
-
-The evaluation behind this opt-in was synthetic and single-evaluator (98.3%
-exact labels, 98.9% top-three, and 60/60 expected abstentions over 40 unique
-fixtures). That supports a narrow preview, not default-on categorization or
-AI-triggered writes.
+See [Category suggestions](./README.md#category-suggestions-optional) for the
+authoritative data-sharing contract, model and cost limits, and evaluation
+caveats.
 
 ## Read-only mode
 
