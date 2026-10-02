@@ -62,7 +62,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260906.1",
+    "@cloudflare/workers-types": "^5.20261002.1",
     "@modelcontextprotocol/inspector": "0.16.8",
     "@types/node": "^22.20.3",
     "@vitest/coverage-v8": "^4.1.11",
