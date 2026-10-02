@@ -349,8 +349,8 @@ async function loadCandidates(
 /**
  * Bank feeds often truncate payee names ("Better Bl" for "Better Blend"), so
  * YNAB can hold the same merchant under several payees. Two names are similar
- * when, ignoring case, spaces, and punctuation, one begins the other and the
- * shorter is long enough to be distinctive.
+ * when, after lowercasing and removing non-Unicode-letter/number characters,
+ * one begins the other and the shorter is long enough to be distinctive.
  */
 function compactPayeeName(value: string): string {
   return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");

@@ -173,9 +173,10 @@ limit. The top-level `skipped` object reports `total_count` and a `count` plus
 including rows carrying a `skipped_*` status; deleted rows are omitted.
 Payee history uses the latest 12 months, capped at 50 qualifying rows. When the
 payee has no exact-payee rows, history falls back to rows from payees with a
-similar name: ignoring case, spaces, and punctuation, one name begins
-the other and the shorter is at least six characters, so a truncated bank payee
-such as "Better Bl" draws on "Better Blend" history. Each history summary
+similar name: after lowercasing and removing everything except Unicode letters
+and numbers, one name begins the other and the shorter is at least six
+characters, so a truncated bank payee such as "Better Bl" draws on "Better
+Blend" history. Each history summary
 reports `match` (`payee`, `similar_payee_name`, or `null`) and
 `matched_payee_names`. The deterministic history rule applies only when at
 least three exact-payee rows all use the same still-eligible category. Similar-
@@ -195,8 +196,9 @@ payee, memo, amount, date, and account name/type/on-budget status, plus visible
 category group and category names, to **TypeSafe as a third-party processor**.
 For similar-name matches only, it also sends the matched payee names and
 per-category key, group, name, and count. It does not send YNAB UUIDs, balances,
-goals, approval/cleared state, or raw transaction history. TypeSafe's published Jev 1.13 price at the time of this
-release is **$0.042 per million input tokens; output tokens are free**. The tool
+goals, approval/cleared state, or raw transaction history. TypeSafe's published
+Jev 1.13 price at the time of this release is **$0.042 per million input tokens;
+output tokens are free**. The tool
 returns preflight estimates, actual token usage, and projected cost on each run
 and refuses requests over its per-call token/cost ceilings. Pricing and
 provider limits can change; check <https://docs.typesafe.ai/models>.
