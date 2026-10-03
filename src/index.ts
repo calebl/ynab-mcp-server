@@ -13,7 +13,9 @@ const server = new McpServer({
 // Initialize YNAB API
 const api = new ynab.API(process.env.YNAB_API_TOKEN || "");
 
-registerAll(server, api);
+registerAll(server, api, {
+  readOnly: process.env.YNAB_READ_ONLY === "true",
+});
 
 // Start the server
 async function main() {
