@@ -99,6 +99,17 @@ overrides the optional `YNAB_PLAN_ID` default. Any GitHub account other than
 and delete transactions—an unauthenticated endpoint would grant access to those
 plans to anyone who found the URL.
 
+The Worker is not tied to Claude. Any MCP client that supports remote servers
+with OAuth can connect, for example Claude (claude.ai, desktop, and mobile),
+ChatGPT connectors, Claude Code, or the MCP Inspector. Because clients register
+themselves, every permitted sign-in shows an approval page naming the client
+and the exact address the grant will be sent to; approve only a sign-in you
+just started. To restrict which clients can connect at all, set
+`ALLOWED_REDIRECT_URIS` to their exact callback URIs (loopback redirects for
+local clients stay allowed). See
+[Approving MCP clients](./DEPLOY.md#approving-mcp-clients) for example callback
+URIs.
+
 ## Why not YNAB OAuth?
 
 YNAB OAuth is deliberately not supported. Its token exchange requires a client

@@ -16,7 +16,7 @@
 	},
 	"kv_namespaces": [
 		{
-			// OAuth grants and tokens. Create with:
+			// OAuth storage; see DEPLOY.md. Create with:
 			//   npx wrangler kv namespace create OAUTH_KV
 			"binding": "OAUTH_KV",
 			"id": "REPLACE_WITH_KV_NAMESPACE_ID",
@@ -27,6 +27,10 @@
 		// Deployment-specific values and credentials are set with
 		// `wrangler secret put`, never committed here.
 		"YNAB_READ_ONLY": "false",
+		// Optional: exact OAuth redirect URIs (comma- or space-separated) that MCP
+		// clients may receive grants at; loopback redirects are always allowed.
+		// Unset allows any client, each still needing approval at sign-in.
+		// "ALLOWED_REDIRECT_URIS": "https://claude.ai/api/mcp/auth_callback,https://claude.com/api/mcp/auth_callback",
 		// Categorize reminders are disabled unless NAG_CALENDAR_ID and the
 		// GOOGLE_SERVICE_ACCOUNT_JSON secret are configured for a deployment.
 		"NAG_TIMEZONE": "America/Los_Angeles",

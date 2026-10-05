@@ -1,8 +1,9 @@
 # Deploying as a remote MCP server
 
 The stdio server in `src/index.ts` only works on the machine it runs on. To use
-these tools from claude.ai or the Claude mobile app, deploy the Worker in
-`src/worker/` to Cloudflare and add it as a custom connector.
+these tools from claude.ai, the Claude mobile app, or another MCP client that
+supports remote servers, deploy the Worker in `src/worker/` to Cloudflare and
+add it as a custom connector.
 
 The Worker holds the YNAB token server-side and puts GitHub sign-in in front of
 it, restricted to a single GitHub account. These are separate layers:
@@ -29,7 +30,7 @@ cp wrangler.example.jsonc wrangler.jsonc
 npx wrangler login
 ```
 
-### 2. Create the KV namespace for OAuth grants
+### 2. Create the KV namespace for OAuth state and grants
 
 ```bash
 npx wrangler kv namespace create OAUTH_KV
@@ -93,10 +94,60 @@ npm run deploy
 1. claude.ai → Settings → Connectors → **Add custom connector**
 2. Name: `YNAB`
 3. URL: `https://ynab-mcp-server.<your-subdomain>.workers.dev/mcp`
-4. Connect, and complete the GitHub sign-in when prompted
+4. Connect, check the address on the approval page and choose **Approve**, then
+   complete the GitHub sign-in
 
 Once connected it works everywhere you are signed in to Claude, including the
 mobile app. Your Mac does not need to be running.
+
+Any MCP client that supports remote servers with OAuth can connect the same
+way: give it the `/mcp` URL and complete the sign-in it opens.
+
+## Approving MCP clients
+
+MCP clients register themselves with the Worker automatically, so the Worker
+cannot know in advance which ones are yours. Every permitted sign-in therefore
+stops at an approval page before GitHub. It shows the name the client gave
+itself and the full address the grant will be sent to, with **Approve** and
+**Deny**.
+Clients choose their own names, so check the address: only approve a sign-in
+you just started, going to your client's callback. Denying sends the client an
+`access_denied` error and issues nothing.
+
+The pending sign-in is stored in `OAUTH_KV` and tied to your browser with a
+short-lived cookie, so a link someone else prepared cannot complete it.
+
+### Restricting redirects (optional)
+
+Set `ALLOWED_REDIRECT_URIS` to the exact callback URIs of the clients you use,
+separated by commas or whitespace. Requests for any other redirect are refused
+before the approval page, and checked again just before a grant is issued.
+`http://` loopback redirects (`localhost`, `127.0.0.1`, `[::1]`, any port)
+stay allowed, because local clients pick their port at runtime. The approval
+page still appears for allowed clients. Leave the setting unset or blank to
+allow any client, subject to approval.
+
+Set it as a plain var in your `wrangler.jsonc` `vars`, or as a secret; either
+works:
+
+```bash
+npx wrangler secret put ALLOWED_REDIRECT_URIS
+```
+
+Example callback URIs (check your client's documentation; the approval page
+also shows the exact URI a client asked for):
+
+| Client | Redirect URI |
+| --- | --- |
+| Claude (claude.ai, desktop, and mobile apps) | `https://claude.ai/api/mcp/auth_callback`, `https://claude.com/api/mcp/auth_callback` |
+| ChatGPT connectors | `https://chatgpt.com/connector_platform_oauth_redirect` |
+| Claude Code, MCP Inspector, and other local clients | `http://localhost:<port>/...` (loopback, always allowed) |
+
+For example, to allow only Claude plus local clients:
+
+```bash
+echo "https://claude.ai/api/mcp/auth_callback,https://claude.com/api/mcp/auth_callback" | npx wrangler secret put ALLOWED_REDIRECT_URIS
+```
 
 ## Categorize reminders (optional)
 

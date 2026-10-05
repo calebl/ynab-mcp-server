@@ -11,6 +11,12 @@ export interface WorkerEnv {
   GITHUB_CLIENT_SECRET: string;
   /** The single GitHub login allowed to use this server. */
   ALLOWED_GITHUB_LOGIN: string;
+  /**
+   * Optional exact OAuth redirect URIs, separated by commas or whitespace, that
+   * MCP clients may receive grants at. http loopback redirects are always
+   * allowed. May be a plain var or a secret.
+   */
+  ALLOWED_REDIRECT_URIS?: string;
   /** Set to "true" to expose only the read-only tools. */
   YNAB_READ_ONLY?: string;
   /** TypeSafe API credential for the optional category suggestion preview. */
