@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-10-04
+
+### Security
+- Fixed [GHSA-h64q-xp38-pgwr](https://github.com/calebl/ynab-mcp-server/security/advisories/GHSA-h64q-xp38-pgwr) (high) in the Cloudflare Worker deployment, versions 0.2.0 to 0.4.0. A crafted link could make the Worker issue an MCP grant to an attacker-registered redirect URI. Every sign-in now stops at an approval page that shows the client's name and the full redirect URI. The pending request is stored server-side, bound to the browser session, and no longer trusted from the OAuth `state`. The npm package does not include the Worker and was not affected.
+
+### Added
+- Optional `ALLOWED_REDIRECT_URIS` Worker setting that restricts which exact callback URIs can receive grants. Loopback redirects stay allowed. It can be set as a plain var or a secret.
+
+### Changed
+- `ynab_suggest_categories` falls back to categorization history from payees with similar names when a payee has no history of its own, such as names a bank feed has truncated. Exact-payee history still takes precedence.
+- Updated vulnerable development dependencies and dropped end-of-life Node.js 23 from the supported engines.
+
 ## [0.4.0] - 2026-10-02
 
 ### Added
