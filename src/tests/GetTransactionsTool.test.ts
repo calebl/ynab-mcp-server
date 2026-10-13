@@ -152,6 +152,7 @@ describe('GetTransactionsTool', () => {
         'test-budget-id',
         undefined,
         undefined,
+        undefined,
         undefined
       );
 
@@ -194,7 +195,8 @@ describe('GetTransactionsTool', () => {
         'account-1',
         undefined,
         undefined,
-        ynab.GetTransactionsByAccountTypeEnum.Unapproved
+        ynab.GetTransactionsByAccountTypeEnum.Unapproved,
+        undefined
       );
     });
 
@@ -217,7 +219,8 @@ describe('GetTransactionsTool', () => {
         'category-1',
         undefined,
         undefined,
-        ynab.GetTransactionsByCategoryTypeEnum.Uncategorized
+        ynab.GetTransactionsByCategoryTypeEnum.Uncategorized,
+        undefined
       );
     });
 
@@ -240,7 +243,8 @@ describe('GetTransactionsTool', () => {
         'payee-1',
         undefined,
         undefined,
-        ynab.GetTransactionsByPayeeTypeEnum.Unapproved
+        ynab.GetTransactionsByPayeeTypeEnum.Unapproved,
+        undefined
       );
     });
 
@@ -260,6 +264,7 @@ describe('GetTransactionsTool', () => {
       expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith(
         'test-budget-id',
         '2024-01-01',
+        undefined,
         undefined,
         undefined
       );
@@ -282,7 +287,8 @@ describe('GetTransactionsTool', () => {
         'test-budget-id',
         undefined,
         undefined,
-        ynab.GetTransactionsTypeEnum.Unapproved
+        ynab.GetTransactionsTypeEnum.Unapproved,
+        undefined
       );
     });
 
@@ -303,7 +309,8 @@ describe('GetTransactionsTool', () => {
         'test-budget-id',
         undefined,
         undefined,
-        ynab.GetTransactionsTypeEnum.Uncategorized
+        ynab.GetTransactionsTypeEnum.Uncategorized,
+        undefined
       );
     });
 
@@ -406,6 +413,72 @@ describe('GetTransactionsTool', () => {
       const response = JSON.parse(result.content[0].text);
       expect(response.success).toBe(false);
       expect(response.error).toBe('API Error');
+    });
+
+    describe('delta sync', () => {
+      it('passes lastKnowledgeOfServer 0 and 42 to getTransactions in the last slot (REQ-013)', async () => {
+        mockApi.transactions.getTransactions.mockResolvedValue({ data: { transactions: [], server_knowledge: 1 } });
+
+        await GetTransactionsTool.execute({ lastKnowledgeOfServer: 0 }, mockApi as any);
+        expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith('test-budget-id', undefined, undefined, undefined, 0);
+
+        await GetTransactionsTool.execute({ lastKnowledgeOfServer: 42 }, mockApi as any);
+        expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith('test-budget-id', undefined, undefined, undefined, 42);
+      });
+
+      it('passes lastKnowledgeOfServer to the account, category and payee calls (REQ-013)', async () => {
+        const empty = { data: { transactions: [], server_knowledge: 1 } };
+        mockApi.transactions.getTransactionsByAccount.mockResolvedValue(empty);
+        mockApi.transactions.getTransactionsByCategory.mockResolvedValue(empty);
+        mockApi.transactions.getTransactionsByPayee.mockResolvedValue(empty);
+
+        await GetTransactionsTool.execute({ accountId: 'account-1', lastKnowledgeOfServer: 42 }, mockApi as any);
+        await GetTransactionsTool.execute({ categoryId: 'category-1', lastKnowledgeOfServer: 42 }, mockApi as any);
+        await GetTransactionsTool.execute({ payeeId: 'payee-1', lastKnowledgeOfServer: 42 }, mockApi as any);
+
+        expect(mockApi.transactions.getTransactionsByAccount).toHaveBeenCalledWith('test-budget-id', 'account-1', undefined, undefined, undefined, 42);
+        expect(mockApi.transactions.getTransactionsByCategory).toHaveBeenCalledWith('test-budget-id', 'category-1', undefined, undefined, undefined, 42);
+        expect(mockApi.transactions.getTransactionsByPayee).toHaveBeenCalledWith('test-budget-id', 'payee-1', undefined, undefined, undefined, 42);
+      });
+
+      it('returns server_knowledge from the response (REQ-014)', async () => {
+        mockApi.transactions.getTransactions.mockResolvedValue({
+          data: { transactions: mockTransactionsData, server_knowledge: 99 },
+        });
+
+        const result = await GetTransactionsTool.execute({}, mockApi as any);
+
+        expect(JSON.parse(result.content[0].text).server_knowledge).toBe(99);
+      });
+
+      it('keeps deleted rows with deleted: true in delta mode and still drops them by default (REQ-015, REQ-016)', async () => {
+        mockApi.transactions.getTransactions.mockResolvedValue({
+          data: { transactions: mockTransactionsData, server_knowledge: 99 },
+        });
+
+        const delta = JSON.parse((await GetTransactionsTool.execute({ lastKnowledgeOfServer: 42 }, mockApi as any)).content[0].text);
+        expect(delta.transactions.find((t: any) => t.id === 'txn-deleted').deleted).toBe(true);
+        expect(delta.transactions.find((t: any) => t.id === 'txn-1').deleted).toBe(false);
+
+        const normal = JSON.parse((await GetTransactionsTool.execute({}, mockApi as any)).content[0].text);
+        expect(normal.transactions.map((t: any) => t.id)).not.toContain('txn-deleted');
+      });
+
+      it('reports truncation by limit in delta mode (REQ-017)', async () => {
+        mockApi.transactions.getTransactions.mockResolvedValue({
+          data: { transactions: mockTransactionsData, server_knowledge: 99 },
+        });
+
+        const result = await GetTransactionsTool.execute({ lastKnowledgeOfServer: 42, limit: 2 }, mockApi as any);
+        const response = JSON.parse(result.content[0].text);
+
+        expect(response.transaction_count).toBe(2);
+        expect(response.total_available).toBe(3);
+      });
+
+      it('explains server_knowledge in the description (REQ-017)', () => {
+        expect(GetTransactionsTool.description).toContain('server_knowledge');
+      });
     });
   });
 

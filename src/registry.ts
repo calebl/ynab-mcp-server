@@ -18,6 +18,12 @@ import * as ListAccountsTool from "./tools/ListAccountsTool.js";
 import * as ListScheduledTransactionsTool from "./tools/ListScheduledTransactionsTool.js";
 import * as ImportTransactionsTool from "./tools/ImportTransactionsTool.js";
 import * as ListMonthsTool from "./tools/ListMonthsTool.js";
+import * as GetCategoryTool from "./tools/GetCategoryTool.js";
+import * as GetMonthCategoryTool from "./tools/GetMonthCategoryTool.js";
+import * as GetMonthTool from "./tools/GetMonthTool.js";
+import * as GetPlanSettingsTool from "./tools/GetPlanSettingsTool.js";
+import * as GetUserTool from "./tools/GetUserTool.js";
+import * as UpdateCategoryTool from "./tools/UpdateCategoryTool.js";
 import * as MoveMoneyTool from "./tools/MoveMoneyTool.js";
 import * as AutoAssignTool from "./tools/AutoAssignTool.js";
 import * as SpendingByCategoryTool from "./tools/SpendingByCategoryTool.js";
@@ -83,6 +89,12 @@ export const tools: ToolEntry[] = [
   { title: "List Scheduled Transactions", module: ListScheduledTransactionsTool, writes: false },
   { title: "Import Transactions", module: ImportTransactionsTool, writes: true },
   { title: "List Months", module: ListMonthsTool, writes: false },
+  { title: "Get Category", module: GetCategoryTool, writes: false },
+  { title: "Get Month Category", module: GetMonthCategoryTool, writes: false },
+  { title: "Get Month", module: GetMonthTool, writes: false },
+  { title: "Get Plan Settings", module: GetPlanSettingsTool, writes: false },
+  { title: "Get User", module: GetUserTool, writes: false },
+  { title: "Update Category", module: UpdateCategoryTool, writes: true, idempotent: true },
   { title: "Move Money", module: MoveMoneyTool, writes: true },
   { title: "Auto Assign", module: AutoAssignTool, writes: true },
   { title: "Spending By Category", module: SpendingByCategoryTool, writes: false },

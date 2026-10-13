@@ -6,7 +6,7 @@ import { toDollars } from "./money.js";
 import { mapSubtransactions } from "./splits.js";
 
 export const name = "ynab_get_transactions";
-export const description = "Gets transactions from a plan with optional filters. Can filter by date range, account, category, payee, or approval status.";
+export const description = "Gets transactions from a plan with optional filters. Can filter by date range, account, category, payee, or approval status. Pass lastKnowledgeOfServer (server_knowledge from an earlier response) for only transactions changed since then, deleted ones included with deleted: true. If transaction_count is below total_available the result was truncated by limit; raise limit before storing server_knowledge.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
@@ -16,6 +16,7 @@ export const inputSchema = {
   categoryId: z.string().optional().describe("Filter to only transactions in this category"),
   payeeId: z.string().optional().describe("Filter to only transactions with this payee"),
   limit: z.number().int().positive().max(1000).optional().describe("Maximum number of transactions to return (default: 100)"),
+  lastKnowledgeOfServer: z.number().int().nonnegative().optional().describe("Delta sync: the server_knowledge value from an earlier response of this tool. Only rows changed since then are returned, deleted rows included with deleted: true."),
 };
 
 interface GetTransactionsInput {
@@ -27,6 +28,7 @@ interface GetTransactionsInput {
   categoryId?: string;
   payeeId?: string;
   limit?: number;
+  lastKnowledgeOfServer?: number;
 }
 
 
@@ -63,6 +65,7 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
     const limit = input.limit || 100;
 
     let rawTransactions: TransactionData[];
+    let serverKnowledge: number | undefined;
 
     // Use the appropriate API method based on filters
     if (input.accountId) {
@@ -71,40 +74,50 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
         input.accountId,
         input.sinceDate,
         undefined,
-        mapTransactionType(input.type) as ynab.GetTransactionsByAccountTypeEnum
+        mapTransactionType(input.type) as ynab.GetTransactionsByAccountTypeEnum,
+        input.lastKnowledgeOfServer
       );
       rawTransactions = response.data.transactions;
+      serverKnowledge = response.data.server_knowledge;
     } else if (input.categoryId) {
       const response = await api.transactions.getTransactionsByCategory(
         budgetId,
         input.categoryId,
         input.sinceDate,
         undefined,
-        mapTransactionType(input.type) as ynab.GetTransactionsByCategoryTypeEnum
+        mapTransactionType(input.type) as ynab.GetTransactionsByCategoryTypeEnum,
+        input.lastKnowledgeOfServer
       );
       rawTransactions = response.data.transactions;
+      serverKnowledge = response.data.server_knowledge;
     } else if (input.payeeId) {
       const response = await api.transactions.getTransactionsByPayee(
         budgetId,
         input.payeeId,
         input.sinceDate,
         undefined,
-        mapTransactionType(input.type) as ynab.GetTransactionsByPayeeTypeEnum
+        mapTransactionType(input.type) as ynab.GetTransactionsByPayeeTypeEnum,
+        input.lastKnowledgeOfServer
       );
       rawTransactions = response.data.transactions;
+      serverKnowledge = response.data.server_knowledge;
     } else {
       const response = await api.transactions.getTransactions(
         budgetId,
         input.sinceDate,
         undefined,
-        mapTransactionType(input.type)
+        mapTransactionType(input.type),
+        input.lastKnowledgeOfServer
       );
       rawTransactions = response.data.transactions;
+      serverKnowledge = response.data.server_knowledge;
     }
 
+    const delta = input.lastKnowledgeOfServer !== undefined;
+    const visible = rawTransactions.filter((txn) => delta || !txn.deleted);
+
     // Filter out deleted and apply limit
-    const transactions = rawTransactions
-      .filter((txn) => !txn.deleted)
+    const transactions = visible
       .slice(0, limit)
       .map((txn) => ({
         id: txn.id,
@@ -120,6 +133,7 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
         transfer_account_id: txn.transfer_account_id,
         // Present only on splits, whose parent row is categorised "Split".
         subtransactions: mapSubtransactions(txn.subtransactions),
+        deleted: txn.deleted,
       }));
 
     return {
@@ -128,7 +142,8 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
         text: JSON.stringify({
           transactions,
           transaction_count: transactions.length,
-          total_available: rawTransactions.filter((t) => !t.deleted).length,
+          total_available: visible.length,
+          server_knowledge: serverKnowledge,
         }, null, 2),
       }],
     };

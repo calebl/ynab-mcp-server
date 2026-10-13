@@ -141,13 +141,27 @@ plain currency amounts, never YNAB's milliunits; conversion happens in
 | `ynab_list_plans` | Every plan on the account. Run this first to find a plan ID. |
 | `ynab_plan_summary` | A month at a glance: income, budgeted, activity, Ready to Assign, plus categories split into `overspent`, `underfunded` (goal not yet met) and `positive_balance`. Hidden and deleted categories are excluded. |
 | `ynab_list_accounts` | Accounts with balances. `includeClosedAccounts` to see closed ones. |
-| `ynab_list_categories` | Categories grouped by category group, with goal info. |
+| `ynab_list_categories` | Categories grouped by category group, with goal info (type, target, target date, percentage complete, underfunded, cadence). `month` for that month's numbers, `includeHidden` for hidden ones, `lastKnowledgeOfServer` for delta sync. |
 | `ynab_list_payees` | Payees, for resolving payee IDs. |
-| `ynab_list_months` | Every plan month with its summary numbers. |
+| `ynab_list_months` | Every plan month with its summary numbers. `lastKnowledgeOfServer` for delta sync. |
+| `ynab_get_category` | One category by ID (hidden included) with its goal fields. |
+| `ynab_get_month_category` | One category's values for a given month (`month`: ISO date or `current`). |
+| `ynab_get_month` | One month's totals and all its non-deleted categories (`month`: ISO date or `current`). |
+| `ynab_get_plan_settings` | The plan's date and currency formats. |
+| `ynab_get_user` | The authenticated user's ID. |
 | `ynab_list_scheduled_transactions` | Scheduled/recurring transactions. |
-| `ynab_get_transactions` | Transactions filtered by `sinceDate`, `accountId`, `categoryId`, `payeeId`, `type` (`all`/`uncategorized`/`unapproved`) and `limit` (default 100). |
+| `ynab_get_transactions` | Transactions filtered by `sinceDate`, `accountId`, `categoryId`, `payeeId`, `type` (`all`/`uncategorized`/`unapproved`) and `limit` (default 100). `lastKnowledgeOfServer` for delta sync. |
 | `ynab_get_unapproved_transactions` | Unapproved transactions, optionally from `sinceDate` onward. |
 | `ynab_suggest_categories` | Opt-in, read-only category previews for unapproved, uncategorized ordinary outflows. Deleted and categorized rows are dropped in default mode; approved, reconciled, balance-adjustment, transfer, split, and inflow rows are skipped as applicable. |
+
+#### Delta sync
+
+`ynab_list_categories`, `ynab_list_months` and `ynab_get_transactions` return
+`server_knowledge`. Pass it back as `lastKnowledgeOfServer` to get only what
+changed since; in that mode deleted rows are returned with `deleted: true` (and
+hidden categories regardless of `includeHidden`) so you can apply removals. If
+`ynab_get_transactions` reports `transaction_count` below `total_available`,
+raise `limit` before storing `server_knowledge`.
 
 ### Category suggestions (optional)
 
@@ -240,6 +254,7 @@ accounts are excluded, so these report spending rather than money movement.
 | `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call. |
 | `ynab_apply_category_suggestions` | Applies up to 25 explicit category suggestions with refetch and stale-data checks, dry-run support, and a pre-write undo manifest. Never auto-applies or approves transactions. |
 | `ynab_update_category_budget` | Sets the total budgeted amount for a category in a month. Not an increment. |
+| `ynab_update_category` | Changes a category's name, note, group, or goal target (dollars), target date, or needs-whole-amount flag. Cannot remove a goal. |
 | `ynab_import_transactions` | Triggers an import from linked institutions, the same as hitting Import in the YNAB app. |
 | `ynab_move_money` | Moves budgeted money between two categories in a month, for covering overspending. |
 | `ynab_auto_assign` | Spreads Ready to Assign over categories with unmet monthly goals, largest shortfall first. `dryRun` to preview, `maxTotal` to cap it. |

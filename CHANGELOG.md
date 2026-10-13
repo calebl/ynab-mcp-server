@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `ynab_get_category`, `ynab_get_month_category`, `ynab_get_month`, `ynab_get_plan_settings` and `ynab_get_user` read tools.
+- `ynab_update_category` for a category's name, note, group, and goal target (in dollars), target date, and needs-whole-amount flag.
+- Delta sync: `ynab_list_categories`, `ynab_list_months` and `ynab_get_transactions` accept `lastKnowledgeOfServer` and return `server_knowledge`; delta responses include deleted rows flagged `deleted: true`.
+
+### Changed
+- `ynab_list_categories` accepts `month` and `includeHidden`, and returns more goal fields (`goal_target_date`, `goal_under_funded`, `goal_cadence`, `goal_needs_whole_amount`) plus `category_group_id`, `category_group_name`, `hidden`, `deleted`, and `note`.
+- `ynab_list_months` and `ynab_get_transactions` rows include `deleted`.
+
 ## [0.4.1] - 2026-10-04
 
 ### Security

@@ -69,7 +69,7 @@ describe('ListMonthsTool', () => {
         mockApi as any
       );
 
-      expect(mockApi.months.getPlanMonths).toHaveBeenCalledWith('test-budget-id');
+      expect(mockApi.months.getPlanMonths).toHaveBeenCalledWith('test-budget-id', undefined);
 
       const response = JSON.parse(result.content[0].text);
       expect(response.month_count).toBe(3);
@@ -127,7 +127,7 @@ describe('ListMonthsTool', () => {
 
       await ListMonthsTool.execute({}, mockApi as any);
 
-      expect(mockApi.months.getPlanMonths).toHaveBeenCalledWith('test-budget-id');
+      expect(mockApi.months.getPlanMonths).toHaveBeenCalledWith('test-budget-id', undefined);
     });
 
     it('should return error when no plan ID is available', async () => {
@@ -199,6 +199,65 @@ describe('ListMonthsTool', () => {
       expect(month.activity).toBe(0);
       expect(month.to_be_budgeted).toBe(0);
       expect(month.age_of_money).toBeNull();
+    });
+
+    describe('delta sync', () => {
+      const deltaData = {
+        data: {
+          server_knowledge: 99,
+          months: [
+            {
+              month: '2024-01-01',
+              note: null,
+              income: 0,
+              budgeted: 0,
+              activity: 0,
+              to_be_budgeted: 0,
+              age_of_money: null,
+              deleted: true,
+            },
+            {
+              month: '2024-02-01',
+              note: null,
+              income: 1000,
+              budgeted: 1000,
+              activity: 0,
+              to_be_budgeted: 0,
+              age_of_money: 10,
+              deleted: false,
+            },
+          ],
+        },
+      };
+
+      it('passes lastKnowledgeOfServer 0 and 42 through to YNAB (REQ-013)', async () => {
+        mockApi.months.getPlanMonths.mockResolvedValue(deltaData);
+
+        await ListMonthsTool.execute({ lastKnowledgeOfServer: 0 }, mockApi as any);
+        expect(mockApi.months.getPlanMonths).toHaveBeenCalledWith('test-budget-id', 0);
+
+        await ListMonthsTool.execute({ lastKnowledgeOfServer: 42 }, mockApi as any);
+        expect(mockApi.months.getPlanMonths).toHaveBeenCalledWith('test-budget-id', 42);
+      });
+
+      it('returns server_knowledge (REQ-014)', async () => {
+        mockApi.months.getPlanMonths.mockResolvedValue(deltaData);
+
+        const result = await ListMonthsTool.execute({}, mockApi as any);
+
+        expect(JSON.parse(result.content[0].text).server_knowledge).toBe(99);
+      });
+
+      it('keeps a deleted month with deleted: true in delta mode and every row carries deleted (REQ-015, REQ-016)', async () => {
+        mockApi.months.getPlanMonths.mockResolvedValue(deltaData);
+
+        const result = await ListMonthsTool.execute({ lastKnowledgeOfServer: 42 }, mockApi as any);
+        const response = JSON.parse(result.content[0].text);
+
+        expect(response.month_count).toBe(2);
+        expect(response.months[0]).toMatchObject({ month: '2024-01-01', deleted: true });
+        expect(response.months[1].deleted).toBe(false);
+      });
     });
   });
 
