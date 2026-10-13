@@ -217,6 +217,50 @@ describe('ListScheduledTransactionsTool', () => {
     });
   });
 
+  describe('accountId filter', () => {
+    const row = (id: string, accountId: string, deleted = false) => ({
+      id,
+      date_first: '2024-01-01',
+      date_next: '2024-02-01',
+      frequency: 'monthly',
+      amount: -1000,
+      memo: null,
+      flag_color: null,
+      account_id: accountId,
+      account_name: accountId,
+      payee_id: null,
+      payee_name: null,
+      category_id: null,
+      category_name: null,
+      transfer_account_id: null,
+      deleted,
+    });
+
+    it('should return only the given account\'s scheduled transactions', async () => {
+      mockApi.scheduledTransactions.getScheduledTransactions.mockResolvedValue({
+        data: {
+          scheduled_transactions: [
+            row('a1', 'account-1'),
+            row('a1-deleted', 'account-1', true),
+            row('b1', 'account-2'),
+            row('b2', 'account-2'),
+          ],
+        },
+      });
+
+      const result = await ListScheduledTransactionsTool.execute({ accountId: 'account-2' }, mockApi as any);
+
+      expect(mockApi.scheduledTransactions.getScheduledTransactions).toHaveBeenCalledWith('test-budget-id');
+      const response = JSON.parse(result.content[0].text);
+      expect(response.scheduled_transactions.map((t: any) => t.id)).toEqual(['b1', 'b2']);
+      expect(response.count).toBe(2);
+    });
+
+    it('should have accountId in input schema', () => {
+      expect(ListScheduledTransactionsTool.inputSchema).toHaveProperty('accountId');
+    });
+  });
+
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       expect(ListScheduledTransactionsTool.name).toBe('ynab_list_scheduled_transactions');

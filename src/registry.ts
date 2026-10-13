@@ -8,8 +8,10 @@ import * as CreateTransactionTool from "./tools/CreateTransactionTool.js";
 import * as UpdateCategoryBudgetTool from "./tools/UpdateCategoryBudgetTool.js";
 import * as UpdateTransactionTool from "./tools/UpdateTransactionTool.js";
 import * as BulkApproveTransactionsTool from "./tools/BulkApproveTransactionsTool.js";
+import * as BulkUpdateTransactionsTool from "./tools/BulkUpdateTransactionsTool.js";
 import * as ListPayeesTool from "./tools/ListPayeesTool.js";
 import * as GetTransactionsTool from "./tools/GetTransactionsTool.js";
+import * as GetTransactionTool from "./tools/GetTransactionTool.js";
 import * as DeleteTransactionTool from "./tools/DeleteTransactionTool.js";
 import * as ListCategoriesTool from "./tools/ListCategoriesTool.js";
 import * as ListAccountsTool from "./tools/ListAccountsTool.js";
@@ -75,8 +77,10 @@ export const tools: ToolEntry[] = [
   { title: "Update Category Budget", module: UpdateCategoryBudgetTool, writes: true, idempotent: true },
   { title: "Update Transaction", module: UpdateTransactionTool, writes: true, idempotent: true },
   { title: "Bulk Approve Transactions", module: BulkApproveTransactionsTool, writes: true, idempotent: true },
+  { title: "Bulk Update Transactions", module: BulkUpdateTransactionsTool, writes: true, idempotent: true },
   { title: "List Payees", module: ListPayeesTool, writes: false },
   { title: "Get Transactions", module: GetTransactionsTool, writes: false },
+  { title: "Get Transaction", module: GetTransactionTool, writes: false },
   { title: "Delete Transaction", module: DeleteTransactionTool, writes: true, destructive: true },
   { title: "List Categories", module: ListCategoriesTool, writes: false },
   { title: "List Accounts", module: ListAccountsTool, writes: false },
