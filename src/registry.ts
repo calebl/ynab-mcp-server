@@ -10,12 +10,17 @@ import * as ApproveTransactionTool from "./tools/ApproveTransactionTool.js";
 import * as UpdateCategoryBudgetTool from "./tools/UpdateCategoryBudgetTool.js";
 import * as UpdateTransactionTool from "./tools/UpdateTransactionTool.js";
 import * as BulkApproveTransactionsTool from "./tools/BulkApproveTransactionsTool.js";
+import * as BulkUpdateTransactionsTool from "./tools/BulkUpdateTransactionsTool.js";
 import * as ListPayeesTool from "./tools/ListPayeesTool.js";
 import * as GetTransactionsTool from "./tools/GetTransactionsTool.js";
+import * as GetTransactionTool from "./tools/GetTransactionTool.js";
 import * as DeleteTransactionTool from "./tools/DeleteTransactionTool.js";
 import * as ListCategoriesTool from "./tools/ListCategoriesTool.js";
 import * as ListAccountsTool from "./tools/ListAccountsTool.js";
 import * as ListScheduledTransactionsTool from "./tools/ListScheduledTransactionsTool.js";
+import * as CreateScheduledTransactionTool from "./tools/CreateScheduledTransactionTool.js";
+import * as UpdateScheduledTransactionTool from "./tools/UpdateScheduledTransactionTool.js";
+import * as DeleteScheduledTransactionTool from "./tools/DeleteScheduledTransactionTool.js";
 import * as ImportTransactionsTool from "./tools/ImportTransactionsTool.js";
 import * as ListMonthsTool from "./tools/ListMonthsTool.js";
 import * as MoveMoneyTool from "./tools/MoveMoneyTool.js";
@@ -75,12 +80,17 @@ export const tools: ToolEntry[] = [
   { title: "Update Category Budget", module: UpdateCategoryBudgetTool, writes: true, idempotent: true },
   { title: "Update Transaction", module: UpdateTransactionTool, writes: true, idempotent: true },
   { title: "Bulk Approve Transactions", module: BulkApproveTransactionsTool, writes: true, idempotent: true },
+  { title: "Bulk Update Transactions", module: BulkUpdateTransactionsTool, writes: true, idempotent: true },
   { title: "List Payees", module: ListPayeesTool, writes: false },
   { title: "Get Transactions", module: GetTransactionsTool, writes: false },
+  { title: "Get Transaction", module: GetTransactionTool, writes: false },
   { title: "Delete Transaction", module: DeleteTransactionTool, writes: true, destructive: true },
   { title: "List Categories", module: ListCategoriesTool, writes: false },
   { title: "List Accounts", module: ListAccountsTool, writes: false },
   { title: "List Scheduled Transactions", module: ListScheduledTransactionsTool, writes: false },
+  { title: "Create Scheduled Transaction", module: CreateScheduledTransactionTool, writes: true },
+  { title: "Update Scheduled Transaction", module: UpdateScheduledTransactionTool, writes: true, idempotent: true },
+  { title: "Delete Scheduled Transaction", module: DeleteScheduledTransactionTool, writes: true, destructive: true },
   { title: "Import Transactions", module: ImportTransactionsTool, writes: true },
   { title: "List Months", module: ListMonthsTool, writes: false },
   { title: "Move Money", module: MoveMoneyTool, writes: true },

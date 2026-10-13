@@ -144,8 +144,9 @@ plain currency amounts, never YNAB's milliunits; conversion happens in
 | `ynab_list_categories` | Categories grouped by category group, with goal info. |
 | `ynab_list_payees` | Payees, for resolving payee IDs. |
 | `ynab_list_months` | Every plan month with its summary numbers. |
-| `ynab_list_scheduled_transactions` | Scheduled/recurring transactions. |
-| `ynab_get_transactions` | Transactions filtered by `sinceDate`, `accountId`, `categoryId`, `payeeId`, `type` (`all`/`uncategorized`/`unapproved`) and `limit` (default 100). |
+| `ynab_list_scheduled_transactions` | Scheduled/recurring transactions, optionally for one `accountId`. |
+| `ynab_get_transactions` | Transactions filtered by `sinceDate`, `untilDate`, `month` (`YYYY-MM-01` or `current`; not combinable with `accountId`/`categoryId`/`payeeId`), `accountId`, `categoryId`, `payeeId`, `type` (`all`/`uncategorized`/`unapproved`), `approved` and `limit` (default 100). Rows include account, payee and category IDs and `import_id`. |
+| `ynab_get_transaction` | One transaction by ID, with account/payee/category IDs and split legs. |
 | `ynab_get_unapproved_transactions` | Unapproved transactions, optionally from `sinceDate` onward. |
 | `ynab_suggest_categories` | Opt-in, read-only category previews for unapproved, uncategorized ordinary outflows. Deleted and categorized rows are dropped in default mode; approved, reconciled, balance-adjustment, transfer, split, and inflow rows are skipped as applicable. |
 
@@ -236,8 +237,12 @@ accounts are excluded, so these report spending rather than money movement.
 | `ynab_create_transaction` | Creates a transaction. Needs `date`, `amount`, an account (`accountId` or `accountName`) and a payee (`payeeId` or `payeeName`); category optional as `categoryId` or `categoryName`, or `subtransactions` to split it. |
 | `ynab_update_transaction` | Updates any subset of an existing transaction's fields, or splits an unsplit one with `subtransactions`. |
 | `ynab_delete_transaction` | Deletes a transaction. Not undoable. |
+| `ynab_create_scheduled_transaction` | Creates a scheduled transaction: `accountId`, future `date`, `amount`, `frequency`, optional payee, category, memo, flag. |
+| `ynab_update_scheduled_transaction` | Changes any subset of a scheduled transaction's fields; the rest are kept. Split scheduled transactions are refused. |
+| `ynab_delete_scheduled_transaction` | Deletes a scheduled transaction. Not undoable. |
 | `ynab_approve_transaction` | Approves (or un-approves) one transaction. |
 | `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call. |
+| `ynab_bulk_update_transactions` | Updates amount, memo, category, payee, cleared, approved or flag on up to 500 transactions in one API call, reporting per-transaction results. |
 | `ynab_apply_category_suggestions` | Applies up to 25 explicit category suggestions with refetch and stale-data checks, dry-run support, and a pre-write undo manifest. Never auto-applies or approves transactions. |
 | `ynab_update_category_budget` | Sets the total budgeted amount for a category in a month. Not an increment. |
 | `ynab_import_transactions` | Triggers an import from linked institutions, the same as hitting Import in the YNAB app. |
@@ -287,15 +292,16 @@ text content, so a failed write is never mistaken for a successful one.
 Every tool advertises MCP annotations (`readOnlyHint`, `destructiveHint`,
 `idempotentHint`, `openWorldHint`) alongside its schema. Reading tools are
 `readOnlyHint: true`; among the writing tools, only `ynab_delete_transaction`
-sets `destructiveHint: true`. A client may use these hints to decide which
-calls need a confirmation prompt.
+and `ynab_delete_scheduled_transaction` set `destructiveHint: true`. A client
+may use these hints to decide which calls need a confirmation prompt.
 
 #### `cleared` and `flagColor`
 
-`ynab_create_transaction` and `ynab_update_transaction` accept `cleared` as
-one of `cleared`, `uncleared`, or `reconciled`, and `flagColor` as one of
-`red`, `orange`, `yellow`, `green`, `blue`, `purple`, or `""` to clear an
-existing flag.
+`ynab_create_transaction`, `ynab_update_transaction`, and
+`ynab_bulk_update_transactions` accept `cleared` as one of `cleared`,
+`uncleared`, or `reconciled`, and `flagColor` as one of `red`, `orange`,
+`yellow`, `green`, `blue`, `purple`, or `""` to clear an existing flag. The
+scheduled-transaction tools accept the same `flagColor` values.
 
 ## Development
 

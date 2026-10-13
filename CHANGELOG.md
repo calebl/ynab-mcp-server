@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `ynab_get_transaction` fetches one transaction by ID.
+- `ynab_bulk_update_transactions` updates up to 500 transactions in one API call and reports which were saved.
+- `ynab_create_scheduled_transaction`, `ynab_update_scheduled_transaction`, and `ynab_delete_scheduled_transaction` manage scheduled transactions. Update keeps unchanged fields and refuses split scheduled transactions.
+
+### Changed
+- `ynab_get_transactions` accepts `untilDate`, `month`, and `approved`, and returns `account_id`, `payee_id`, `category_id`, and `import_id` on each row.
+- `ynab_list_scheduled_transactions` accepts an optional `accountId` filter.
+
 ## [0.4.1] - 2026-10-04
 
 ### Security

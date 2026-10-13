@@ -2,21 +2,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type * as ynab from "ynab";
 
-import { registerAll, tools, type ToolRegistrar } from "../registry.js";
+import { registerAll, tools, type RegisterOptions, type ToolRegistrar } from "../registry.js";
 
 interface RegisteredTool {
   config: Record<string, any>;
   callback: (input: any) => Promise<any>;
 }
 
-function register(api: ynab.API = {} as ynab.API) {
+function register(api: ynab.API = {} as ynab.API, options?: RegisterOptions) {
   const registered = new Map<string, RegisteredTool>();
   const server: ToolRegistrar = {
     registerTool(name, config, callback) {
       registered.set(name, { config, callback });
     },
   };
-  registerAll(server, api);
+  registerAll(server, api, options);
   return registered;
 }
 
@@ -124,6 +124,28 @@ describe("tool registration", () => {
     expect(registered.get("ynab_move_money")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_auto_assign")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_import_transactions")?.config.annotations.idempotentHint).toBe(false);
+    expect(registered.get("ynab_get_transaction")?.config.annotations.readOnlyHint).toBe(true);
+    expect(registered.get("ynab_bulk_update_transactions")?.config.annotations.idempotentHint).toBe(true);
+    expect(registered.get("ynab_update_scheduled_transaction")?.config.annotations.idempotentHint).toBe(true);
+    expect(registered.get("ynab_create_scheduled_transaction")?.config.annotations.idempotentHint).toBe(false);
+    expect(registered.get("ynab_create_scheduled_transaction")?.config.annotations.destructiveHint).toBe(false);
+    expect(registered.get("ynab_delete_scheduled_transaction")?.config.annotations.destructiveHint).toBe(true);
+  });
+
+  it("registers only read tools in read-only mode", () => {
+    const registered = register({} as ynab.API, { readOnly: true });
+
+    for (const name of ["ynab_get_transaction", "ynab_get_transactions", "ynab_list_scheduled_transactions"]) {
+      expect(registered.has(name), name).toBe(true);
+    }
+    for (const name of [
+      "ynab_bulk_update_transactions",
+      "ynab_create_scheduled_transaction",
+      "ynab_update_scheduled_transaction",
+      "ynab_delete_scheduled_transaction",
+    ]) {
+      expect(registered.has(name), name).toBe(false);
+    }
   });
 
   it("rejects ynab_create_transaction input missing both accountId and accountName", () => {

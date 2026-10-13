@@ -12,6 +12,7 @@ describe('GetTransactionsTool', () => {
       getTransactionsByAccount: Mock;
       getTransactionsByCategory: Mock;
       getTransactionsByPayee: Mock;
+      getTransactionsByMonth: Mock;
     };
   };
 
@@ -24,6 +25,7 @@ describe('GetTransactionsTool', () => {
         getTransactionsByAccount: vi.fn(),
         getTransactionsByCategory: vi.fn(),
         getTransactionsByPayee: vi.fn(),
+        getTransactionsByMonth: vi.fn(),
       },
     };
 
@@ -406,6 +408,161 @@ describe('GetTransactionsTool', () => {
       const response = JSON.parse(result.content[0].text);
       expect(response.success).toBe(false);
       expect(response.error).toBe('API Error');
+    });
+  });
+
+  describe('untilDate, month, approved and ID fields', () => {
+    const row = (overrides: Record<string, unknown>) => ({
+      id: 'txn-1',
+      date: '2024-01-15',
+      amount: -25990,
+      memo: null,
+      approved: true,
+      cleared: 'cleared',
+      account_id: 'acct-1',
+      account_name: 'Checking',
+      payee_id: 'payee-1',
+      payee_name: 'Amazon',
+      category_id: 'cat-1',
+      category_name: 'Shopping',
+      flag_color: null,
+      transfer_account_id: null,
+      import_id: 'YNAB:-25990:2024-01-15:1',
+      deleted: false,
+      ...overrides,
+    });
+
+    it('should return account, payee, category and import IDs on each row', async () => {
+      mockApi.transactions.getTransactions.mockResolvedValue({
+        data: { transactions: [row({}), row({ id: 'txn-2', import_id: null })] },
+      });
+
+      const result = await GetTransactionsTool.execute({}, mockApi as any);
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.transactions[0]).toMatchObject({
+        account_id: 'acct-1',
+        payee_id: 'payee-1',
+        category_id: 'cat-1',
+        import_id: 'YNAB:-25990:2024-01-15:1',
+      });
+      expect(response.transactions[1].import_id).toBeNull();
+    });
+
+    it('should pass untilDate before type to getTransactions', async () => {
+      mockApi.transactions.getTransactions.mockResolvedValue({ data: { transactions: [] } });
+
+      await GetTransactionsTool.execute(
+        { sinceDate: '2024-01-01', untilDate: '2024-01-31', type: 'unapproved' },
+        mockApi as any
+      );
+
+      expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith(
+        'test-budget-id',
+        '2024-01-01',
+        '2024-01-31',
+        ynab.GetTransactionsTypeEnum.Unapproved
+      );
+    });
+
+    it.each([
+      { key: 'accountId', method: 'getTransactionsByAccount' },
+      { key: 'categoryId', method: 'getTransactionsByCategory' },
+      { key: 'payeeId', method: 'getTransactionsByPayee' },
+    ] as const)('should pass untilDate in its slot for $key', async ({ key, method }) => {
+      mockApi.transactions[method].mockResolvedValue({ data: { transactions: [] } });
+
+      await GetTransactionsTool.execute({ [key]: 'id-1', untilDate: '2024-01-31' }, mockApi as any);
+
+      expect(mockApi.transactions[method]).toHaveBeenCalledWith(
+        'test-budget-id',
+        'id-1',
+        undefined,
+        '2024-01-31',
+        undefined
+      );
+    });
+
+    it('should list a plan month with getTransactionsByMonth', async () => {
+      mockApi.transactions.getTransactionsByMonth.mockResolvedValue({ data: { transactions: [row({})] } });
+
+      const result = await GetTransactionsTool.execute(
+        { month: '2024-03-01', sinceDate: '2024-03-05', untilDate: '2024-03-20', type: 'uncategorized' },
+        mockApi as any
+      );
+
+      expect(mockApi.transactions.getTransactionsByMonth).toHaveBeenCalledWith(
+        'test-budget-id',
+        '2024-03-01',
+        '2024-03-05',
+        '2024-03-20',
+        ynab.GetTransactionsByMonthTypeEnum.Uncategorized
+      );
+      expect(mockApi.transactions.getTransactions).not.toHaveBeenCalled();
+      expect(JSON.parse(result.content[0].text).transactions).toHaveLength(1);
+    });
+
+    it.each(['accountId', 'categoryId', 'payeeId'])(
+      'should refuse month combined with %s without calling YNAB',
+      async (key) => {
+        const result = await GetTransactionsTool.execute(
+          { month: 'current', [key]: 'id-1' },
+          mockApi as any
+        );
+
+        const response = JSON.parse(result.content[0].text);
+        expect(response.success).toBe(false);
+        expect(response.error).toBe('month cannot be combined with accountId, categoryId, or payeeId');
+        for (const method of Object.values(mockApi.transactions)) {
+          expect(method).not.toHaveBeenCalled();
+        }
+      }
+    );
+
+    describe('approved filter', () => {
+      const rows = [
+        row({ id: 'A', approved: true }),
+        row({ id: 'B', approved: true }),
+        row({ id: 'C', approved: false }),
+        row({ id: 'D', approved: true, deleted: true }),
+      ];
+
+      beforeEach(() => {
+        mockApi.transactions.getTransactions.mockResolvedValue({ data: { transactions: rows } });
+      });
+
+      it('should keep only approved rows and count them before limit', async () => {
+        const result = await GetTransactionsTool.execute({ approved: true }, mockApi as any);
+        const response = JSON.parse(result.content[0].text);
+        expect(response.transactions.map((t: any) => t.id)).toEqual(['A', 'B']);
+        expect(response.total_available).toBe(2);
+      });
+
+      it('should keep only unapproved rows', async () => {
+        const result = await GetTransactionsTool.execute({ approved: false }, mockApi as any);
+        const response = JSON.parse(result.content[0].text);
+        expect(response.transactions.map((t: any) => t.id)).toEqual(['C']);
+        expect(response.total_available).toBe(1);
+      });
+
+      it('should apply the filter before limit', async () => {
+        const result = await GetTransactionsTool.execute({ approved: true, limit: 1 }, mockApi as any);
+        const response = JSON.parse(result.content[0].text);
+        expect(response.transactions).toHaveLength(1);
+        expect(response.total_available).toBe(2);
+      });
+    });
+
+    it('should validate untilDate and month formats', () => {
+      expect(GetTransactionsTool.inputSchema).toHaveProperty('untilDate');
+      expect(GetTransactionsTool.inputSchema).toHaveProperty('month');
+      expect(GetTransactionsTool.inputSchema).toHaveProperty('approved');
+      expect((GetTransactionsTool.inputSchema.untilDate as z.ZodType).safeParse('01/31/2024').success).toBe(false);
+      const month = GetTransactionsTool.inputSchema.month as z.ZodType;
+      expect(month.safeParse('current').success).toBe(true);
+      expect(month.safeParse('2024-03-01').success).toBe(true);
+      expect(month.safeParse('2024-03-15').success).toBe(false);
+      expect(month.safeParse('2024-03').success).toBe(false);
     });
   });
 
