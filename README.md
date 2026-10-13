@@ -143,6 +143,10 @@ plain currency amounts, never YNAB's milliunits; conversion happens in
 | `ynab_list_accounts` | Accounts with balances. `includeClosedAccounts` to see closed ones. |
 | `ynab_list_categories` | Categories grouped by category group, with goal info. |
 | `ynab_list_payees` | Payees, for resolving payee IDs. |
+| `ynab_get_account` | One account by ID: balances, note, direct-import status and when it was last reconciled. |
+| `ynab_get_payee` | One payee by ID. |
+| `ynab_get_payee_location` | One payee location (GPS point from the YNAB mobile app) by ID. |
+| `ynab_list_payee_locations` | Payee locations, optionally only those for `payeeId`. |
 | `ynab_list_months` | Every plan month with its summary numbers. |
 | `ynab_list_scheduled_transactions` | Scheduled/recurring transactions. |
 | `ynab_get_transactions` | Transactions filtered by `sinceDate`, `accountId`, `categoryId`, `payeeId`, `type` (`all`/`uncategorized`/`unapproved`) and `limit` (default 100). |
@@ -238,6 +242,8 @@ accounts are excluded, so these report spending rather than money movement.
 | `ynab_delete_transaction` | Deletes a transaction. Not undoable. |
 | `ynab_approve_transaction` | Approves (or un-approves) one transaction. |
 | `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call. |
+| `ynab_update_payee` | Renames a payee. |
+| `ynab_reconcile_account` | Reconciles an account against a statement balance. Dry run by default; on a mismatch it changes nothing unless `createAdjustment` is set. |
 | `ynab_apply_category_suggestions` | Applies up to 25 explicit category suggestions with refetch and stale-data checks, dry-run support, and a pre-write undo manifest. Never auto-applies or approves transactions. |
 | `ynab_update_category_budget` | Sets the total budgeted amount for a category in a month. Not an increment. |
 | `ynab_import_transactions` | Triggers an import from linked institutions, the same as hitting Import in the YNAB app. |
@@ -277,6 +283,11 @@ than double-counted. When that happens the response sets `partial: true` and
 carries a `recovery` line with the original amount to restore. `ynab_auto_assign`
 behaves the same way: on failure it reports which categories were already funded
 and which were left alone.
+
+`ynab_reconcile_account` with `createAdjustment` creates the adjustment first,
+then marks transactions reconciled. If the second step fails the response sets
+`partial: true` and names the adjustment; running the same call again finds no
+difference and only finishes the reconciliation.
 
 Tools never throw at the protocol level. Failures come back as an MCP error
 result (`isError: true`) with `{ "success": false, "error": "..." }` in the

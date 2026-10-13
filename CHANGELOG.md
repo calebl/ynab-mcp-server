@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `ynab_get_account`, `ynab_get_payee`, `ynab_get_payee_location` and `ynab_list_payee_locations` read tools.
+- `ynab_update_payee` to rename a payee.
+- `ynab_reconcile_account`: reconciles an account against a statement balance, dry run by default, with an opt-in balance adjustment on a mismatch.
+
 ## [0.4.1] - 2026-10-04
 
 ### Security

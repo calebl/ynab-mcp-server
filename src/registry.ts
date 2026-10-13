@@ -11,10 +11,16 @@ import * as UpdateCategoryBudgetTool from "./tools/UpdateCategoryBudgetTool.js";
 import * as UpdateTransactionTool from "./tools/UpdateTransactionTool.js";
 import * as BulkApproveTransactionsTool from "./tools/BulkApproveTransactionsTool.js";
 import * as ListPayeesTool from "./tools/ListPayeesTool.js";
+import * as GetPayeeTool from "./tools/GetPayeeTool.js";
+import * as UpdatePayeeTool from "./tools/UpdatePayeeTool.js";
+import * as GetPayeeLocationTool from "./tools/GetPayeeLocationTool.js";
+import * as ListPayeeLocationsTool from "./tools/ListPayeeLocationsTool.js";
 import * as GetTransactionsTool from "./tools/GetTransactionsTool.js";
 import * as DeleteTransactionTool from "./tools/DeleteTransactionTool.js";
 import * as ListCategoriesTool from "./tools/ListCategoriesTool.js";
 import * as ListAccountsTool from "./tools/ListAccountsTool.js";
+import * as GetAccountTool from "./tools/GetAccountTool.js";
+import * as ReconcileAccountTool from "./tools/ReconcileAccountTool.js";
 import * as ListScheduledTransactionsTool from "./tools/ListScheduledTransactionsTool.js";
 import * as ImportTransactionsTool from "./tools/ImportTransactionsTool.js";
 import * as ListMonthsTool from "./tools/ListMonthsTool.js";
@@ -76,10 +82,16 @@ export const tools: ToolEntry[] = [
   { title: "Update Transaction", module: UpdateTransactionTool, writes: true, idempotent: true },
   { title: "Bulk Approve Transactions", module: BulkApproveTransactionsTool, writes: true, idempotent: true },
   { title: "List Payees", module: ListPayeesTool, writes: false },
+  { title: "Get Payee", module: GetPayeeTool, writes: false },
+  { title: "Update Payee", module: UpdatePayeeTool, writes: true, idempotent: true },
+  { title: "Get Payee Location", module: GetPayeeLocationTool, writes: false },
+  { title: "List Payee Locations", module: ListPayeeLocationsTool, writes: false },
   { title: "Get Transactions", module: GetTransactionsTool, writes: false },
   { title: "Delete Transaction", module: DeleteTransactionTool, writes: true, destructive: true },
   { title: "List Categories", module: ListCategoriesTool, writes: false },
   { title: "List Accounts", module: ListAccountsTool, writes: false },
+  { title: "Get Account", module: GetAccountTool, writes: false },
+  { title: "Reconcile Account", module: ReconcileAccountTool, writes: true },
   { title: "List Scheduled Transactions", module: ListScheduledTransactionsTool, writes: false },
   { title: "Import Transactions", module: ImportTransactionsTool, writes: true },
   { title: "List Months", module: ListMonthsTool, writes: false },

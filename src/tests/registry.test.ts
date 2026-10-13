@@ -123,6 +123,11 @@ describe("tool registration", () => {
     expect(registered.get("ynab_create_transaction")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_move_money")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_auto_assign")?.config.annotations.idempotentHint).toBe(false);
+    expect(registered.get("ynab_update_payee")?.config.annotations.idempotentHint).toBe(true);
+    expect(registered.get("ynab_reconcile_account")?.config.annotations.readOnlyHint).toBe(false);
+    expect(registered.get("ynab_reconcile_account")?.config.annotations.idempotentHint).toBe(false);
+    expect(registered.get("ynab_reconcile_account")?.config.annotations.destructiveHint).toBe(false);
+    expect(registered.get("ynab_get_account")?.config.annotations.readOnlyHint).toBe(true);
     expect(registered.get("ynab_import_transactions")?.config.annotations.idempotentHint).toBe(false);
   });
 

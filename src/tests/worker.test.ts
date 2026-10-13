@@ -117,5 +117,8 @@ describe("worker MCP handler", () => {
     expect(names).toContain("ynab_budget_summary");
     expect(names).not.toContain("ynab_create_transaction");
     expect(names).not.toContain("ynab_delete_transaction");
+    expect(names).toContain("ynab_get_account");
+    expect(names).not.toContain("ynab_update_payee");
+    expect(names).not.toContain("ynab_reconcile_account");
   });
 });
