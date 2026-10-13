@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `ynab_get_account`, `ynab_get_payee`, `ynab_get_payee_location` and `ynab_list_payee_locations` read tools.
+- `ynab_update_payee` to rename a payee.
+- `ynab_reconcile_account`: reconciles an account against a statement balance, dry run by default, with an opt-in balance adjustment on a mismatch.
+
 ## [0.10.0] - 2026-11-18
 
 ### Added

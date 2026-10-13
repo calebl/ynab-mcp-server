@@ -247,6 +247,10 @@ happens in `src/tools/money.ts`.
 | `ynab_list_accounts` | Accounts with balances. `includeClosedAccounts` to see closed ones. |
 | `ynab_list_categories` | Categories grouped by category group, with goal info. |
 | `ynab_list_payees` | Payees, for resolving payee IDs. |
+| `ynab_get_account` | One account by ID: balances, note, direct-import status and when it was last reconciled. |
+| `ynab_get_payee` | One payee by ID. |
+| `ynab_get_payee_location` | One payee location (GPS point from the YNAB mobile app) by ID. |
+| `ynab_list_payee_locations` | Payee locations, optionally only those for `payeeId`. |
 | `ynab_list_months` | Every plan month since the plan began, with raw income, budgeted, activity, Ready to Assign, age-of-money and note fields. For recent income versus spending, use `ynab_cash_flow`. |
 | `ynab_list_scheduled_transactions` | The scheduled transactions set up in YNAB. For recurring charges found in transaction history, see `ynab_detect_recurring`; for a projected balance, `ynab_balance_forecast`. |
 | `ynab_get_transactions` | Transactions optionally filtered to `sinceDate`–`untilDate`, by `type` (`all`/`uncategorized`/`unapproved`), and by at most one of `accountId`, `categoryId` or `payeeId` (the first in that order wins). To search, add `payeeContains`, `memoContains` (case-insensitive), `minAmount`/`maxAmount` (ignoring sign) or `direction` (`outflow`/`inflow`/`any`); any search option or `untilDate` adds a `totals` block (`count`, `inflow`, `outflow`, `net`) over every match, including transfers between accounts, and `totalsOnly: true` returns only that. Without `categoryId` or `payeeId`, splits are matched leg by leg and the totals count only the matching legs; with them, rows are matched as YNAB returns them, so a split's parent row in the payee listing counts at its full amount. Imported rows also carry `import_payee_name` (YNAB's cleaned-up payee) and `import_payee_name_original` (the bank's raw text). Rows come back newest first; `limit` defaults to 100, keeps the most recent rows, and does not affect the totals. |
@@ -389,6 +393,8 @@ than money movement.
 | `ynab_create_transaction` | Creates a transaction. Needs `date`, `amount`, an account (`accountId` or `accountName`) and a payee (`payeeId` or `payeeName`); category optional as `categoryId` or `categoryName`, or `subtransactions` to split it. |
 | `ynab_update_transaction` | Updates any subset of an existing transaction's fields, or splits an unsplit one with `subtransactions`. |
 | `ynab_delete_transaction` | Deletes a transaction. Not undoable. |
+| `ynab_update_payee` | Renames a payee. |
+| `ynab_reconcile_account` | Reconciles an account against a statement balance. Dry run by default; on a mismatch it changes nothing unless `createAdjustment` is set. |
 | `ynab_manage_scheduled_transaction` | Creates, updates or deletes a scheduled transaction with `action`. Create needs `date`, `amount` and an account (`accountId` or `accountName`), with optional `frequency` (default `never`), payee, category, `memo` and `flagColor`; update needs `scheduledTransactionId` and changes only the fields given; delete needs `scheduledTransactionId` and is not undoable. YNAB only accepts a date in the future, at most 5 years ahead, and does not support split scheduled transactions here. |
 | `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call, or un-approves them with `approved: false`. |
 | `ynab_apply_category_suggestions` | Applies up to 25 explicit category suggestions with refetch and stale-data checks, dry-run support, and a pre-write undo manifest. Never auto-applies or approves transactions. |
@@ -430,6 +436,11 @@ than double-counted. When that happens the response sets `partial: true` and
 carries a `recovery` line with the original amount to restore. `ynab_auto_assign`
 behaves the same way: on failure it reports which categories were already funded
 and which were left alone.
+
+`ynab_reconcile_account` with `createAdjustment` creates the adjustment first,
+then marks transactions reconciled. If the second step fails the response sets
+`partial: true` and names the adjustment; running the same call again finds no
+difference and only finishes the reconciliation.
 
 Tools never throw at the protocol level. Failures come back as an MCP error
 result (`isError: true`) with `{ "success": false, "error": "..." }` in the
