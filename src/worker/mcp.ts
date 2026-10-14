@@ -1,7 +1,7 @@
 import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
 import * as ynab from "ynab";
 
-import { registerAll } from "../registry.js";
+import { isReadOnly, registerAll } from "../registry.js";
 import type { WorkerEnv } from "./env.js";
 
 /**
@@ -33,9 +33,7 @@ export function createServer(env: WorkerEnv) {
   });
 
   const api = new ynab.API(env.YNAB_API_TOKEN);
-  registerAll(server, api, {
-    readOnly: env.YNAB_READ_ONLY === "true",
-  });
+  registerAll(server, api, { readOnly: isReadOnly(env.YNAB_READ_ONLY) });
 
   return server;
 }

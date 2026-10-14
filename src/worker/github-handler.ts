@@ -1,5 +1,6 @@
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { WorkerEnv } from "./env.js";
+import { isReadOnly } from "../registry.js";
 
 const GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
 const GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
@@ -112,7 +113,7 @@ function approvalPage(env: HandlerEnv, authRequest: AuthRequest, clientName: str
   const where = isLoopbackRedirect(authRequest.redirectUri)
     ? "a program on this computer (loopback address)"
     : escapeHtml(destination.host);
-  const access = env.YNAB_READ_ONLY === "true" ? "read-only" : "read and write";
+  const access = isReadOnly(env.YNAB_READ_ONLY) ? "read-only" : "read and write";
   const body =
     `<h1>Allow access to your YNAB plans?</h1>` +
     `<p>A client calling itself <strong>${escapeHtml(clientName || "an unnamed client")}</strong> is asking for ${access} ` +

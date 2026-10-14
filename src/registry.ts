@@ -101,6 +101,11 @@ export interface ToolRegistrar {
   registerTool(name: string, config: Record<string, unknown>, cb: (input: any) => Promise<any>): unknown;
 }
 
+/** True when a `YNAB_READ_ONLY` value asks for read-only mode: "true" in any case, surrounding whitespace ignored. */
+export function isReadOnly(value: string | undefined): boolean {
+  return value?.trim().toLowerCase() === "true";
+}
+
 export interface RegisterOptions {
   /** Register only the read-only tools. */
   readOnly?: boolean;
