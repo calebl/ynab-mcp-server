@@ -99,7 +99,7 @@ export async function execute(input: MoveMoneyInput, api: ynab.API) {
           success: true,
           moved: true,
           month,
-          amount: input.amount,
+          amount: toDollars(amountMilliunits, decimalDigits),
           from: {
             id: source.id,
             name: source.name,
