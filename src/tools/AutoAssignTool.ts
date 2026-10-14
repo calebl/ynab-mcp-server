@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { formatAmount, getDecimalDigits, roundAmount, toDollars, toMilliunits } from "./money.js";
+import { formatAmount, getDecimalDigits, toDollars, toMilliunits } from "./money.js";
 
 export const name = "ynab_auto_assign";
 export const description = "Distributes Ready to Assign across categories whose monthly goal is not yet fully funded, largest shortfall first, until the money runs out. Set dryRun to see the plan without changing anything.";
@@ -29,7 +29,7 @@ interface PlannedAssignment {
   assign: number;
   newBudgeted: number;
   shortfallRemaining: number;
-  /** Kept in milliunits so applying the plan never round-trips through dollars. */
+  assignMilliunits: number;
   newBudgetedMilliunits: number;
 }
 
@@ -62,6 +62,7 @@ function planAssignments(
       assign: toDollars(assign, decimalDigits),
       newBudgeted: toDollars(category.budgeted + assign, decimalDigits),
       shortfallRemaining: toDollars(shortfall - assign, decimalDigits),
+      assignMilliunits: assign,
       newBudgetedMilliunits: category.budgeted + assign,
     });
   }
@@ -70,7 +71,7 @@ function planAssignments(
 }
 
 /** Drops the internal milliunit field so responses stay in plain currency. */
-function forOutput({ newBudgetedMilliunits, ...rest }: PlannedAssignment) {
+function forOutput({ assignMilliunits, newBudgetedMilliunits, ...rest }: PlannedAssignment) {
   return rest;
 }
 
@@ -105,7 +106,8 @@ export async function execute(input: AutoAssignInput, api: ynab.API) {
       : readyToAssign;
 
     const plan = planAssignments(monthResponse.data.month.categories, cap, decimalDigits);
-    const totalPlanned = roundAmount(plan.reduce((sum, item) => sum + item.assign, 0), decimalDigits);
+    const totalPlannedMilliunits = plan.reduce((sum, item) => sum + item.assignMilliunits, 0);
+    const totalPlanned = toDollars(totalPlannedMilliunits, decimalDigits);
 
     if (plan.length === 0) {
       return {
@@ -132,7 +134,7 @@ export async function execute(input: AutoAssignInput, api: ynab.API) {
             month,
             ready_to_assign: toDollars(readyToAssign, decimalDigits),
             total_to_assign: totalPlanned,
-            remaining_after: roundAmount(toDollars(readyToAssign, decimalDigits) - totalPlanned, decimalDigits),
+            remaining_after: toDollars(readyToAssign - totalPlannedMilliunits, decimalDigits),
             assignments: plan.map(forOutput),
             message: `Would assign $${formatAmount(totalPlanned, decimalDigits)} across ${plan.length} categor${plan.length === 1 ? "y" : "ies"}. Call again without dryRun to apply.`,
           }, null, 2),
@@ -151,7 +153,8 @@ export async function execute(input: AutoAssignInput, api: ynab.API) {
         applied.push(item);
       } catch (error) {
         console.error(`Error assigning to ${item.name}:`, error);
-        const assignedSoFar = roundAmount(applied.reduce((sum, a) => sum + a.assign, 0), decimalDigits);
+        const assignedSoFarMilliunits = applied.reduce((sum, item) => sum + item.assignMilliunits, 0);
+        const assignedSoFar = toDollars(assignedSoFarMilliunits, decimalDigits);
         return {
           content: [{
             type: "text" as const,
@@ -178,7 +181,7 @@ export async function execute(input: AutoAssignInput, api: ynab.API) {
           month,
           ready_to_assign_before: toDollars(readyToAssign, decimalDigits),
           total_assigned: totalPlanned,
-          remaining_after: roundAmount(toDollars(readyToAssign, decimalDigits) - totalPlanned, decimalDigits),
+          remaining_after: toDollars(readyToAssign - totalPlannedMilliunits, decimalDigits),
           assignments: applied.map(forOutput),
           message: `Assigned $${formatAmount(totalPlanned, decimalDigits)} across ${applied.length} categor${applied.length === 1 ? "y" : "ies"}.`,
         }, null, 2),

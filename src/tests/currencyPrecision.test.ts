@@ -203,6 +203,28 @@ describe('amounts in a 2-decimal currency plan', () => {
     vi.unstubAllEnvs();
   });
 
+  it('aggregates raw milliunits before rounding totals and averages', async () => {
+    const api = {
+      plans: { getPlanSettingsById: planSettings(2) },
+      transactions: {
+        getTransactions: vi.fn().mockResolvedValue({
+          data: {
+            transactions: [
+              { id: 't1', date: '2024-03-01', amount: -4, deleted: false, category_name: 'Fees', payee_name: 'Bank', subtransactions: [] },
+              { id: 't2', date: '2024-03-02', amount: -4, deleted: false, category_name: 'Fees', payee_name: 'Bank', subtransactions: [] },
+              { id: 't3', date: '2024-03-03', amount: -7, deleted: false, category_name: 'Fees', payee_name: 'Bank', subtransactions: [] },
+            ],
+          },
+        }),
+      },
+    };
+
+    const response = parse(await SpendingByCategoryTool.execute({ sinceDate: '2024-03-01' }, api as any));
+
+    expect(response.total_spent).toBe(0.02);
+    expect(response.categories[0]).toMatchObject({ total: 0.02, average: 0.01 });
+  });
+
   it('rounds an outflow and an inflow of the same size to the same magnitude', async () => {
     const api = {
       plans: { getPlanSettingsById: planSettings(2) },

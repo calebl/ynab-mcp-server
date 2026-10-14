@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { getDecimalDigits, roundAmount, toDollars, toMilliunits } from "./money.js";
+import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_cash_flow";
 export const description = "Income versus spending, month by month, so you can see whether you are running a surplus. Uses YNAB's own monthly totals rather than re-adding transactions.";
@@ -37,33 +37,28 @@ export async function execute(input: CashFlowInput, api: ynab.API) {
       ? allMonths.filter((month) => month.month >= input.sinceDate!)
       : allMonths.slice(-(input.months ?? 6));
 
-    const months = selected.map((month) => {
-      const income = toDollars(month.income, decimalDigits);
-      // YNAB reports activity as a negative number for net outflow.
-      const spent = toDollars(-month.activity, decimalDigits);
-      return {
-        month: month.month,
-        income,
-        spent,
-        net: roundAmount(income - spent, decimalDigits),
-        budgeted: toDollars(month.budgeted, decimalDigits),
-      };
-    });
+    const months = selected.map((month) => ({
+      month: month.month,
+      income: toDollars(month.income, decimalDigits),
+      spent: toDollars(-month.activity, decimalDigits),
+      net: toDollars(month.income + month.activity, decimalDigits),
+      budgeted: toDollars(month.budgeted, decimalDigits),
+    }));
 
-    const totalIncome = roundAmount(months.reduce((sum, m) => sum + m.income, 0), decimalDigits);
-    const totalSpent = roundAmount(months.reduce((sum, m) => sum + m.spent, 0), decimalDigits);
+    const totalIncomeMilliunits = selected.reduce((sum, month) => sum + month.income, 0);
+    const totalSpentMilliunits = selected.reduce((sum, month) => sum - month.activity, 0);
+    const netMilliunits = totalIncomeMilliunits - totalSpentMilliunits;
 
     return {
       content: [{
         type: "text" as const,
         text: JSON.stringify({
           month_count: months.length,
-          total_income: totalIncome,
-          total_spent: totalSpent,
-          net: roundAmount(totalIncome - totalSpent, decimalDigits),
-          // Averaged in integer milliunits so a half-unit result rounds away from zero.
+          total_income: toDollars(totalIncomeMilliunits, decimalDigits),
+          total_spent: toDollars(totalSpentMilliunits, decimalDigits),
+          net: toDollars(netMilliunits, decimalDigits),
           average_monthly_net: months.length > 0
-            ? toDollars((toMilliunits(totalIncome) - toMilliunits(totalSpent)) / months.length, decimalDigits)
+            ? toDollars(netMilliunits / months.length, decimalDigits)
             : 0,
           months,
         }, null, 2),

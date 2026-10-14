@@ -1,5 +1,5 @@
 import * as ynab from "ynab";
-import { toDollars, toMilliunits } from "./money.js";
+import { toDollars } from "./money.js";
 
 /**
  * Shared plumbing for the spending reports. The awkward parts of turning YNAB
@@ -13,6 +13,7 @@ export interface SpendingEntry {
   date: string;
   /** Positive number of currency units spent. */
   amount: number;
+  amountMilliunits: number;
   categoryId: string | null;
   categoryName: string;
   payeeName: string;
@@ -48,6 +49,7 @@ export function collectSpending(
         entries.push({
           date: transaction.date,
           amount: toDollars(-sub.amount, decimalDigits),
+          amountMilliunits: -sub.amount,
           categoryId: sub.category_id ?? null,
           categoryName: sub.category_name || UNCATEGORIZED,
           payeeName: sub.payee_name || payeeName,
@@ -62,6 +64,7 @@ export function collectSpending(
     entries.push({
       date: transaction.date,
       amount: toDollars(-transaction.amount, decimalDigits),
+      amountMilliunits: -transaction.amount,
       categoryId: transaction.category_id ?? null,
       categoryName: transaction.category_name || UNCATEGORIZED,
       payeeName,
@@ -85,29 +88,27 @@ export function groupSpending(
   keyOf: (entry: SpendingEntry) => string,
   decimalDigits?: number
 ): SpendingGroup[] {
-  // Summed in integer milliunits so the average's rounding is not skewed by floating-point addition.
-  const totals = new Map<string, { total: number; totalMilliunits: number; count: number }>();
+  const totals = new Map<string, { totalMilliunits: number; count: number }>();
 
   for (const entry of entries) {
     const key = keyOf(entry);
-    const running = totals.get(key) ?? { total: 0, totalMilliunits: 0, count: 0 };
-    running.total += entry.amount;
-    running.totalMilliunits += toMilliunits(entry.amount);
+    const running = totals.get(key) ?? { totalMilliunits: 0, count: 0 };
+    running.totalMilliunits += entry.amountMilliunits;
     running.count += 1;
     totals.set(key, running);
   }
 
-  const grandTotal = entries.reduce((sum, entry) => sum + entry.amount, 0);
+  const grandTotalMilliunits = entries.reduce((sum, entry) => sum + entry.amountMilliunits, 0);
 
   return [...totals.entries()]
-    .map(([name, { total, totalMilliunits, count }]) => ({
+    .sort(([, a], [, b]) => b.totalMilliunits - a.totalMilliunits)
+    .map(([name, { totalMilliunits, count }]) => ({
       name,
       total: toDollars(totalMilliunits, decimalDigits),
       transaction_count: count,
       average: toDollars(totalMilliunits / count, decimalDigits),
-      share_of_total: grandTotal > 0 ? round2((total / grandTotal) * 100) : 0,
-    }))
-    .sort((a, b) => b.total - a.total);
+      share_of_total: grandTotalMilliunits > 0 ? round2((totalMilliunits / grandTotalMilliunits) * 100) : 0,
+    }));
 }
 
 /** Returns an ISO date `days` before today, for defaulting report windows. */

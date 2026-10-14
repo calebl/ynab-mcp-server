@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { getDecimalDigits, roundAmount } from "./money.js";
+import { getDecimalDigits, toDollars } from "./money.js";
 import { collectSpending, daysAgo, groupSpending } from "./spending.js";
 
 export const name = "ynab_spending_by_category";
@@ -43,7 +43,7 @@ export async function execute(input: SpendingByCategoryInput, api: ynab.API) {
         text: JSON.stringify({
           since_date: sinceDate,
           until_date: input.untilDate ?? null,
-          total_spent: roundAmount(entries.reduce((sum, entry) => sum + entry.amount, 0), decimalDigits),
+          total_spent: toDollars(entries.reduce((sum, entry) => sum + entry.amountMilliunits, 0), decimalDigits),
           transaction_count: entries.length,
           category_count: grouped.length,
           categories,
