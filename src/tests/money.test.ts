@@ -58,12 +58,16 @@ describe("toMilliunits", () => {
   it("rounds sub-milliunit input symmetrically", () => {
     expect(toMilliunits(1.0005)).toBe(1001);
     expect(toMilliunits(-1.0005)).toBe(-1001);
+    expect(toMilliunits(0.5005)).toBe(501);
+    expect(toMilliunits(-0.5005)).toBe(-501);
   });
 });
 
 describe("roundAmount", () => {
   it("rounds a total to the plan's decimal places, symmetrically", () => {
     expect(roundAmount(0.1 + 0.2)).toBe(0.3);
+    expect(roundAmount(1.005, 2)).toBe(1.01);
+    expect(roundAmount(-1.005, 2)).toBe(-1.01);
     expect(roundAmount(1.2344, 3)).toBe(1.234);
     expect(roundAmount(-2.5, 0)).toBe(-3);
     expect(roundAmount(2.5, 0)).toBe(3);
@@ -83,28 +87,6 @@ describe("getDecimalDigits", () => {
     const lookup = vi.fn().mockResolvedValue(settings(3));
     expect(await getDecimalDigits(apiWithSettings(lookup), "plan-kwd")).toBe(3);
     expect(lookup).toHaveBeenCalledWith("plan-kwd");
-  });
-
-  it("fetches each plan's settings only once per API client", async () => {
-    const lookup = vi.fn().mockImplementation(async (planId: string) => settings(planId === "plan-jpy" ? 0 : 3));
-    const api = apiWithSettings(lookup);
-
-    expect(await getDecimalDigits(api, "plan-kwd")).toBe(3);
-    expect(await getDecimalDigits(api, "plan-kwd")).toBe(3);
-    expect(await getDecimalDigits(api, "plan-jpy")).toBe(0);
-    expect(lookup).toHaveBeenCalledTimes(2);
-
-    // A different client (another token) looks the plan up again.
-    expect(await getDecimalDigits(apiWithSettings(lookup), "plan-kwd")).toBe(3);
-    expect(lookup).toHaveBeenCalledTimes(3);
-  });
-
-  it("does not cache last-used, which can name a different plan next time", async () => {
-    const lookup = vi.fn().mockResolvedValueOnce(settings(3)).mockResolvedValueOnce(settings(2));
-    const api = apiWithSettings(lookup);
-
-    expect(await getDecimalDigits(api, "last-used")).toBe(3);
-    expect(await getDecimalDigits(api, "last-used")).toBe(2);
   });
 
   it("falls back to 2 decimals when the settings cannot be read, and tries again next time", async () => {

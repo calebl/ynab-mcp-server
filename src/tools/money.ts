@@ -22,6 +22,12 @@ function roundHalfAwayFromZero(value: number): number {
   return value < 0 && rounded !== 0 ? -rounded : rounded;
 }
 
+function shiftDecimal(value: number, decimalPlaces: number): number {
+  if (!Number.isFinite(value)) return value;
+  const [coefficient, exponent = "0"] = value.toString().split("e");
+  return Number(`${coefficient}e${Number(exponent) + decimalPlaces}`);
+}
+
 /**
  * Converts YNAB milliunits to a currency amount rounded to the plan's decimal
  * places (2 unless told otherwise; 3 for currencies such as the Kuwaiti dinar).
@@ -34,13 +40,13 @@ export function toDollars(milliunits: number, decimalDigits: number = DEFAULT_DE
 
 /** Converts a currency amount to the milliunits the YNAB API expects. */
 export function toMilliunits(amount: number): number {
-  return roundHalfAwayFromZero(amount * 1000);
+  return roundHalfAwayFromZero(shiftDecimal(amount, MAX_DECIMAL_DIGITS));
 }
 
 /** Rounds an already-converted currency amount, such as a total or average, to the plan's decimal places. */
 export function roundAmount(amount: number, decimalDigits: number = DEFAULT_DECIMAL_DIGITS): number {
-  const factor = 10 ** clampDigits(decimalDigits);
-  return roundHalfAwayFromZero(amount * factor) / factor;
+  const digits = clampDigits(decimalDigits);
+  return roundHalfAwayFromZero(shiftDecimal(amount, digits)) / 10 ** digits;
 }
 
 /** Formats a currency amount with exactly the plan's decimal places, for messages. */
@@ -48,34 +54,16 @@ export function formatAmount(amount: number, decimalDigits: number = DEFAULT_DEC
   return roundAmount(amount, decimalDigits).toFixed(clampDigits(decimalDigits));
 }
 
-const decimalDigitsCache = new WeakMap<ynab.API, Map<string, number>>();
-
 /**
  * The number of decimal places in a plan's currency, from its settings.
- *
- * Fetched once per plan per API client, so a tool pays for at most one extra
- * request per plan. Falls back to 2 when the settings cannot be read, so a
- * failed lookup never fails the tool itself.
+ * Falls back to 2 when the settings cannot be read, so a failed lookup never
+ * fails the tool itself.
  */
 export async function getDecimalDigits(api: ynab.API, planId: string): Promise<number> {
-  let cache = decimalDigitsCache.get(api);
-  const cached = cache?.get(planId);
-  if (cached !== undefined) return cached;
-
   try {
     const response = await api.plans.getPlanSettingsById(planId);
     const digits = response.data.settings.currency_format?.decimal_digits;
-    if (typeof digits !== "number" || !Number.isFinite(digits)) return DEFAULT_DECIMAL_DIGITS;
-
-    // "last-used" can point at a different plan next time, so it is not cached.
-    if (planId !== "last-used") {
-      if (!cache) {
-        cache = new Map();
-        decimalDigitsCache.set(api, cache);
-      }
-      cache.set(planId, digits);
-    }
-    return digits;
+    return typeof digits === "number" && Number.isFinite(digits) ? digits : DEFAULT_DECIMAL_DIGITS;
   } catch {
     return DEFAULT_DECIMAL_DIGITS;
   }
