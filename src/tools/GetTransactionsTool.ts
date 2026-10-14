@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { toDollars } from "./money.js";
+import { getDecimalDigits, toDollars } from "./money.js";
 import { mapSubtransactions } from "./splits.js";
 
 export const name = "ynab_get_transactions";
@@ -62,6 +62,7 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
     const budgetId = resolvePlanId(input);
     const limit = input.limit || 100;
 
+    const decimalDigitsLookup = getDecimalDigits(api, budgetId);
     let rawTransactions: TransactionData[];
 
     // Use the appropriate API method based on filters
@@ -102,6 +103,8 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
       rawTransactions = response.data.transactions;
     }
 
+    const decimalDigits = await decimalDigitsLookup;
+
     // Filter out deleted and apply limit
     const transactions = rawTransactions
       .filter((txn) => !txn.deleted)
@@ -109,7 +112,7 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
       .map((txn) => ({
         id: txn.id,
         date: txn.date,
-        amount: toDollars(txn.amount),
+        amount: toDollars(txn.amount, decimalDigits),
         memo: txn.memo,
         approved: txn.approved,
         cleared: txn.cleared,
@@ -119,7 +122,7 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
         flag_color: txn.flag_color,
         transfer_account_id: txn.transfer_account_id,
         // Present only on splits, whose parent row is categorised "Split".
-        subtransactions: mapSubtransactions(txn.subtransactions),
+        subtransactions: mapSubtransactions(txn.subtransactions, decimalDigits),
       }));
 
     return {

@@ -132,8 +132,10 @@ which is worth considering for a connector you will mostly use on a phone.
 Plan-scoped tools take an optional `planId` that falls back to
 `YNAB_PLAN_ID`. Optional tool inputs may be `null`; the server treats `null`
 the same as omitting that input. All monetary values — in both directions — are
-plain currency amounts, never YNAB's milliunits; conversion happens in
-`src/tools/money.ts`.
+plain currency amounts, never YNAB's milliunits. Reported amounts use the
+plan currency's precision (three decimals for currencies such as the Kuwaiti
+dinar) and fall back to two decimals if its settings cannot be read; conversion
+happens in `src/tools/money.ts`.
 
 ### Reading
 

@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { toDollars } from "./money.js";
+import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_list_months";
 export const description = "Lists all plan months. Each month contains summary information about budgeting status.";
@@ -22,16 +22,19 @@ export async function execute(input: ListMonthsInput, api: ynab.API) {
     const budgetId = resolvePlanId(input);
 
     console.error(`Listing months for budget ${budgetId}`);
-    const response = await api.months.getPlanMonths(budgetId);
+    const [response, decimalDigits] = await Promise.all([
+      api.months.getPlanMonths(budgetId),
+      getDecimalDigits(api, budgetId),
+    ]);
 
     // Format the months
     const months = response.data.months.map((month: ynab.MonthSummary) => ({
       month: month.month,
       note: month.note,
-      income: toDollars(month.income),
-      budgeted: toDollars(month.budgeted),
-      activity: toDollars(month.activity),
-      to_be_budgeted: toDollars(month.to_be_budgeted),
+      income: toDollars(month.income, decimalDigits),
+      budgeted: toDollars(month.budgeted, decimalDigits),
+      activity: toDollars(month.activity, decimalDigits),
+      to_be_budgeted: toDollars(month.to_be_budgeted, decimalDigits),
       age_of_money: month.age_of_money,
     }));
 

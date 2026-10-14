@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { toDollars } from "./money.js";
+import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_list_accounts";
 export const description = "Lists all accounts in a plan. Useful for finding account IDs when creating transactions.";
@@ -25,7 +25,10 @@ export async function execute(input: ListAccountsInput, api: ynab.API) {
     const includeClosedAccounts = input.includeClosedAccounts ?? false;
 
     console.error(`Listing accounts for budget ${budgetId}`);
-    const response = await api.accounts.getAccounts(budgetId);
+    const [response, decimalDigits] = await Promise.all([
+      api.accounts.getAccounts(budgetId),
+      getDecimalDigits(api, budgetId),
+    ]);
 
     // Filter and format accounts
     const accounts = response.data.accounts
@@ -36,9 +39,9 @@ export async function execute(input: ListAccountsInput, api: ynab.API) {
         type: account.type,
         on_budget: account.on_budget,
         closed: account.closed,
-        balance: toDollars(account.balance),
-        cleared_balance: toDollars(account.cleared_balance),
-        uncleared_balance: toDollars(account.uncleared_balance),
+        balance: toDollars(account.balance, decimalDigits),
+        cleared_balance: toDollars(account.cleared_balance, decimalDigits),
+        uncleared_balance: toDollars(account.uncleared_balance, decimalDigits),
         transfer_payee_id: account.transfer_payee_id,
       }));
 

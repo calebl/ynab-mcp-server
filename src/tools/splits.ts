@@ -23,6 +23,7 @@ export interface SubtransactionData {
  */
 export function mapSubtransactions(
   subtransactions: ynab.SubTransaction[] | undefined,
+  decimalDigits?: number,
 ): SubtransactionData[] | undefined {
   const active = (subtransactions ?? []).filter((sub) => !sub.deleted);
   if (active.length === 0) {
@@ -30,7 +31,7 @@ export function mapSubtransactions(
   }
 
   return active.map((sub) => ({
-    amount: toDollars(sub.amount),
+    amount: toDollars(sub.amount, decimalDigits),
     category_name: sub.category_name,
     payee_name: sub.payee_name,
     memo: sub.memo,
@@ -68,7 +69,8 @@ export async function buildSubtransactions(
   const sum = amounts.reduce((total, amount) => total + amount, 0);
   if (sum !== totalMilliunits) {
     throw new Error(
-      `Split amounts add up to ${toDollars(sum)} but the transaction amount is ${toDollars(totalMilliunits)}`
+      // Three decimals reports the amounts exactly as given, whatever the plan's currency.
+      `Split amounts add up to ${toDollars(sum, 3)} but the transaction amount is ${toDollars(totalMilliunits, 3)}`
     );
   }
 

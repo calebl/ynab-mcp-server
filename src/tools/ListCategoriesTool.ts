@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { toDollars } from "./money.js";
+import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_list_categories";
 export const description = "Lists all categories in a plan, grouped by category group. Useful for finding category IDs when creating transactions or updating budgeted amounts.";
@@ -22,7 +22,10 @@ export async function execute(input: ListCategoriesInput, api: ynab.API) {
     const budgetId = resolvePlanId(input);
 
     console.error(`Listing categories for budget ${budgetId}`);
-    const response = await api.categories.getCategories(budgetId);
+    const [response, decimalDigits] = await Promise.all([
+      api.categories.getCategories(budgetId),
+      getDecimalDigits(api, budgetId),
+    ]);
 
     // Format the response with category groups and their categories
     const categoryGroups = response.data.category_groups
@@ -36,11 +39,11 @@ export async function execute(input: ListCategoriesInput, api: ynab.API) {
           .map((cat) => ({
             id: cat.id,
             name: cat.name,
-            budgeted: toDollars(cat.budgeted),
-            activity: toDollars(cat.activity),
-            balance: toDollars(cat.balance),
+            budgeted: toDollars(cat.budgeted, decimalDigits),
+            activity: toDollars(cat.activity, decimalDigits),
+            balance: toDollars(cat.balance, decimalDigits),
             goal_type: cat.goal_type,
-            goal_target: cat.goal_target ? toDollars(cat.goal_target) : null,
+            goal_target: cat.goal_target ? toDollars(cat.goal_target, decimalDigits) : null,
             goal_percentage_complete: cat.goal_percentage_complete,
           })),
       }));

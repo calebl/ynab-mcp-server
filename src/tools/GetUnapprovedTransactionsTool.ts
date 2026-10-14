@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { toDollars } from "./money.js";
+import { getDecimalDigits, toDollars } from "./money.js";
 import { mapSubtransactions } from "./splits.js";
 
 export const name = "ynab_get_unapproved_transactions";
@@ -26,12 +26,15 @@ export async function execute(input: GetUnapprovedTransactionsInput, api: ynab.A
 
     console.error(`Getting unapproved transactions for budget ${budgetId}`);
 
-    const response = await api.transactions.getTransactions(
-      budgetId,
-      input.sinceDate,
-      undefined,
-      ynab.GetTransactionsTypeEnum.Unapproved
-    );
+    const [response, decimalDigits] = await Promise.all([
+      api.transactions.getTransactions(
+        budgetId,
+        input.sinceDate,
+        undefined,
+        ynab.GetTransactionsTypeEnum.Unapproved
+      ),
+      getDecimalDigits(api, budgetId),
+    ]);
 
     // Transform the transactions to a more readable format
     const transactions = response.data.transactions
@@ -39,14 +42,14 @@ export async function execute(input: GetUnapprovedTransactionsInput, api: ynab.A
       .map((transaction) => ({
         id: transaction.id,
         date: transaction.date,
-        amount: toDollars(transaction.amount),
+        amount: toDollars(transaction.amount, decimalDigits),
         memo: transaction.memo,
         approved: transaction.approved,
         account_name: transaction.account_name,
         payee_name: transaction.payee_name,
         category_name: transaction.category_name,
         // Present only on splits, whose parent row is categorised "Split".
-        subtransactions: mapSubtransactions(transaction.subtransactions),
+        subtransactions: mapSubtransactions(transaction.subtransactions, decimalDigits),
         transfer_account_id: transaction.transfer_account_id,
         transfer_transaction_id: transaction.transfer_transaction_id,
         matched_transaction_id: transaction.matched_transaction_id,

@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { toDollars } from "./money.js";
+import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_bulk_approve_transactions";
 export const description = "Approves multiple transactions at once. Provide an array of transaction IDs to approve them all in a single API call.";
@@ -33,9 +33,10 @@ export async function execute(input: BulkApproveTransactionsInput, api: ynab.API
       approved: true,
     }));
 
-    const response = await api.transactions.updateTransactions(budgetId, {
-      transactions,
-    });
+    const [response, decimalDigits] = await Promise.all([
+      api.transactions.updateTransactions(budgetId, { transactions }),
+      getDecimalDigits(api, budgetId),
+    ]);
 
     if (!response.data.transactions) {
       throw new Error("Failed to update transactions - no transaction data returned");
@@ -44,7 +45,7 @@ export async function execute(input: BulkApproveTransactionsInput, api: ynab.API
     const updatedTransactions = response.data.transactions.map((txn) => ({
       id: txn.id,
       date: txn.date,
-      amount: toDollars(txn.amount),
+      amount: toDollars(txn.amount, decimalDigits),
       payee_name: txn.payee_name,
       approved: txn.approved,
     }));
