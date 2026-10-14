@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as ynab from "ynab";
 
 import { getErrorMessage } from "./errorUtils.js";
-import { toDollars } from "./money.js";
+import { DEFAULT_DECIMAL_DIGITS, getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_suggest_categories";
 export const description = "Previews category suggestions for unapproved, uncategorized ordinary outflows. Approved, reconciled, transfer, split, inflow, categorized, and YNAB balance-adjustment rows are ineligible for history-rule suggestions or TypeSafe Jev processing. Exact-payee history can determine a suggestion or require review; similar-name history only informs Jev. Never writes to YNAB.";
@@ -258,11 +258,11 @@ function recordSkipped(summary: SkippedSummary, reason: SkipReason, transactionI
   summary[reason].transaction_ids.push(transactionId);
 }
 
-function displayFields(transaction: ynab.TransactionDetail) {
+function displayFields(transaction: ynab.TransactionDetail, decimalDigits: number) {
   return {
     date: transaction.date,
     payee: transaction.payee_name ?? transaction.import_payee_name ?? transaction.import_payee_name_original ?? null,
-    amount: toDollars(transaction.amount),
+    amount: toDollars(transaction.amount, decimalDigits),
     account: transaction.account_name,
   };
 }
@@ -454,6 +454,7 @@ function modelState(
   accountsById: Map<string, AccountContext>,
   categories: EligibleCategory[],
   historyByTransactionId: Map<string, HistorySummary>,
+  decimalDigits: number,
 ) {
   const categoriesById = new Map(categories.map((category) => [category.id, category]));
   return {
@@ -470,7 +471,7 @@ function modelState(
         import_payee_name: transaction.import_payee_name ?? null,
         import_payee_name_original: transaction.import_payee_name_original ?? null,
         memo: transaction.memo ?? null,
-        amount: toDollars(transaction.amount),
+        amount: toDollars(transaction.amount, decimalDigits),
         direction: "outflow",
         date: transaction.date,
         account: {
@@ -500,6 +501,7 @@ function buildTypeSafeRequest(
   accountsById: Map<string, AccountContext>,
   categories: EligibleCategory[],
   historyByTransactionId: Map<string, HistorySummary>,
+  decimalDigits: number,
 ) {
   const criteria: Record<string, string | null> = Object.fromEntries([
     ...categories.map((category) => [category.key, null]),
@@ -522,7 +524,7 @@ function buildTypeSafeRequest(
       criteria,
     },
   ]));
-  return { state: modelState(transactions, accountsById, categories, historyByTransactionId), model: PINNED_MODEL, questions };
+  return { state: modelState(transactions, accountsById, categories, historyByTransactionId, decimalDigits), model: PINNED_MODEL, questions };
 }
 
 /** A conservative UTF-8 byte bound; TypeSafe returns authoritative usage after the call. */
@@ -622,10 +624,11 @@ function failedRow(
   transaction?: ynab.TransactionDetail,
   fingerprint?: string,
   history?: HistorySummary,
+  decimalDigits?: number,
 ) {
   return {
     transaction_id: transactionId,
-    ...(transaction ? { transaction: displayFields(transaction), content_fingerprint: fingerprint } : {}),
+    ...(transaction ? { transaction: displayFields(transaction, decimalDigits ?? DEFAULT_DECIMAL_DIGITS), content_fingerprint: fingerprint } : {}),
     status: "failed",
     source: null,
     proposed_category: null,
@@ -710,6 +713,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
     }
     const apiKey = process.env.TYPESAFE_API_KEY as string;
     const budgetId = resolvePlanId(input);
+    const decimalDigitsLookup = getDecimalDigits(api, budgetId);
     const candidates = await loadCandidates(input, budgetId, api);
 
     const prerequisites = await Promise.allSettled([
@@ -718,6 +722,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
       api.accounts.getAccounts(budgetId),
       api.transactions.getTransactions(budgetId, twelveMonthsAgo()),
     ]);
+    const decimalDigits = await decimalDigitsLookup;
     const prerequisiteNames = ["categories", "payees", "accounts", "history"];
     const prerequisiteFailures = prerequisites.flatMap((result, index) =>
       index !== 2 && result.status === "rejected" ? [`${prerequisiteNames[index]}: ${getErrorMessage(result.reason)}`] : []
@@ -753,7 +758,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
         : emptyHistorySummary();
       outputRows.push({
         transaction_id: transaction.id,
-        transaction: displayFields(transaction),
+        transaction: displayFields(transaction, decimalDigits),
         content_fingerprint: fingerprint,
         status: skip,
         source: null,
@@ -781,7 +786,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
     if (prerequisiteFailures.length > 0) {
       const error = `YNAB prerequisite request failed (${prerequisiteFailures.join("; ")})`;
       outputRows.push(...remainingTransactions.map((transaction) =>
-        failedRow(transaction.id, error, transaction, fingerprints.get(transaction.id))
+        failedRow(transaction.id, error, transaction, fingerprints.get(transaction.id), undefined, decimalDigits)
       ));
       return toolResponse({
         success: true,
@@ -798,7 +803,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
         : null;
     if (categoryRefusal) {
       outputRows.push(...remainingTransactions.map((transaction) =>
-        failedRow(transaction.id, categoryRefusal, transaction, fingerprints.get(transaction.id))
+        failedRow(transaction.id, categoryRefusal, transaction, fingerprints.get(transaction.id), undefined, decimalDigits)
       ));
       return toolResponse({
         success: true,
@@ -834,7 +839,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
         const category = categoriesById.get(history.unanimousCategoryId) as EligibleCategory;
         outputRows.push({
           transaction_id: transaction.id,
-          transaction: displayFields(transaction),
+          transaction: displayFields(transaction, decimalDigits),
           content_fingerprint: fingerprint,
           status: "suggested",
           source: "history_rule",
@@ -851,6 +856,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
           transaction,
           fingerprint,
           history,
+          decimalDigits,
         ));
       } else {
         modelTransactions.push(transaction);
@@ -867,7 +873,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
 
     for (let start = 0; start < modelTransactions.length; start += DEFAULT_BATCH_SIZE) {
       const batch = modelTransactions.slice(start, start + DEFAULT_BATCH_SIZE);
-      const body = buildTypeSafeRequest(batch, accountsById, categories, historyByTransactionId);
+      const body = buildTypeSafeRequest(batch, accountsById, categories, historyByTransactionId, decimalDigits);
       const preflight = preflightTypeSafeRequest(body);
       estimatedInputTokens += preflight.estimatedInputTokens;
       estimatedCostUsd += preflight.projectedCostUsd;
@@ -879,6 +885,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
             transaction,
             fingerprints.get(transaction.id),
             historyByTransactionId.get(transaction.id),
+            decimalDigits,
           ));
         }
         continue;
@@ -897,6 +904,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
             transaction,
             fingerprints.get(transaction.id),
             historyByTransactionId.get(transaction.id),
+            decimalDigits,
           ));
         }
         continue;
@@ -914,6 +922,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
             transaction,
             fingerprints.get(transaction.id),
             historyByTransactionId.get(transaction.id),
+            decimalDigits,
           ));
           return;
         }
@@ -928,6 +937,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
             transaction,
             fingerprints.get(transaction.id),
             historyByTransactionId.get(transaction.id),
+            decimalDigits,
           ));
           return;
         }
@@ -953,7 +963,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
           }));
         outputRows.push({
           transaction_id: transaction.id,
-          transaction: displayFields(transaction),
+          transaction: displayFields(transaction, decimalDigits),
           content_fingerprint: fingerprints.get(transaction.id),
           status,
           source: "jev",

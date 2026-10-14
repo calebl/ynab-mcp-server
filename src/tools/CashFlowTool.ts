@@ -2,8 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { toDollars } from "./money.js";
-import { round2 } from "./spending.js";
+import { getDecimalDigits, roundAmount, toDollars } from "./money.js";
 
 export const name = "ynab_cash_flow";
 export const description = "Income versus spending, month by month, so you can see whether you are running a surplus. Uses YNAB's own monthly totals rather than re-adding transactions.";
@@ -26,7 +25,10 @@ export async function execute(input: CashFlowInput, api: ynab.API) {
   try {
     const budgetId = resolvePlanId(input);
 
-    const response = await api.months.getPlanMonths(budgetId);
+    const [response, decimalDigits] = await Promise.all([
+      api.months.getPlanMonths(budgetId),
+      getDecimalDigits(api, budgetId),
+    ]);
     const allMonths: ynab.MonthSummary[] = response.data.months
       .filter((month) => !month.deleted)
       .sort((a, b) => a.month.localeCompare(b.month));
@@ -36,20 +38,20 @@ export async function execute(input: CashFlowInput, api: ynab.API) {
       : allMonths.slice(-(input.months ?? 6));
 
     const months = selected.map((month) => {
-      const income = toDollars(month.income);
+      const income = toDollars(month.income, decimalDigits);
       // YNAB reports activity as a negative number for net outflow.
-      const spent = toDollars(-month.activity);
+      const spent = toDollars(-month.activity, decimalDigits);
       return {
         month: month.month,
         income,
         spent,
-        net: round2(income - spent),
-        budgeted: toDollars(month.budgeted),
+        net: roundAmount(income - spent, decimalDigits),
+        budgeted: toDollars(month.budgeted, decimalDigits),
       };
     });
 
-    const totalIncome = round2(months.reduce((sum, m) => sum + m.income, 0));
-    const totalSpent = round2(months.reduce((sum, m) => sum + m.spent, 0));
+    const totalIncome = roundAmount(months.reduce((sum, m) => sum + m.income, 0), decimalDigits);
+    const totalSpent = roundAmount(months.reduce((sum, m) => sum + m.spent, 0), decimalDigits);
 
     return {
       content: [{
@@ -58,8 +60,8 @@ export async function execute(input: CashFlowInput, api: ynab.API) {
           month_count: months.length,
           total_income: totalIncome,
           total_spent: totalSpent,
-          net: round2(totalIncome - totalSpent),
-          average_monthly_net: months.length > 0 ? round2((totalIncome - totalSpent) / months.length) : 0,
+          net: roundAmount(totalIncome - totalSpent, decimalDigits),
+          average_monthly_net: months.length > 0 ? roundAmount((totalIncome - totalSpent) / months.length, decimalDigits) : 0,
           months,
         }, null, 2),
       }],

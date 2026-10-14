@@ -2,7 +2,8 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { collectSpending, daysAgo, groupSpending, round2 } from "./spending.js";
+import { getDecimalDigits, roundAmount } from "./money.js";
+import { collectSpending, daysAgo, groupSpending } from "./spending.js";
 
 export const name = "ynab_spending_by_payee";
 export const description = "Totals spending per payee over a date range, biggest spend first - where the money actually goes by merchant. Splits are counted through their subtransactions, and transfers between your own accounts are excluded.";
@@ -28,9 +29,12 @@ export async function execute(input: SpendingByPayeeInput, api: ynab.API) {
     const budgetId = resolvePlanId(input);
     const sinceDate = input.sinceDate || daysAgo(30);
 
-    const response = await api.transactions.getTransactions(budgetId, sinceDate);
-    const entries = collectSpending(response.data.transactions, input.untilDate);
-    const grouped = groupSpending(entries, (entry) => entry.payeeName);
+    const [response, decimalDigits] = await Promise.all([
+      api.transactions.getTransactions(budgetId, sinceDate),
+      getDecimalDigits(api, budgetId),
+    ]);
+    const entries = collectSpending(response.data.transactions, input.untilDate, decimalDigits);
+    const grouped = groupSpending(entries, (entry) => entry.payeeName, decimalDigits);
     const payees = input.limit ? grouped.slice(0, input.limit) : grouped;
 
     return {
@@ -39,7 +43,7 @@ export async function execute(input: SpendingByPayeeInput, api: ynab.API) {
         text: JSON.stringify({
           since_date: sinceDate,
           until_date: input.untilDate ?? null,
-          total_spent: round2(entries.reduce((sum, entry) => sum + entry.amount, 0)),
+          total_spent: roundAmount(entries.reduce((sum, entry) => sum + entry.amount, 0), decimalDigits),
           transaction_count: entries.length,
           payee_count: grouped.length,
           payees,

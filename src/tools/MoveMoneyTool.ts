@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { toDollars, toMilliunits } from "./money.js";
+import { formatAmount, getDecimalDigits, toDollars, toMilliunits } from "./money.js";
 
 export const name = "ynab_move_money";
 export const description = "Moves budgeted money from one category to another in a given month, typically to cover overspending. YNAB has no single move endpoint, so this reads both categories and rewrites their budgeted amounts; if the second write fails the response says exactly which half was applied.";
@@ -32,6 +32,7 @@ export async function execute(input: MoveMoneyInput, api: ynab.API) {
   let budgetId: string;
   let source: ynab.Category;
   let destination: ynab.Category;
+  let decimalDigits: number;
 
   // Phase 1: everything that can fail without changing the plan.
   try {
@@ -41,12 +42,14 @@ export async function execute(input: MoveMoneyInput, api: ynab.API) {
       throw new Error("fromCategoryId and toCategoryId must be different categories");
     }
 
-    const [sourceResponse, destinationResponse] = await Promise.all([
+    const [sourceResponse, destinationResponse, digits] = await Promise.all([
       api.categories.getMonthCategoryById(budgetId, month, input.fromCategoryId),
       api.categories.getMonthCategoryById(budgetId, month, input.toCategoryId),
+      getDecimalDigits(api, budgetId),
     ]);
 
     source = sourceResponse.data.category;
+    decimalDigits = digits;
     destination = destinationResponse.data.category;
   } catch (error) {
     console.error("Error preparing money move:", error);
@@ -77,7 +80,7 @@ export async function execute(input: MoveMoneyInput, api: ynab.API) {
         text: JSON.stringify({
           success: false,
           moved: false,
-          error: `Could not take $${input.amount.toFixed(2)} from ${source.name}: ${getErrorMessage(error)}`,
+          error: `Could not take $${formatAmount(input.amount, decimalDigits)} from ${source.name}: ${getErrorMessage(error)}`,
           note: "Nothing was changed.",
         }, null, 2),
       }],
@@ -100,15 +103,15 @@ export async function execute(input: MoveMoneyInput, api: ynab.API) {
           from: {
             id: source.id,
             name: source.name,
-            budgeted: toDollars(source.budgeted - amountMilliunits),
+            budgeted: toDollars(source.budgeted - amountMilliunits, decimalDigits),
           },
           to: {
             id: destination.id,
             name: destination.name,
-            budgeted: toDollars(updated.data.category.budgeted),
-            balance: toDollars(updated.data.category.balance),
+            budgeted: toDollars(updated.data.category.budgeted, decimalDigits),
+            balance: toDollars(updated.data.category.balance, decimalDigits),
           },
-          message: `Moved $${input.amount.toFixed(2)} from ${source.name} to ${destination.name}`,
+          message: `Moved $${formatAmount(input.amount, decimalDigits)} from ${source.name} to ${destination.name}`,
         }, null, 2),
       }],
     };
@@ -122,8 +125,8 @@ export async function execute(input: MoveMoneyInput, api: ynab.API) {
           moved: false,
           partial: true,
           error: getErrorMessage(error),
-          message: `$${input.amount.toFixed(2)} was removed from ${source.name} but could not be added to ${destination.name}. The money is now in Ready to Assign.`,
-          recovery: `To undo, set ${source.name} (${source.id}) back to a budgeted amount of $${toDollars(source.budgeted).toFixed(2)} for ${month}.`,
+          message: `$${formatAmount(input.amount, decimalDigits)} was removed from ${source.name} but could not be added to ${destination.name}. The money is now in Ready to Assign.`,
+          recovery: `To undo, set ${source.name} (${source.id}) back to a budgeted amount of $${formatAmount(toDollars(source.budgeted, decimalDigits), decimalDigits)} for ${month}.`,
         }, null, 2),
       }],
     };

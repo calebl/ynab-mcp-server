@@ -1,5 +1,5 @@
 import * as ynab from "ynab";
-import { toDollars } from "./money.js";
+import { roundAmount, toDollars } from "./money.js";
 
 /**
  * Shared plumbing for the spending reports. The awkward parts of turning YNAB
@@ -27,7 +27,8 @@ const UNKNOWN_PAYEE = "Unknown payee";
  */
 export function collectSpending(
   transactions: ynab.TransactionDetail[],
-  untilDate?: string
+  untilDate?: string,
+  decimalDigits?: number
 ): SpendingEntry[] {
   const entries: SpendingEntry[] = [];
 
@@ -46,7 +47,7 @@ export function collectSpending(
 
         entries.push({
           date: transaction.date,
-          amount: toDollars(-sub.amount),
+          amount: toDollars(-sub.amount, decimalDigits),
           categoryId: sub.category_id ?? null,
           categoryName: sub.category_name || UNCATEGORIZED,
           payeeName: sub.payee_name || payeeName,
@@ -60,7 +61,7 @@ export function collectSpending(
 
     entries.push({
       date: transaction.date,
-      amount: toDollars(-transaction.amount),
+      amount: toDollars(-transaction.amount, decimalDigits),
       categoryId: transaction.category_id ?? null,
       categoryName: transaction.category_name || UNCATEGORIZED,
       payeeName,
@@ -81,7 +82,8 @@ export interface SpendingGroup {
 /** Totals entries by some key, largest spend first. */
 export function groupSpending(
   entries: SpendingEntry[],
-  keyOf: (entry: SpendingEntry) => string
+  keyOf: (entry: SpendingEntry) => string,
+  decimalDigits?: number
 ): SpendingGroup[] {
   const totals = new Map<string, { total: number; count: number }>();
 
@@ -98,9 +100,9 @@ export function groupSpending(
   return [...totals.entries()]
     .map(([name, { total, count }]) => ({
       name,
-      total: round2(total),
+      total: roundAmount(total, decimalDigits),
       transaction_count: count,
-      average: round2(total / count),
+      average: roundAmount(total / count, decimalDigits),
       share_of_total: grandTotal > 0 ? round2((total / grandTotal) * 100) : 0,
     }))
     .sort((a, b) => b.total - a.total);

@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { toDollars } from "./money.js";
+import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_list_scheduled_transactions";
 export const description = "Lists all scheduled (recurring) transactions in a plan.";
@@ -22,7 +22,10 @@ export async function execute(input: ListScheduledTransactionsInput, api: ynab.A
     const budgetId = resolvePlanId(input);
 
     console.error(`Listing scheduled transactions for budget ${budgetId}`);
-    const response = await api.scheduledTransactions.getScheduledTransactions(budgetId);
+    const [response, decimalDigits] = await Promise.all([
+      api.scheduledTransactions.getScheduledTransactions(budgetId),
+      getDecimalDigits(api, budgetId),
+    ]);
 
     // Filter and format scheduled transactions
     const scheduledTransactions = response.data.scheduled_transactions
@@ -32,7 +35,7 @@ export async function execute(input: ListScheduledTransactionsInput, api: ynab.A
         date_first: txn.date_first,
         date_next: txn.date_next,
         frequency: txn.frequency,
-        amount: toDollars(txn.amount),
+        amount: toDollars(txn.amount, decimalDigits),
         memo: txn.memo,
         flag_color: txn.flag_color,
         account_id: txn.account_id,

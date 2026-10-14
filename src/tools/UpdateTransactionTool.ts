@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { toDollars, toMilliunits } from "./money.js";
+import { getDecimalDigits, toDollars, toMilliunits } from "./money.js";
 import {
   buildSubtransactions,
   mapSubtransactions,
@@ -123,11 +123,14 @@ export async function execute(input: UpdateTransactionInput, api: ynab.API) {
       matchedSplitCategories = split.matchedCategories;
     }
 
-    const response = await api.transactions.updateTransaction(
-      budgetId,
-      input.transactionId,
-      { transaction: transactionUpdate }
-    );
+    const [response, decimalDigits] = await Promise.all([
+      api.transactions.updateTransaction(
+        budgetId,
+        input.transactionId,
+        { transaction: transactionUpdate }
+      ),
+      getDecimalDigits(api, budgetId),
+    ]);
 
     if (!response.data.transaction) {
       throw new Error("Failed to update transaction - no transaction data returned");
@@ -143,7 +146,7 @@ export async function execute(input: UpdateTransactionInput, api: ynab.API) {
           transaction: {
             id: txn.id,
             date: txn.date,
-            amount: toDollars(txn.amount),
+            amount: toDollars(txn.amount, decimalDigits),
             payee_name: txn.payee_name,
             category_name: txn.category_name,
             memo: txn.memo,
@@ -151,7 +154,7 @@ export async function execute(input: UpdateTransactionInput, api: ynab.API) {
             approved: txn.approved,
             account_name: txn.account_name,
             flag_color: txn.flag_color,
-            subtransactions: mapSubtransactions(txn.subtransactions),
+            subtransactions: mapSubtransactions(txn.subtransactions, decimalDigits),
           },
           matchedSplitCategories,
           message: "Transaction updated successfully",
