@@ -65,6 +65,8 @@ export async function execute(input: MoveMoneyInput, api: ynab.API) {
     };
   }
 
+  const appliedAmount = toDollars(amountMilliunits, decimalDigits);
+
   // Phase 2: the two writes. Take from the source first - if the second write
   // then fails, the money is sitting in Ready to Assign rather than having been
   // double-counted in the destination.
@@ -80,7 +82,7 @@ export async function execute(input: MoveMoneyInput, api: ynab.API) {
         text: JSON.stringify({
           success: false,
           moved: false,
-          error: `Could not take $${formatAmount(input.amount, decimalDigits)} from ${source.name}: ${getErrorMessage(error)}`,
+          error: `Could not take $${formatAmount(appliedAmount, decimalDigits)} from ${source.name}: ${getErrorMessage(error)}`,
           note: "Nothing was changed.",
         }, null, 2),
       }],
@@ -99,7 +101,7 @@ export async function execute(input: MoveMoneyInput, api: ynab.API) {
           success: true,
           moved: true,
           month,
-          amount: toDollars(amountMilliunits, decimalDigits),
+          amount: appliedAmount,
           from: {
             id: source.id,
             name: source.name,
@@ -111,7 +113,7 @@ export async function execute(input: MoveMoneyInput, api: ynab.API) {
             budgeted: toDollars(updated.data.category.budgeted, decimalDigits),
             balance: toDollars(updated.data.category.balance, decimalDigits),
           },
-          message: `Moved $${formatAmount(input.amount, decimalDigits)} from ${source.name} to ${destination.name}`,
+          message: `Moved $${formatAmount(appliedAmount, decimalDigits)} from ${source.name} to ${destination.name}`,
         }, null, 2),
       }],
     };
@@ -125,7 +127,7 @@ export async function execute(input: MoveMoneyInput, api: ynab.API) {
           moved: false,
           partial: true,
           error: getErrorMessage(error),
-          message: `$${formatAmount(input.amount, decimalDigits)} was removed from ${source.name} but could not be added to ${destination.name}. The money is now in Ready to Assign.`,
+          message: `$${formatAmount(appliedAmount, decimalDigits)} was removed from ${source.name} but could not be added to ${destination.name}. The money is now in Ready to Assign.`,
           recovery: `To undo, set ${source.name} (${source.id}) back to a budgeted amount of $${formatAmount(toDollars(source.budgeted, decimalDigits), decimalDigits)} for ${month}.`,
         }, null, 2),
       }],

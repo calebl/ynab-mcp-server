@@ -251,6 +251,32 @@ describe('amounts in a 2-decimal currency plan', () => {
     expect(response.categories[0]).toMatchObject({ total: 0.02, average: 0.01 });
   });
 
+  it('reports and formats the amount represented by the applied milliunits', async () => {
+    const source = { id: 'cat-from', name: 'Dining Out', budgeted: 10000, balance: 5000 };
+    const destination = { id: 'cat-to', name: 'Groceries', budgeted: 2000, balance: 0 };
+    const api = {
+      plans: { getPlanSettingsById: planSettings(2) },
+      categories: {
+        getMonthCategoryById: vi.fn(async (_p: string, _m: string, id: string) => ({
+          data: { category: id === source.id ? source : destination },
+        })),
+        updateMonthCategory: vi.fn(async (_p: string, _m: string, id: string, body: any) => ({
+          data: { category: { ...(id === source.id ? source : destination), budgeted: body.category.budgeted } },
+        })),
+      },
+    };
+
+    const response = parse(await MoveMoneyTool.execute(
+      { fromCategoryId: 'cat-from', toCategoryId: 'cat-to', amount: 1.2345 },
+      api as any,
+    ));
+
+    expect(api.categories.updateMonthCategory.mock.calls[0][3]).toEqual({ category: { budgeted: 8765 } });
+    expect(api.categories.updateMonthCategory.mock.calls[1][3]).toEqual({ category: { budgeted: 3235 } });
+    expect(response.amount).toBe(1.24);
+    expect(response.message).toBe('Moved $1.24 from Dining Out to Groceries');
+  });
+
   it('rounds an outflow and an inflow of the same size to the same magnitude', async () => {
     const api = {
       plans: { getPlanSettingsById: planSettings(2) },
