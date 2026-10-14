@@ -1,5 +1,5 @@
 import * as ynab from "ynab";
-import { roundAmount, toDollars } from "./money.js";
+import { toDollars, toMilliunits } from "./money.js";
 
 /**
  * Shared plumbing for the spending reports. The awkward parts of turning YNAB
@@ -85,12 +85,14 @@ export function groupSpending(
   keyOf: (entry: SpendingEntry) => string,
   decimalDigits?: number
 ): SpendingGroup[] {
-  const totals = new Map<string, { total: number; count: number }>();
+  // Summed in integer milliunits so the average's rounding is not skewed by floating-point addition.
+  const totals = new Map<string, { total: number; totalMilliunits: number; count: number }>();
 
   for (const entry of entries) {
     const key = keyOf(entry);
-    const running = totals.get(key) ?? { total: 0, count: 0 };
+    const running = totals.get(key) ?? { total: 0, totalMilliunits: 0, count: 0 };
     running.total += entry.amount;
+    running.totalMilliunits += toMilliunits(entry.amount);
     running.count += 1;
     totals.set(key, running);
   }
@@ -98,11 +100,11 @@ export function groupSpending(
   const grandTotal = entries.reduce((sum, entry) => sum + entry.amount, 0);
 
   return [...totals.entries()]
-    .map(([name, { total, count }]) => ({
+    .map(([name, { total, totalMilliunits, count }]) => ({
       name,
-      total: roundAmount(total, decimalDigits),
+      total: toDollars(totalMilliunits, decimalDigits),
       transaction_count: count,
-      average: roundAmount(total / count, decimalDigits),
+      average: toDollars(totalMilliunits / count, decimalDigits),
       share_of_total: grandTotal > 0 ? round2((total / grandTotal) * 100) : 0,
     }))
     .sort((a, b) => b.total - a.total);

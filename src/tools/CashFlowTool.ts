@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { getDecimalDigits, roundAmount, toDollars } from "./money.js";
+import { getDecimalDigits, roundAmount, toDollars, toMilliunits } from "./money.js";
 
 export const name = "ynab_cash_flow";
 export const description = "Income versus spending, month by month, so you can see whether you are running a surplus. Uses YNAB's own monthly totals rather than re-adding transactions.";
@@ -61,7 +61,10 @@ export async function execute(input: CashFlowInput, api: ynab.API) {
           total_income: totalIncome,
           total_spent: totalSpent,
           net: roundAmount(totalIncome - totalSpent, decimalDigits),
-          average_monthly_net: months.length > 0 ? roundAmount((totalIncome - totalSpent) / months.length, decimalDigits) : 0,
+          // Averaged in integer milliunits so a half-unit result rounds away from zero.
+          average_monthly_net: months.length > 0
+            ? toDollars((toMilliunits(totalIncome) - toMilliunits(totalSpent)) / months.length, decimalDigits)
+            : 0,
           months,
         }, null, 2),
       }],

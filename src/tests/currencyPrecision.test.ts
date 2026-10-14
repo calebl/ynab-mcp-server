@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as ListAccountsTool from '../tools/ListAccountsTool';
 import * as GetTransactionsTool from '../tools/GetTransactionsTool';
 import * as SpendingByCategoryTool from '../tools/SpendingByCategoryTool';
@@ -18,7 +18,12 @@ const parse = (result: { content: Array<{ text: string }> }) => JSON.parse(resul
 describe('amounts in a 3-decimal currency plan', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.YNAB_BUDGET_ID = 'plan-kwd';
+    // YNAB_PLAN_ID wins over YNAB_BUDGET_ID, so a developer's own setting must not leak in.
+    vi.stubEnv('YNAB_PLAN_ID', 'plan-kwd');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('lists account balances with all three decimals', async () => {
@@ -87,6 +92,47 @@ describe('amounts in a 3-decimal currency plan', () => {
     expect(response.categories[0]).toMatchObject({ total: 2.235, average: 1.118 });
   });
 
+  it('rounds a spending average that falls on a half unit away from zero', async () => {
+    const api = {
+      plans: { getPlanSettingsById: planSettings(3) },
+      transactions: {
+        getTransactions: vi.fn().mockResolvedValue({
+          data: {
+            transactions: [
+              { id: 't1', date: '2024-03-01', amount: -2, deleted: false, category_name: 'Fees', payee_name: 'Bank', subtransactions: [] },
+              { id: 't2', date: '2024-03-02', amount: -19, deleted: false, category_name: 'Fees', payee_name: 'Bank', subtransactions: [] },
+            ],
+          },
+        }),
+      },
+    };
+
+    const response = parse(await SpendingByCategoryTool.execute({ sinceDate: '2024-03-01' }, api as any));
+
+    expect(response.categories[0]).toMatchObject({ total: 0.021, average: 0.011 });
+  });
+
+  it('rounds a monthly net average that falls on a half unit away from zero', async () => {
+    const api = {
+      plans: { getPlanSettingsById: planSettings(3) },
+      months: {
+        getPlanMonths: vi.fn().mockResolvedValue({
+          data: {
+            months: [
+              { month: '2024-03-01', income: 2, activity: 0, budgeted: 0, deleted: false },
+              { month: '2024-04-01', income: 19, activity: 0, budgeted: 0, deleted: false },
+            ],
+          },
+        }),
+      },
+    };
+
+    const response = parse(await CashFlowTool.execute({}, api as any));
+
+    expect(response.net).toBe(0.021);
+    expect(response.average_monthly_net).toBe(0.011);
+  });
+
   it('reports cash flow without losing the third decimal', async () => {
     const api = {
       plans: { getPlanSettingsById: planSettings(3) },
@@ -150,7 +196,11 @@ describe('amounts in a 3-decimal currency plan', () => {
 describe('amounts in a 2-decimal currency plan', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.YNAB_BUDGET_ID = 'plan-usd';
+    vi.stubEnv('YNAB_PLAN_ID', 'plan-usd');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('rounds an outflow and an inflow of the same size to the same magnitude', async () => {
