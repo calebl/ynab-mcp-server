@@ -52,6 +52,7 @@ Environment variables:
 | `YNAB_PLAN_ID` | no | Default plan, so tools can omit `planId`. Find it with `ynab_list_plans`. |
 | `TYPESAFE_API_KEY` | no | Operator-owned TypeSafe credential. Required, but not sufficient, to enable category suggestions. |
 | `YNAB_AI_CATEGORIZATION` | no | Set to `"true"` together with `TYPESAFE_API_KEY` to expose the opt-in suggestion tool. |
+| `YNAB_READ_ONLY` | no | Set to `"true"` (case-insensitive; surrounding whitespace is ignored) to register only the tools that read data, in both the stdio server and the Worker. |
 
 ### Local: Claude Desktop / Claude Code
 
