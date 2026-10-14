@@ -70,7 +70,7 @@ function planAssignments(
   return plan;
 }
 
-/** Drops the internal milliunit field so responses stay in plain currency. */
+/** Drops the internal milliunit fields so responses stay in plain currency. */
 function forOutput({ assignMilliunits, newBudgetedMilliunits, ...rest }: PlannedAssignment) {
   return rest;
 }
