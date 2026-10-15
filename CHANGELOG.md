@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.2] - 2026-10-14
 
 ### Security
-- The npm package's stdio server now honors `YNAB_READ_ONLY`, which it ignored in versions 0.2.0 to 0.4.1, so write tools were exposed even when read-only mode was set. Cloudflare Worker deployments already honored the setting. One shared parser now reads the value case-insensitively for both the stdio server and the Worker, the stdio startup line reports "(read-only)" when it applies, and the README documents the setting for both.
+- Fixed [GHSA-rf2m-h377-hhmg](https://github.com/calebl/ynab-mcp-server/security/advisories/GHSA-rf2m-h377-hhmg) (moderate) in the npm package's stdio server, which ignored `YNAB_READ_ONLY` in versions 0.2.0 to 0.4.1, so write tools were exposed even when read-only mode was set. Cloudflare Worker deployments already honored the setting. One shared parser now reads the value case-insensitively for both the stdio server and the Worker, the stdio startup line reports "(read-only)" when it applies, and the README documents the setting for both.
 
 ### Fixed
 - Amounts keep the precision of the plan's currency, such as three decimals for Kuwaiti dinar, instead of always rounding to two. Inflows and outflows now round the same way.
