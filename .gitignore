@@ -5,7 +5,8 @@ node_modules
 logs
 data
 coverage
-.claude
+.claude/*
+!.claude/skills/
 dist
 
 .dev.vars
