@@ -33,7 +33,7 @@ export interface ModelThresholds {
 // Confidence scales differ between models, so thresholds belong to a pinned model
 // and must be refitted on labeled data before another model is pinned.
 export const MODEL_THRESHOLDS: Record<string, ModelThresholds> = {
-  [PINNED_MODEL]: { needsReviewAtOrAbove: 0.50 },
+  [PINNED_MODEL]: { needsReviewAtOrAbove: 0 },
 };
 // One prior exact-payee row is as reliable as three when every such row agrees.
 export const HISTORY_RULE_MIN_ROWS = 1;

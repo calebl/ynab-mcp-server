@@ -634,8 +634,8 @@ describe("SuggestCategoriesTool", () => {
     expect(row.personal_prior.ranking[0].probability).toBeLessThan(Tool.PERSONAL_PRIOR_SUGGEST_PROBABILITY);
   });
 
-  it("keeps the pinned model's calibration threshold while marking every category answer for review", async () => {
-    expect(Tool.MODEL_THRESHOLDS[Tool.PINNED_MODEL]).toEqual({ needsReviewAtOrAbove: 0.5 });
+  it("reports the pinned threshold that marks every category answer for review", async () => {
+    expect(Tool.MODEL_THRESHOLDS[Tool.PINNED_MODEL]).toEqual({ needsReviewAtOrAbove: 0 });
     const api = makeApi({ candidates: [
       transaction("low", { payee_id: "payee-a", payee_name: "Nimbus Stationery" }),
       transaction("high", { payee_id: "payee-b", payee_name: "Nimbus Stationery Annex" }),
@@ -717,7 +717,7 @@ describe("SuggestCategoriesTool", () => {
         provisional: true,
         model: "jev-1.13.0",
         suggested_at_or_above: null,
-        needs_review_at_or_above: 0.5,
+        needs_review_at_or_above: 0,
         personal_prior_suggested_at_or_above: 0.9,
       },
       typical_payees_sent: false,

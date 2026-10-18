@@ -217,8 +217,8 @@ that answered:
    `jev-1.13.0` System One model in batches of ten. A model answer is a ranked
    shortlist, never a suggestion: every answer that names a category is
    `needs_review`, while an explicit model abstention is `left_uncategorized`.
-   Calibration thresholds are stored per pinned model because confidence
-   scales differ between models.
+   The pinned model's stored review threshold is therefore 0; thresholds stay
+   model-specific because confidence scales differ between models.
 
 Similar-name history always goes to the model as suggestive evidence and is
 never a rule. The history summary's `reference_category_id` is the category a
