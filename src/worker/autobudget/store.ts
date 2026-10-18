@@ -69,6 +69,7 @@ const alertKey = (alert: AlertKey) => `${alert.rule}|${alert.subjectId}|${alert.
 // count: a first sync of tens of thousands of transactions stays at a handful
 // of statements. The character budget leaves room for multi-byte UTF-8.
 const JSON_PARAM_CHARS = 600_000;
+const DUPLICATE_LOOKBACK_DAYS = 3;
 const DUPLICATE_EVIDENCE_MARGIN_DAYS = 45;
 
 /** Serializes rows into JSON arrays that each fit in one bound parameter. */
@@ -245,7 +246,7 @@ export class Store {
       "SELECT DISTINCT p.id FROM txn p JOIN txn o ON o.plan_id = p.plan_id AND o.account_id = p.account_id " +
       "AND o.amount = p.amount AND o.id <> p.id AND o.deleted = 0 " +
       // A range on date (not a computed difference) lets the txn_account index bound the scan.
-      "AND o.date BETWEEN date(p.date, '-3 days') AND date(p.date, '+3 days') " +
+      `AND o.date BETWEEN date(p.date, '-${DUPLICATE_LOOKBACK_DAYS} days') AND date(p.date, '+${DUPLICATE_LOOKBACK_DAYS} days') ` +
       "WHERE p.plan_id = ?1 AND p.deleted = 0 AND p.approved = 0",
     ).bind(this.planId).all<{ id: string }>();
     return new Set(results.map((row) => row.id));
@@ -359,7 +360,9 @@ export class Store {
   async prune(before: Date, mirrorFrom: string): Promise<void> {
     const cutoff = before.toISOString();
     const evidenceFrom = new Date(`${mirrorFrom}T00:00:00Z`);
-    evidenceFrom.setUTCDate(evidenceFrom.getUTCDate() - DUPLICATE_EVIDENCE_MARGIN_DAYS);
+    evidenceFrom.setUTCDate(
+      evidenceFrom.getUTCDate() - DUPLICATE_EVIDENCE_MARGIN_DAYS - DUPLICATE_LOOKBACK_DAYS,
+    );
     await this.db.batch([
       this.db.prepare(
         "DELETE FROM txn WHERE plan_id = ?1 AND (deleted = 1 OR (date < ?2 AND approved = 1 AND " +

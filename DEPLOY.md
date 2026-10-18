@@ -350,10 +350,10 @@ can see, and Pushover alerts you once.
   to the identical state without an intervening recorded decision, it is not
   logged again. Runs, decisions and periodic alerts are kept for 13 months.
   Unresolved open alerts are kept until their condition clears. The transaction
-  mirror keeps the 12-month history window, a further 45 days of settled rows
-  as duplicate evidence, and every pending transaction, including approved
-  uncategorized non-transfer, non-split rows, however old. Possible duplicates
-  older than that fixed evidence window are not detected.
+  mirror keeps the 12-month history window, a further 45-day evidence margin
+  plus the three-day duplicate lookback for settled rows, and every pending
+  transaction, including approved uncategorized non-transfer, non-split rows,
+  however old. Possible duplicates older than that fixed window are not detected.
 
 ### MCP tools
 

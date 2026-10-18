@@ -652,19 +652,19 @@ describe("Store", () => {
     expect((await store.pendingTransactions()).map((row) => row.id)).toEqual(["old-unapproved", "old-uncategorized"]);
   });
 
-  it("retains settled duplicate evidence for 45 days after it leaves the history window", async () => {
+  it("retains the three-day duplicate lookback beyond the 45-day evidence margin", async () => {
     const db = createTestD1();
     const store = new Store(db, PLAN_ID);
     await store.upsertTransactions([
-      txn({ id: "recent-evidence", date: "2025-09-15", amount: -5_000, approved: true, category_id: "c-dining" }),
-      txn({ id: "expired-evidence", date: "2025-08-01", amount: -9_000, approved: true, category_id: "c-dining" }),
+      txn({ id: "boundary-evidence", date: "2025-08-14", amount: -5_000, approved: true, category_id: "c-dining" }),
+      txn({ id: "expired-evidence", date: "2025-08-13", amount: -9_000, approved: true, category_id: "c-dining" }),
     ].map(toStoredTransaction));
 
     await store.prune(new Date("2025-01-01T00:00:00Z"), "2025-10-01");
-    expect(db.sqlite.prepare("SELECT id FROM txn ORDER BY id").all()).toEqual([{ id: "recent-evidence" }]);
+    expect(db.sqlite.prepare("SELECT id FROM txn ORDER BY id").all()).toEqual([{ id: "boundary-evidence" }]);
 
     await store.upsertTransactions([
-      txn({ id: "late-pending", date: "2025-09-16", amount: -5_000, category_id: "c-dining" }),
+      txn({ id: "late-pending", date: "2025-08-17", amount: -5_000, category_id: "c-dining" }),
     ].map(toStoredTransaction));
     expect(await store.possibleDuplicateIds()).toEqual(new Set(["late-pending"]));
   });
