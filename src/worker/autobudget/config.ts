@@ -3,8 +3,7 @@ import type { WorkerEnv } from "../env.js";
 
 /**
  * Limits the write stages will enforce, in plain currency. This version has
- * no write stage, so the shadow decisions apply them exactly as a live run
- * would: what shadow mode reports is what a live run would do.
+ * no write stage, so shadow decisions show what a later write stage would do.
  */
 export const CAPS = {
   /** Largest transaction (either sign) the service may categorize or approve. */
@@ -26,12 +25,11 @@ export const MAX_CALLS_PER_RUN = 20;
 /** How far back the first sync reads, which is also the payee-history window. */
 export const HISTORY_MONTHS = 12;
 
-export type RequestedMode = "off" | "shadow" | "live";
+export type RequestedMode = "off" | "shadow";
 
 export interface AutobudgetConfig {
   requestedMode: RequestedMode;
-  /** What actually runs. Never "live" in this version. */
-  mode: "off" | "shadow";
+  mode: RequestedMode;
   /** Why `mode` differs from what was asked for, if it does. */
   modeReason: string | null;
   readOnly: boolean;
@@ -57,13 +55,6 @@ export function readConfig(env: WorkerEnv): AutobudgetConfig {
 
   if (raw === "shadow") {
     return { ...base, requestedMode: "shadow", mode: "shadow", modeReason: null };
-  }
-  if (raw === "live") {
-    // YNAB_READ_ONLY is a hard stop for every write path, this one included.
-    const modeReason = readOnly
-      ? "YNAB_READ_ONLY is set, so the service stays in shadow mode"
-      : "this version has no write stages, so live runs as shadow";
-    return { ...base, requestedMode: "live", mode: "shadow", modeReason };
   }
   const modeReason = raw === "off" ? null : `unrecognized AUTOBUDGET_MODE "${raw}", treated as off`;
   return { ...base, requestedMode: "off", mode: "off", modeReason };

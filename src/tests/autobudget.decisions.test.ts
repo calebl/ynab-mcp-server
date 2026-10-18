@@ -46,7 +46,7 @@ function context(overrides: Partial<TransactionContext> = {}): TransactionContex
 const only = (ctx: TransactionContext, stage: string) => transactionDecisions(ctx).filter((d) => d.stage === stage);
 
 describe("categorize decisions", () => {
-  it("proposes the payee's unanimous category, with the marker flag a live run would set", () => {
+  it("proposes the payee's unanimous category, with the marker flag a later write stage would set", () => {
     const row = stored({ amount: -12_340 });
     const [decision] = only(context({ pending: [row] }), "categorize");
     expect(decision).toMatchObject({

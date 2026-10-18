@@ -259,8 +259,8 @@ plan changes. Its YNAB client can only send GET requests. Later versions will
 add write stages that you switch on one at a time.
 
 The caps the write stages will enforce already shape the shadow decisions, so
-the log shows what a live run would do: at most $250 per transaction, at most
-min(Ready to Assign, total underfunded, $5,000) assigned per day, and at most
+the log shows what a later write stage would do: at most $250 per transaction,
+at most min(Ready to Assign, total underfunded, $5,000) assigned per day, and at most
 25 transactions and 10 categories per run. Transactions it changes will carry a
 purple flag.
 
@@ -310,7 +310,7 @@ Set `AUTOBUDGET_MODE` to `"shadow"` in `wrangler.jsonc` and deploy:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `AUTOBUDGET_MODE` | `off` | `off`, `shadow` or `live`. This version runs `live` as `shadow`. |
+| `AUTOBUDGET_MODE` | `off` | `off` or `shadow`. Other values are rejected as unrecognized. |
 | `AUTOBUDGET_TIMEZONE` | `NAG_TIMEZONE`, then `America/Los_Angeles` | IANA zone for the daily digest |
 | `AUTOBUDGET_DIGEST_HOUR` | `8` | Local hour (0-23) the digest is sent |
 | `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_KEY` | — | Secrets. Pushover credentials; unset sends nothing. |
@@ -321,8 +321,8 @@ can see, and Pushover alerts you once.
 
 ### How it behaves
 
-- **YNAB_READ_ONLY is a hard stop.** With `YNAB_READ_ONLY` set to `"true"`, the
-  service stays in shadow mode whatever `AUTOBUDGET_MODE` says.
+- **YNAB_READ_ONLY is a hard stop.** This phase supports only shadow mode, and
+  `YNAB_READ_ONLY=true` prevents later write stages from changing that.
 - **Pause from any MCP client.** `ynab_autobudget_pause` stops every scheduled
   run until you resume it with `paused: false`. It changes only the service's
   own state, so it stays available in read-only mode.
@@ -349,7 +349,7 @@ client. They are not part of the npm package, which has no D1 database.
 | Tool | What it does |
 | --- | --- |
 | `ynab_autobudget_status` | Mode and why, pause state, last run, decisions recorded in the last 24 hours, and the caps |
-| `ynab_autobudget_plan` | Dry run: syncs and shows what the service would do right now and the alerts it would raise. Records and sends nothing. |
+| `ynab_autobudget_plan` | Dry run: syncs its D1 mirror and shows what the service would do right now and the alerts it would raise. Records decisions and sends notifications only during scheduled runs. |
 | `ynab_autobudget_pause` | Pauses the service, or resumes it with `paused: false` |
 
 ## Read-only mode

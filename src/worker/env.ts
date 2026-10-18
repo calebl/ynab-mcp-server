@@ -46,7 +46,7 @@ export interface WorkerEnv {
    * tools are not registered.
    */
   AUTOBUDGET_DB?: D1Database;
-  /** "off" (default), "shadow" or "live". This version never writes to YNAB, so "live" runs as shadow. */
+  /** "off" (default) or "shadow". */
   AUTOBUDGET_MODE?: string;
   /** IANA zone for the daily digest. Defaults to NAG_TIMEZONE, then America/Los_Angeles. */
   AUTOBUDGET_TIMEZONE?: string;

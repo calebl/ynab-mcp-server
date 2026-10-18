@@ -34,8 +34,8 @@ import { alertKey, Store } from "./store.js";
 import { historyStart, syncAccounts, syncTransactions } from "./sync.js";
 import { explainMissingPlan, planPath, YnabReader, YnabRequestError } from "./ynab.js";
 
-/** A run normally takes seconds; the lease only has to outlast a stuck one. */
-const LEASE_MS = 10 * 60 * 1000;
+/** Longer than Cloudflare's 15-minute scheduled-handler limit. */
+const LEASE_MS = 16 * 60 * 1000;
 /** Audit rows, runs and periodic alerts are kept for 13 months. */
 const RETENTION_MS = 396 * 24 * 60 * 60 * 1000;
 
@@ -188,9 +188,8 @@ export async function runAutobudget(env: WorkerEnv, options: RunOptions = {}): P
   const { config, planId, store } = prepared;
   if (config.mode === "off") return { ran: false, reason: config.modeReason ?? "AUTOBUDGET_MODE is off" };
   if (await store.getState("paused")) return { ran: false, reason: "paused" };
-  if (!await store.acquireLease(now, LEASE_MS)) return { ran: false, reason: "another run holds the lease" };
-
   const runId = crypto.randomUUID();
+  if (!await store.acquireLease(runId, now, LEASE_MS)) return { ran: false, reason: "another run holds the lease" };
   const reader = new YnabReader(env.YNAB_API_TOKEN, fetchImpl);
   const notify = (notification: { title: string; message: string }) => sendPushover(env, notification, fetchImpl);
   let notifier = config.notifierConfigured ? "configured" : "not_configured";
@@ -198,6 +197,11 @@ export async function runAutobudget(env: WorkerEnv, options: RunOptions = {}): P
   try {
     await store.startRun(runId, config.mode, now);
     try {
+      const { date: today } = localDateParts(now, config.timeZone);
+      if (await store.getState("last_prune") !== today) {
+        await store.prune(new Date(now.getTime() - RETENTION_MS));
+        await store.setState("last_prune", today, now);
+      }
       const evaluation = await evaluate(reader, store, planId, config, now);
       const recorded = await store.recordDecisions(runId, config.mode, evaluation.decisions, now);
 
@@ -240,10 +244,7 @@ export async function runAutobudget(env: WorkerEnv, options: RunOptions = {}): P
               backlog: evaluation.backlog,
               currency: evaluation.currency,
             }));
-            if (digest === "sent") {
-              await store.setState("last_digest", evaluation.today, now);
-              await store.prune(new Date(now.getTime() - RETENTION_MS));
-            }
+            if (digest === "sent") await store.setState("last_digest", evaluation.today, now);
           } catch (error) {
             digest = `failed: ${getErrorMessage(error)}`;
           }
@@ -289,7 +290,7 @@ export async function runAutobudget(env: WorkerEnv, options: RunOptions = {}): P
       return { ran: true, outcome, error: message, mode: "shadow", calls: reader.calls };
     }
   } finally {
-    await store.releaseLease();
+    await store.releaseLease(runId);
   }
 }
 
@@ -325,7 +326,8 @@ export async function dryRun(env: WorkerEnv, options: RunOptions = {}): Promise<
   const prepared = prepare(env);
   if ("reason" in prepared) throw new Error(prepared.reason);
   const { config, planId, store } = prepared;
-  if (!await store.acquireLease(now, LEASE_MS)) throw new Error("A scheduled run is in progress; try again in a minute.");
+  const leaseOwner = crypto.randomUUID();
+  if (!await store.acquireLease(leaseOwner, now, LEASE_MS)) throw new Error("A scheduled run is in progress; try again in a minute.");
 
   const reader = new YnabReader(env.YNAB_API_TOKEN, options.fetch ?? fetch);
   try {
@@ -345,7 +347,7 @@ export async function dryRun(env: WorkerEnv, options: RunOptions = {}): Promise<
     }
     throw error;
   } finally {
-    await store.releaseLease();
+    await store.releaseLease(leaseOwner);
   }
 }
 

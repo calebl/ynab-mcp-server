@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_CALLS_PER_RUN, readConfig } from "../worker/autobudget/config.js";
 import { dryRun, runAutobudget, setPaused, status } from "../worker/autobudget/run.js";
 import { Store } from "../worker/autobudget/store.js";
+import { toStoredAccount, toStoredTransaction } from "../worker/autobudget/sync.js";
 import { YnabReader, YnabRequestError } from "../worker/autobudget/ynab.js";
 import type { WorkerEnv } from "../worker/env.js";
 import { createTestD1 } from "./stubs/d1.js";
@@ -116,16 +117,14 @@ describe("runAutobudget", () => {
     expect(ynabRequests(lean.requests).some((r) => r.url.endsWith("/months/2026-11-01"))).toBe(false);
   });
 
-  it("never sends YNAB anything but GET requests, in any mode", async () => {
-    for (const mode of ["shadow", "live"]) {
-      const db = createTestD1();
-      const apis = scenario();
-      await runAutobudget(makeEnv(db, { AUTOBUDGET_MODE: mode }), { fetch: apis.fetch, now: DIGEST_TIME });
-      await dryRun(makeEnv(db, { AUTOBUDGET_MODE: mode }), { fetch: apis.fetch, now: DIGEST_TIME });
-      const ynab = ynabRequests(apis.requests);
-      expect(ynab.length).toBeGreaterThan(0);
-      expect(ynab.every((r) => r.method === "GET" && r.body === null)).toBe(true);
-    }
+  it("never sends YNAB anything but GET requests", async () => {
+    const db = createTestD1();
+    const apis = scenario();
+    await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: DIGEST_TIME });
+    await dryRun(makeEnv(db), { fetch: apis.fetch, now: DIGEST_TIME });
+    const ynab = ynabRequests(apis.requests);
+    expect(ynab.length).toBeGreaterThan(0);
+    expect(ynab.every((r) => r.method === "GET" && r.body === null)).toBe(true);
   });
 
   it("stays within its per-run YNAB request budget", async () => {
@@ -135,25 +134,20 @@ describe("runAutobudget", () => {
     expect(ynabRequests(apis.requests).length).toBeLessThanOrEqual(MAX_CALLS_PER_RUN);
   });
 
-  it("treats YNAB_READ_ONLY as a hard stop: live is forced to shadow", async () => {
+  it("stays in shadow mode when YNAB_READ_ONLY is set", async () => {
     const db = createTestD1();
     const apis = scenario();
-    const env = makeEnv(db, { AUTOBUDGET_MODE: "live", YNAB_READ_ONLY: "true" });
+    const env = makeEnv(db, { YNAB_READ_ONLY: "true" });
 
-    expect(readConfig(env)).toMatchObject({ requestedMode: "live", mode: "shadow", readOnly: true });
-    expect(readConfig(env).modeReason).toContain("YNAB_READ_ONLY");
+    expect(readConfig(env)).toMatchObject({ requestedMode: "shadow", mode: "shadow", readOnly: true });
     expect(await runAutobudget(env, { fetch: apis.fetch, now: NIGHT })).toMatchObject({ ran: true, mode: "shadow" });
     expect(ynabRequests(apis.requests).every((r) => r.method === "GET")).toBe(true);
-    expect(await status(env, NIGHT)).toMatchObject({ mode: "shadow", requestedMode: "live", readOnly: true });
-  });
-
-  it("runs live as shadow even without read-only, since this version has no write stage", () => {
-    const config = readConfig(makeEnv(createTestD1(), { AUTOBUDGET_MODE: "live" }));
-    expect(config).toMatchObject({ mode: "shadow", modeReason: "this version has no write stages, so live runs as shadow" });
+    expect(await status(env, NIGHT)).toMatchObject({ mode: "shadow", requestedMode: "shadow", readOnly: true });
   });
 
   it.each([
     ["the mode is off", { AUTOBUDGET_MODE: undefined }, "AUTOBUDGET_MODE is off"],
+    ["the former live mode is rejected", { AUTOBUDGET_MODE: "live" }, 'unrecognized AUTOBUDGET_MODE "live", treated as off'],
     ["the mode is unrecognized", { AUTOBUDGET_MODE: "yes" }, 'unrecognized AUTOBUDGET_MODE "yes", treated as off'],
     ["no database is bound", { AUTOBUDGET_DB: undefined }, "AUTOBUDGET_DB is not bound"],
     ["no plan is configured", { YNAB_PLAN_ID: undefined }, "YNAB_PLAN_ID is not set"],
@@ -178,19 +172,22 @@ describe("runAutobudget", () => {
     expect(await runAutobudget(env, { fetch: apis.fetch, now: NIGHT })).toMatchObject({ ran: true, outcome: "ok" });
   });
 
-  it("holds a lease so overlapping runs cannot interleave, and releases it", async () => {
+  it("holds an owned lease so overlapping runs cannot interleave", async () => {
     const db = createTestD1();
     const apis = scenario();
     const store = new Store(db, PLAN_ID);
 
-    expect(await store.acquireLease(NIGHT, 60_000)).toBe(true);
+    expect(await store.acquireLease("owner-a", NIGHT, 60_000)).toBe(true);
     expect(await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT })).toEqual({ ran: false, reason: "another run holds the lease" });
     await expect(dryRun(makeEnv(db), { fetch: apis.fetch, now: NIGHT })).rejects.toThrow("in progress");
 
-    // An expired lease does not block.
     const later = new Date(NIGHT.getTime() + 120_000);
-    expect(await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: later })).toMatchObject({ ran: true });
+    expect(await store.acquireLease("owner-b", later, 60_000)).toBe(true);
+    await store.releaseLease("owner-a");
+    expect(await store.acquireLease("owner-c", later, 60_000)).toBe(false);
+    await store.releaseLease("owner-b");
     expect(await store.getState("lease")).toBeNull();
+    expect(await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: later })).toMatchObject({ ran: true });
   });
 
   it("reports a configured plan the token cannot see, naming the plans it can, and alerts once", async () => {
@@ -298,9 +295,23 @@ describe("runAutobudget", () => {
     expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM alert").get()).toEqual({ n: categories.length });
   });
 
-  it("does not build an undeliverable digest", async () => {
+  it("does not build an undeliverable digest and still runs daily retention", async () => {
+    const db = createTestD1();
+    const store = new Store(db, PLAN_ID);
+    const old = new Date("2025-01-01T00:00:00Z");
+    await store.startRun("old-run", "shadow", old);
+    await store.recordDecisions("old-run", "shadow", [{
+      stage: "assign",
+      subjectId: "old",
+      action: "would_assign",
+      reason: null,
+      source: null,
+      detail: {},
+    }], old);
+    await store.markAlertsSent([{ rule: "overspent", subjectId: "old", period: "2025-01" }], old);
+
     const apis = scenario();
-    const outcome = await runAutobudget(makeEnv(createTestD1(), { PUSHOVER_APP_TOKEN: undefined }), {
+    const outcome = await runAutobudget(makeEnv(db, { PUSHOVER_APP_TOKEN: undefined }), {
       fetch: apis.fetch,
       now: DIGEST_TIME,
     });
@@ -308,6 +319,10 @@ describe("runAutobudget", () => {
     expect(outcome).toMatchObject({ digest: "not_configured" });
     expect(ynabRequests(apis.requests).some((request) => request.url.includes("/scheduled_transactions"))).toBe(false);
     expect(pushes(apis.requests)).toEqual([]);
+    expect(db.sqlite.prepare("SELECT id FROM run WHERE id = 'old-run'").get()).toBeUndefined();
+    expect(db.sqlite.prepare("SELECT subject_id FROM decision WHERE subject_id = 'old'").get()).toBeUndefined();
+    expect(db.sqlite.prepare("SELECT subject_id FROM alert WHERE subject_id = 'old'").get()).toBeUndefined();
+    expect(await store.getState("last_prune")).toBe("2026-10-18");
   });
 
   it.each(["scheduled read", "delivery"])("retries the daily digest after a failed %s", async (failure) => {
@@ -380,6 +395,61 @@ describe("dryRun", () => {
 });
 
 describe("Store", () => {
+  it("isolates every service record by plan", async () => {
+    const db = createTestD1();
+    const first = new Store(db, "plan-a");
+    const second = new Store(db, "plan-b");
+    const now = new Date("2026-10-18T00:00:00Z");
+    const decision = {
+      stage: "assign" as const,
+      subjectId: "shared-subject",
+      action: "would_assign" as const,
+      reason: null,
+      source: null,
+      detail: { amount: 10 },
+    };
+    const alert = { rule: "overspent", subjectId: "shared-subject", period: "open" };
+
+    await first.setState("last_digest", "first", now);
+    await second.setState("last_digest", "second", now);
+    await first.setCursor("transactions", 1, now);
+    await second.setCursor("transactions", 2, now);
+    await first.upsertTransactions([toStoredTransaction(txn({ id: "shared-txn", category_id: "first" }))]);
+    await second.upsertTransactions([toStoredTransaction(txn({ id: "shared-txn", category_id: "second" }))]);
+    await first.upsertAccounts([toStoredAccount(account({ id: "shared-account", name: "First" }))]);
+    await second.upsertAccounts([toStoredAccount(account({ id: "shared-account", name: "Second" }))]);
+    await first.startRun("shared-run", "shadow", now);
+    await second.startRun("shared-run", "shadow", now);
+    await first.finishRun("shared-run", now, "first", null, 1, {});
+    await second.finishRun("shared-run", now, "second", null, 2, {});
+    expect(await first.recordDecisions("shared-run", "shadow", [decision], now)).toBe(1);
+    expect(await second.recordDecisions("shared-run", "shadow", [decision], now)).toBe(1);
+    await first.markAlertsSent([alert], now);
+    await second.markAlertsSent([alert], now);
+
+    expect(await first.getState("last_digest")).toBe("first");
+    expect(await second.getState("last_digest")).toBe("second");
+    expect(await first.getCursor("transactions")).toBe(1);
+    expect(await second.getCursor("transactions")).toBe(2);
+    expect(db.sqlite.prepare("SELECT plan_id, category_id FROM txn WHERE id = 'shared-txn' ORDER BY plan_id").all()).toEqual([
+      { plan_id: "plan-a", category_id: "first" },
+      { plan_id: "plan-b", category_id: "second" },
+    ]);
+    expect(db.sqlite.prepare("SELECT plan_id, name FROM account WHERE id = 'shared-account' ORDER BY plan_id").all()).toEqual([
+      { plan_id: "plan-a", name: "First" },
+      { plan_id: "plan-b", name: "Second" },
+    ]);
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM run WHERE id = 'shared-run'").get()).toEqual({ n: 2 });
+    expect(await first.lastRun()).toMatchObject({ outcome: "first", calls_used: 1 });
+    expect(await second.lastRun()).toMatchObject({ outcome: "second", calls_used: 2 });
+    expect(await first.recordDecisions("shared-run", "shadow", [decision], now)).toBe(0);
+    expect(await second.recordDecisions("shared-run", "shadow", [decision], now)).toBe(0);
+
+    await first.clearOpenAlerts("overspent", []);
+    expect(await first.sentAlerts()).toEqual(new Set());
+    expect(await second.sentAlerts()).toEqual(new Set(["overspent|shared-subject|open"]));
+  });
+
   it("prunes periodic alerts but keeps open alerts until their condition clears", async () => {
     const db = createTestD1();
     const store = new Store(db, PLAN_ID);

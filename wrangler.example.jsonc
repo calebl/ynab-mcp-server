@@ -9,8 +9,8 @@
 	"observability": {
 		"enabled": true
 	},
-	// Hourly. The job itself only acts in NAG_HOUR local time, so the reminder
-	// keeps its wall-clock slot across daylight saving changes.
+	// Hourly. Auto-budget runs each time; the reminder acts only in its chosen
+	// local hour so it keeps its wall-clock slot across daylight saving changes.
 	"triggers": {
 		"crons": ["0 * * * *"]
 	},
@@ -50,9 +50,9 @@
 		// The nag lands on a random hour in this window, different each day.
 		"NAG_HOUR_MIN": "8",
 		"NAG_HOUR_MAX": "20",
-		// Auto-budget service: "off", "shadow" or "live" (runs as shadow in this
-		// version). Needs the AUTOBUDGET_DB binding; alerts need the
-		// PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY secrets.
+		// Auto-budget service: "off" or "shadow". Needs the AUTOBUDGET_DB
+		// binding; alerts need the PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY
+		// secrets.
 		"AUTOBUDGET_MODE": "off"
 	}
 }

@@ -76,54 +76,58 @@ function toTransaction(row: Record<string, unknown>): StoredTransaction {
   };
 }
 
-/** All of the service's D1 access. Scoped to one plan for plan data. */
+/** All of the service's D1 access, scoped to one plan. */
 export class Store {
   constructor(private readonly db: D1Database, private readonly planId: string) {}
 
   async getState(key: string): Promise<string | null> {
-    const row = await this.db.prepare("SELECT value FROM state WHERE key = ?1").bind(key).first<{ value: string }>();
+    const row = await this.db.prepare("SELECT value FROM state WHERE plan_id = ?1 AND key = ?2")
+      .bind(this.planId, key).first<{ value: string }>();
     return row?.value ?? null;
   }
 
   async setState(key: string, value: string, now: Date): Promise<void> {
     await this.db.prepare(
-      "INSERT INTO state (key, value, updated_at) VALUES (?1, ?2, ?3) " +
-      "ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-    ).bind(key, value, now.toISOString()).run();
+      "INSERT INTO state (plan_id, key, value, updated_at) VALUES (?1, ?2, ?3, ?4) " +
+      "ON CONFLICT (plan_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    ).bind(this.planId, key, value, now.toISOString()).run();
   }
 
   async deleteState(key: string): Promise<void> {
-    await this.db.prepare("DELETE FROM state WHERE key = ?1").bind(key).run();
+    await this.db.prepare("DELETE FROM state WHERE plan_id = ?1 AND key = ?2").bind(this.planId, key).run();
   }
 
   /**
    * Takes the run lease unless an unexpired one exists, so an overlapping cron
    * run or dry run cannot interleave with this one.
    */
-  async acquireLease(now: Date, ttlMs: number): Promise<boolean> {
+  async acquireLease(owner: string, now: Date, ttlMs: number): Promise<boolean> {
+    const value = JSON.stringify({ owner, expiresAt: new Date(now.getTime() + ttlMs).toISOString() });
     const result = await this.db.prepare(
-      "INSERT INTO state (key, value, updated_at) VALUES ('lease', ?1, ?2) " +
-      "ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at " +
-      "WHERE state.value < ?2",
-    ).bind(new Date(now.getTime() + ttlMs).toISOString(), now.toISOString()).run();
+      "INSERT INTO state (plan_id, key, value, updated_at) VALUES (?1, 'lease', ?2, ?3) " +
+      "ON CONFLICT (plan_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at " +
+      "WHERE json_extract(state.value, '$.expiresAt') <= ?3",
+    ).bind(this.planId, value, now.toISOString()).run();
     return (result.meta?.changes ?? 0) > 0;
   }
 
-  async releaseLease(): Promise<void> {
-    await this.deleteState("lease");
+  async releaseLease(owner: string): Promise<void> {
+    await this.db.prepare(
+      "DELETE FROM state WHERE plan_id = ?1 AND key = 'lease' AND json_extract(value, '$.owner') = ?2",
+    ).bind(this.planId, owner).run();
   }
 
   async getCursor(resource: string): Promise<number | null> {
-    const row = await this.db.prepare("SELECT server_knowledge FROM sync_state WHERE resource = ?1")
-      .bind(`${this.planId}:${resource}`).first<{ server_knowledge: number }>();
+    const row = await this.db.prepare("SELECT server_knowledge FROM sync_state WHERE plan_id = ?1 AND resource = ?2")
+      .bind(this.planId, resource).first<{ server_knowledge: number }>();
     return row?.server_knowledge ?? null;
   }
 
   async setCursor(resource: string, serverKnowledge: number, now: Date): Promise<void> {
     await this.db.prepare(
-      "INSERT INTO sync_state (resource, server_knowledge, synced_at) VALUES (?1, ?2, ?3) " +
-      "ON CONFLICT (resource) DO UPDATE SET server_knowledge = excluded.server_knowledge, synced_at = excluded.synced_at",
-    ).bind(`${this.planId}:${resource}`, serverKnowledge, now.toISOString()).run();
+      "INSERT INTO sync_state (plan_id, resource, server_knowledge, synced_at) VALUES (?1, ?2, ?3, ?4) " +
+      "ON CONFLICT (plan_id, resource) DO UPDATE SET server_knowledge = excluded.server_knowledge, synced_at = excluded.synced_at",
+    ).bind(this.planId, resource, serverKnowledge, now.toISOString()).run();
   }
 
   async upsertTransactions(rows: StoredTransaction[]): Promise<void> {
@@ -134,7 +138,7 @@ export class Store {
       "j.value ->> 'payee_id', j.value ->> 'payee_name', j.value ->> 'category_id', j.value ->> 'approved', " +
       "j.value ->> 'cleared', j.value ->> 'flag_color', j.value ->> 'import_id', j.value ->> 'matched_transaction_id', " +
       "j.value ->> 'transfer_account_id', j.value ->> 'split', j.value ->> 'deleted' FROM json_each(?2) AS j WHERE true " +
-      "ON CONFLICT (id) DO UPDATE SET date = excluded.date, amount = excluded.amount, account_id = excluded.account_id, " +
+      "ON CONFLICT (plan_id, id) DO UPDATE SET date = excluded.date, amount = excluded.amount, account_id = excluded.account_id, " +
       "payee_id = excluded.payee_id, payee_name = excluded.payee_name, category_id = excluded.category_id, " +
       "approved = excluded.approved, cleared = excluded.cleared, flag_color = excluded.flag_color, " +
       "import_id = excluded.import_id, matched_transaction_id = excluded.matched_transaction_id, " +
@@ -153,7 +157,7 @@ export class Store {
       "INSERT INTO account (id, plan_id, name, on_budget, closed, deleted, direct_import_in_error) " +
       "SELECT j.value ->> 'id', ?1, j.value ->> 'name', j.value ->> 'on_budget', j.value ->> 'closed', " +
       "j.value ->> 'deleted', j.value ->> 'direct_import_in_error' FROM json_each(?2) AS j WHERE true " +
-      "ON CONFLICT (id) DO UPDATE SET name = excluded.name, on_budget = excluded.on_budget, closed = excluded.closed, " +
+      "ON CONFLICT (plan_id, id) DO UPDATE SET name = excluded.name, on_budget = excluded.on_budget, closed = excluded.closed, " +
       "deleted = excluded.deleted, direct_import_in_error = excluded.direct_import_in_error",
     ).bind(this.planId, JSON.stringify(chunk.map((row) => ({
       ...row,
@@ -226,18 +230,19 @@ export class Store {
   }
 
   async startRun(id: string, mode: string, now: Date): Promise<void> {
-    await this.db.prepare("INSERT INTO run (id, started_at, mode) VALUES (?1, ?2, ?3)")
-      .bind(id, now.toISOString(), mode).run();
+    await this.db.prepare("INSERT INTO run (plan_id, id, started_at, mode) VALUES (?1, ?2, ?3, ?4)")
+      .bind(this.planId, id, now.toISOString(), mode).run();
   }
 
   async finishRun(id: string, now: Date, outcome: string, error: string | null, callsUsed: number, summary: unknown): Promise<void> {
     await this.db.prepare(
-      "UPDATE run SET finished_at = ?2, outcome = ?3, error = ?4, calls_used = ?5, summary = ?6 WHERE id = ?1",
-    ).bind(id, now.toISOString(), outcome, error, callsUsed, JSON.stringify(summary)).run();
+      "UPDATE run SET finished_at = ?3, outcome = ?4, error = ?5, calls_used = ?6, summary = ?7 WHERE plan_id = ?1 AND id = ?2",
+    ).bind(this.planId, id, now.toISOString(), outcome, error, callsUsed, JSON.stringify(summary)).run();
   }
 
   async lastRun(): Promise<RunRecord | null> {
-    return await this.db.prepare("SELECT * FROM run ORDER BY started_at DESC LIMIT 1").first<RunRecord>();
+    return await this.db.prepare("SELECT * FROM run WHERE plan_id = ?1 ORDER BY started_at DESC LIMIT 1")
+      .bind(this.planId).first<RunRecord>();
   }
 
   /**
@@ -249,9 +254,9 @@ export class Store {
   async recordDecisions(runId: string, mode: string, decisions: Decision[], now: Date): Promise<number> {
     if (!decisions.length) return 0;
     const { results } = await this.db.prepare(
-      "SELECT stage, subject_id, decision_key FROM decision WHERE id IN " +
-      "(SELECT MAX(id) FROM decision GROUP BY stage, subject_id)",
-    ).all<{ stage: string; subject_id: string; decision_key: string }>();
+      "SELECT stage, subject_id, decision_key FROM decision WHERE plan_id = ?1 AND id IN " +
+      "(SELECT MAX(id) FROM decision WHERE plan_id = ?1 GROUP BY stage, subject_id)",
+    ).bind(this.planId).all<{ stage: string; subject_id: string; decision_key: string }>();
     const latest = new Map(results.map((row) => [`${row.stage}|${row.subject_id}`, row.decision_key]));
 
     const fresh = decisions
@@ -259,10 +264,10 @@ export class Store {
       .filter(({ decision, key }) => latest.get(`${decision.stage}|${decision.subjectId}`) !== key);
 
     const statements = chunks(fresh).map((chunk) => this.db.prepare(
-      "INSERT INTO decision (run_id, stage, subject_id, action, reason, source, detail, decision_key, mode, created_at) " +
-      "SELECT ?1, j.value ->> 'stage', j.value ->> 'subjectId', j.value ->> 'action', j.value ->> 'reason', " +
-      "j.value ->> 'source', j.value ->> 'detail', j.value ->> 'key', ?2, ?3 FROM json_each(?4) AS j",
-    ).bind(runId, mode, now.toISOString(), JSON.stringify(chunk.map(({ decision, key }) => ({
+      "INSERT INTO decision (plan_id, run_id, stage, subject_id, action, reason, source, detail, decision_key, mode, created_at) " +
+      "SELECT ?1, ?2, j.value ->> 'stage', j.value ->> 'subjectId', j.value ->> 'action', j.value ->> 'reason', " +
+      "j.value ->> 'source', j.value ->> 'detail', j.value ->> 'key', ?3, ?4 FROM json_each(?5) AS j",
+    ).bind(this.planId, runId, mode, now.toISOString(), JSON.stringify(chunk.map(({ decision, key }) => ({
       stage: decision.stage,
       subjectId: decision.subjectId,
       action: decision.action,
@@ -277,22 +282,24 @@ export class Store {
 
   async decisionCounts(since: Date): Promise<Array<{ stage: string; action: string; n: number }>> {
     const { results } = await this.db.prepare(
-      "SELECT stage, action, COUNT(*) AS n FROM decision WHERE created_at >= ?1 GROUP BY stage, action ORDER BY stage, action",
-    ).bind(since.toISOString()).all<{ stage: string; action: string; n: number }>();
+      "SELECT stage, action, COUNT(*) AS n FROM decision WHERE plan_id = ?1 AND created_at >= ?2 " +
+      "GROUP BY stage, action ORDER BY stage, action",
+    ).bind(this.planId, since.toISOString()).all<{ stage: string; action: string; n: number }>();
     return results;
   }
 
   async sentAlerts(): Promise<Set<string>> {
-    const { results } = await this.db.prepare("SELECT rule, subject_id, period FROM alert").all<{ rule: string; subject_id: string; period: string }>();
+    const { results } = await this.db.prepare("SELECT rule, subject_id, period FROM alert WHERE plan_id = ?1")
+      .bind(this.planId).all<{ rule: string; subject_id: string; period: string }>();
     return new Set(results.map((row) => alertKey({ rule: row.rule, subjectId: row.subject_id, period: row.period })));
   }
 
   async markAlertsSent(alerts: AlertKey[], now: Date): Promise<void> {
     if (!alerts.length) return;
     await this.db.prepare(
-      "INSERT OR IGNORE INTO alert (rule, subject_id, period, sent_at) " +
-      "SELECT j.value ->> 'rule', j.value ->> 'subjectId', j.value ->> 'period', ?1 FROM json_each(?2) AS j",
-    ).bind(now.toISOString(), JSON.stringify(alerts.map(({ rule, subjectId, period }) => ({ rule, subjectId, period })))).run();
+      "INSERT OR IGNORE INTO alert (plan_id, rule, subject_id, period, sent_at) " +
+      "SELECT ?1, j.value ->> 'rule', j.value ->> 'subjectId', j.value ->> 'period', ?2 FROM json_each(?3) AS j",
+    ).bind(this.planId, now.toISOString(), JSON.stringify(alerts.map(({ rule, subjectId, period }) => ({ rule, subjectId, period })))).run();
   }
 
   /**
@@ -301,17 +308,18 @@ export class Store {
    */
   async clearOpenAlerts(rule: string, stillActive: string[]): Promise<void> {
     await this.db.prepare(
-      "DELETE FROM alert WHERE rule = ?1 AND period = 'open' AND subject_id NOT IN (SELECT value FROM json_each(?2))",
-    ).bind(rule, JSON.stringify(stillActive)).run();
+      "DELETE FROM alert WHERE plan_id = ?1 AND rule = ?2 AND period = 'open' " +
+      "AND subject_id NOT IN (SELECT value FROM json_each(?3))",
+    ).bind(this.planId, rule, JSON.stringify(stillActive)).run();
   }
 
   /** Drops audit rows, runs and alerts older than `before`. */
   async prune(before: Date): Promise<void> {
     const cutoff = before.toISOString();
     await this.db.batch([
-      this.db.prepare("DELETE FROM decision WHERE created_at < ?1").bind(cutoff),
-      this.db.prepare("DELETE FROM run WHERE started_at < ?1").bind(cutoff),
-      this.db.prepare("DELETE FROM alert WHERE period != 'open' AND sent_at < ?1").bind(cutoff),
+      this.db.prepare("DELETE FROM decision WHERE plan_id = ?1 AND created_at < ?2").bind(this.planId, cutoff),
+      this.db.prepare("DELETE FROM run WHERE plan_id = ?1 AND started_at < ?2").bind(this.planId, cutoff),
+      this.db.prepare("DELETE FROM alert WHERE plan_id = ?1 AND period != 'open' AND sent_at < ?2").bind(this.planId, cutoff),
     ]);
   }
 }

@@ -24,7 +24,7 @@ const DEFAULT_LIST_LIMIT = 50;
 export function autobudgetTools(env: WorkerEnv, options: RunOptions = {}): ToolEntry[] {
   const statusTool = {
     name: "ynab_autobudget_status",
-    description: "Reports the auto-budget service: its mode (off, shadow or live) and why, whether it is paused, its last scheduled run, how many decisions it recorded in the last 24 hours, and the caps its write stages will enforce. Never writes to YNAB.",
+    description: "Reports the auto-budget service: its mode (off or shadow) and why, whether it is paused, its last scheduled run, how many decisions it recorded in the last 24 hours, and the caps its write stages will enforce. Never writes to YNAB.",
     inputSchema: {},
     async execute() {
       try {
@@ -37,7 +37,7 @@ export function autobudgetTools(env: WorkerEnv, options: RunOptions = {}): ToolE
 
   const planTool = {
     name: "ynab_autobudget_plan",
-    description: "Dry run of the auto-budget service: syncs from YNAB and shows what it would do right now - categorize by payee history, approve, assign Ready to Assign to targets (this month first, then next month) - plus the alerts it would raise. Records and sends nothing, and never writes to YNAB. Amounts are in plain currency.",
+    description: "Dry run of the auto-budget service: syncs its D1 mirror from YNAB and shows what it would do right now - categorize by payee history, approve, assign Ready to Assign to targets (this month first, then next month) - plus the alerts it would raise. Records no decisions, sends no notifications, and never writes to YNAB. Amounts are in plain currency.",
     inputSchema: {
       limit: z.number().int().min(1).max(200).optional()
         .describe(`Most transaction decisions to list (default ${DEFAULT_LIST_LIMIT}); the summary counts every decision`),
@@ -118,7 +118,7 @@ export function autobudgetTools(env: WorkerEnv, options: RunOptions = {}): ToolE
 
   return [
     { title: "Auto-budget Status", module: statusTool, writes: false },
-    { title: "Auto-budget Plan", module: planTool, writes: false },
+    { title: "Auto-budget Plan", module: planTool, writes: false, changesServerState: true },
     { title: "Auto-budget Pause", module: pauseTool, writes: false, changesServerState: true, idempotent: true },
   ];
 }

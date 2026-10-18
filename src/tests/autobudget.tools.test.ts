@@ -46,11 +46,11 @@ function setup(overrides: Partial<WorkerEnv> = {}) {
 }
 
 describe("auto-budget tools", () => {
-  it("are all available in read-only mode, with the pause tool not advertised as read-only", () => {
+  it("are all available in read-only mode with accurate state-change annotations", () => {
     const { registered } = setup();
     expect([...registered.keys()]).toEqual(["ynab_autobudget_status", "ynab_autobudget_plan", "ynab_autobudget_pause"]);
     expect(registered.get("ynab_autobudget_status")!.config.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
-    expect(registered.get("ynab_autobudget_plan")!.config.annotations).toMatchObject({ readOnlyHint: true });
+    expect(registered.get("ynab_autobudget_plan")!.config.annotations).toMatchObject({ readOnlyHint: false });
     expect(registered.get("ynab_autobudget_pause")!.config.annotations).toMatchObject({ readOnlyHint: false, idempotentHint: true, destructiveHint: false });
   });
 
@@ -63,16 +63,26 @@ describe("auto-budget tools", () => {
   });
 
   it("status reports the mode, the pause state and the caps", async () => {
-    const { call } = setup({ AUTOBUDGET_MODE: "live" });
+    const { call } = setup();
     const { body } = await call("ynab_autobudget_status");
     expect(body).toMatchObject({
       success: true,
       mode: "shadow",
-      requestedMode: "live",
+      requestedMode: "shadow",
       paused: null,
       lastRun: null,
       notifierConfigured: false,
       caps: { perTransaction: 250, dailyAssignCeiling: 5000, rowsPerRun: 25, categoriesPerRun: 10 },
+    });
+  });
+
+  it("reports an unrecognized mode as off with the reason", async () => {
+    const { body } = await setup({ AUTOBUDGET_MODE: "live" }).call("ynab_autobudget_status");
+    expect(body).toMatchObject({
+      success: true,
+      mode: "off",
+      requestedMode: "off",
+      modeReason: 'unrecognized AUTOBUDGET_MODE "live", treated as off',
     });
   });
 
