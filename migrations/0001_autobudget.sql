@@ -1,8 +1,8 @@
 -- Auto-budget service state. Applied with `wrangler d1 migrations apply`;
 -- see DEPLOY.md.
 
--- Small key/value state: the pause flag, the run lease, the last digest date
--- and cached plan settings.
+-- Small key/value state: the pause flag, run lease, last digest date and
+-- daily maintenance date.
 CREATE TABLE state (
   plan_id TEXT NOT NULL,
   key TEXT NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE sync_state (
 );
 
 -- Mirror of the plan's transactions, kept current by delta sync. Amounts are
--- milliunits. Split transactions are kept as one row with split = 1.
+-- milliunits. Split details are stored as JSON on their parent transaction.
 CREATE TABLE txn (
   id TEXT NOT NULL,
   plan_id TEXT NOT NULL,
@@ -38,6 +38,7 @@ CREATE TABLE txn (
   matched_transaction_id TEXT,
   transfer_account_id TEXT,
   split INTEGER NOT NULL,
+  subtransactions TEXT NOT NULL,
   deleted INTEGER NOT NULL,
   PRIMARY KEY (plan_id, id)
 );

@@ -1,5 +1,13 @@
 import type { Decision } from "./decisions.js";
 
+export interface StoredSubtransaction {
+  id: string;
+  amount: number;
+  category_id: string | null;
+  transfer_account_id: string | null;
+  deleted: boolean;
+}
+
 /** A transaction as the mirror keeps it. Amounts are milliunits. */
 export interface StoredTransaction {
   id: string;
@@ -16,6 +24,7 @@ export interface StoredTransaction {
   matched_transaction_id: string | null;
   transfer_account_id: string | null;
   split: boolean;
+  subtransactions: StoredSubtransaction[];
   deleted: boolean;
 }
 
@@ -72,6 +81,7 @@ function toTransaction(row: Record<string, unknown>): StoredTransaction {
     ...(row as unknown as StoredTransaction),
     approved: bool(row.approved),
     split: bool(row.split),
+    subtransactions: JSON.parse(row.subtransactions as string) as StoredSubtransaction[],
     deleted: bool(row.deleted),
   };
 }
@@ -133,20 +143,23 @@ export class Store {
   async upsertTransactions(rows: StoredTransaction[]): Promise<void> {
     const statements = chunks(rows).map((chunk) => this.db.prepare(
       "INSERT INTO txn (id, plan_id, date, amount, account_id, payee_id, payee_name, category_id, approved, cleared, " +
-      "flag_color, import_id, matched_transaction_id, transfer_account_id, split, deleted) " +
+      "flag_color, import_id, matched_transaction_id, transfer_account_id, split, subtransactions, deleted) " +
       "SELECT j.value ->> 'id', ?1, j.value ->> 'date', j.value ->> 'amount', j.value ->> 'account_id', " +
       "j.value ->> 'payee_id', j.value ->> 'payee_name', j.value ->> 'category_id', j.value ->> 'approved', " +
       "j.value ->> 'cleared', j.value ->> 'flag_color', j.value ->> 'import_id', j.value ->> 'matched_transaction_id', " +
-      "j.value ->> 'transfer_account_id', j.value ->> 'split', j.value ->> 'deleted' FROM json_each(?2) AS j WHERE true " +
+      "j.value ->> 'transfer_account_id', j.value ->> 'split', j.value ->> 'subtransactions', j.value ->> 'deleted' " +
+      "FROM json_each(?2) AS j WHERE true " +
       "ON CONFLICT (plan_id, id) DO UPDATE SET date = excluded.date, amount = excluded.amount, account_id = excluded.account_id, " +
       "payee_id = excluded.payee_id, payee_name = excluded.payee_name, category_id = excluded.category_id, " +
       "approved = excluded.approved, cleared = excluded.cleared, flag_color = excluded.flag_color, " +
       "import_id = excluded.import_id, matched_transaction_id = excluded.matched_transaction_id, " +
-      "transfer_account_id = excluded.transfer_account_id, split = excluded.split, deleted = excluded.deleted",
+      "transfer_account_id = excluded.transfer_account_id, split = excluded.split, " +
+      "subtransactions = excluded.subtransactions, deleted = excluded.deleted",
     ).bind(this.planId, JSON.stringify(chunk.map((row) => ({
       ...row,
       approved: row.approved ? 1 : 0,
       split: row.split ? 1 : 0,
+      subtransactions: JSON.stringify(row.subtransactions),
       deleted: row.deleted ? 1 : 0,
     })))));
     if (statements.length) await this.db.batch(statements);
@@ -223,8 +236,14 @@ export class Store {
   /** Number of outflows per category dated within [from, to). */
   async outflowCounts(from: string, to: string): Promise<Map<string, number>> {
     const { results } = await this.db.prepare(
-      "SELECT category_id, COUNT(*) AS n FROM txn WHERE plan_id = ?1 AND deleted = 0 AND amount < 0 " +
-      "AND category_id IS NOT NULL AND date >= ?2 AND date < ?3 GROUP BY category_id",
+      "WITH category_outflow AS (" +
+      "SELECT category_id FROM txn WHERE plan_id = ?1 AND deleted = 0 AND split = 0 AND amount < 0 " +
+      "AND category_id IS NOT NULL AND date >= ?2 AND date < ?3 " +
+      "UNION ALL SELECT s.value ->> 'category_id' FROM txn AS t, json_each(t.subtransactions) AS s " +
+      "WHERE t.plan_id = ?1 AND t.deleted = 0 AND t.date >= ?2 AND t.date < ?3 " +
+      "AND (s.value ->> 'deleted') = 0 AND (s.value ->> 'amount') < 0 " +
+      "AND (s.value ->> 'category_id') IS NOT NULL AND (s.value ->> 'transfer_account_id') IS NULL) " +
+      "SELECT category_id, COUNT(*) AS n FROM category_outflow GROUP BY category_id",
     ).bind(this.planId, from, to).all<{ category_id: string; n: number }>();
     return new Map(results.map((row) => [row.category_id, row.n]));
   }

@@ -30,21 +30,25 @@ describe("formatMoney", () => {
 });
 
 describe("immediate alerts", () => {
-  it("alerts once per month for each overspent category, ignoring hidden and internal ones", () => {
+  it("alerts once per month for overspent visible and hidden categories", () => {
     const over = category({ id: "c-dining", name: "Dining Out", balance: -15_000 });
+    const hidden = category({ id: "c-hidden", name: "Old category", balance: -1_000, hidden: true });
     const quiet = [
-      category({ balance: -1_000, hidden: true }),
       category({ balance: -1_000, internal: true }),
+      category({ balance: -1_000, deleted: true }),
       category({ balance: 0 }),
     ];
-    const alerts = immediateAlerts(month({ categories: [over, ...quiet] }), [], USD);
-    expect(alerts).toEqual([expect.objectContaining({
-      rule: "overspent",
-      subjectId: "c-dining",
-      period: "2026-10-01",
-      title: "Dining Out is overspent",
-      message: "Dining Out is $15.00 over for 2026-10.",
-    })]);
+    const alerts = immediateAlerts(month({ categories: [over, hidden, ...quiet] }), [], USD);
+    expect(alerts).toEqual([
+      expect.objectContaining({
+        rule: "overspent",
+        subjectId: "c-dining",
+        period: "2026-10-01",
+        title: "Dining Out is overspent",
+        message: "Dining Out is $15.00 over for 2026-10.",
+      }),
+      expect.objectContaining({ rule: "overspent", subjectId: "c-hidden", title: "Old category is overspent" }),
+    ]);
   });
 
   it("alerts when Ready to Assign goes negative", () => {
@@ -78,6 +82,7 @@ describe("pace alerts", () => {
     expect(paceAlerts(fast, new Map([["c-groceries", VARIABLE_CATEGORY_MIN_OUTFLOWS - 1]]), "2026-10-15")).toEqual([]);
     expect(paceAlerts(month({ categories: [groceries(-150_000, 250_000)] }), variable, "2026-10-15")).toEqual([]);
     expect(paceAlerts(month({ categories: [groceries(-450_000, -50_000)] }), variable, "2026-10-15")).toEqual([]);
+    expect(paceAlerts(month({ categories: [category({ ...groceries(-300_000, 100_000), hidden: true })] }), variable, "2026-10-15")).toEqual([]);
   });
 
   it("only judges the month it is in", () => {
@@ -92,6 +97,43 @@ describe("bills due", () => {
     const bill = scheduled({ category_id: "c-power", date_next: "2026-10-20", amount: -80_000 });
     expect(billsDue([bill], month({ categories: [power] }), "2026-10-18")).toEqual([{
       scheduledId: bill.id,
+      payee: "Power Company",
+      category: "Utilities",
+      due: "2026-10-20",
+      amount: 80_000,
+      available: 30_000,
+    }]);
+  });
+
+  it("uses each category's balance cumulatively in due-date order", () => {
+    const funded = category({ id: "c-power", name: "Utilities", balance: 100_000 });
+    const first = scheduled({ id: "first", category_id: "c-power", date_next: "2026-10-19", amount: -80_000 });
+    const second = scheduled({ id: "second", category_id: "c-power", date_next: "2026-10-20", amount: -80_000 });
+
+    expect(billsDue([second, first], month({ categories: [funded] }), "2026-10-18")).toEqual([{
+      scheduledId: "second",
+      payee: "Power Company",
+      category: "Utilities",
+      due: "2026-10-20",
+      amount: 80_000,
+      available: 20_000,
+    }]);
+  });
+
+  it("checks each scheduled split against its own visible category", () => {
+    const split = scheduled({
+      id: "split-parent",
+      category_id: null,
+      amount: -100_000,
+      subtransactions: [
+        { id: "power-part", transaction_id: "split-parent", amount: -80_000, category_id: "c-power", deleted: false },
+        { id: "hidden-part", transaction_id: "split-parent", amount: -20_000, category_id: "c-hidden", deleted: false },
+      ],
+    });
+    const hidden = category({ id: "c-hidden", balance: 0, hidden: true });
+
+    expect(billsDue([split], month({ categories: [power, hidden] }), "2026-10-18")).toEqual([{
+      scheduledId: "power-part",
       payee: "Power Company",
       category: "Utilities",
       due: "2026-10-20",

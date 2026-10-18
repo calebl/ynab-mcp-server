@@ -51,6 +51,10 @@ function visibleCategories(month: ynab.MonthDetail): ynab.Category[] {
   return month.categories.filter((category) => !category.deleted && !category.hidden && !category.internal);
 }
 
+function overspendCategories(month: ynab.MonthDetail): ynab.Category[] {
+  return month.categories.filter((category) => !category.deleted && !category.internal);
+}
+
 /**
  * Alerts sent the moment they are noticed, once per period: overspending and
  * negative Ready to Assign once a month, a broken bank import once until it
@@ -59,7 +63,7 @@ function visibleCategories(month: ynab.MonthDetail): ynab.Category[] {
 export function immediateAlerts(month: ynab.MonthDetail, accounts: StoredAccount[], currency: Currency): ImmediateAlert[] {
   const alerts: ImmediateAlert[] = [];
 
-  for (const category of visibleCategories(month)) {
+  for (const category of overspendCategories(month)) {
     if (category.balance < 0) {
       alerts.push({
         rule: "overspent",
@@ -157,24 +161,43 @@ function addDays(date: string, days: number): string {
 /** Scheduled outflows due within the lookahead, this month, whose category cannot cover them. */
 export function billsDue(scheduled: ynab.ScheduledTransactionDetail[], month: ynab.MonthDetail, today: string): BillItem[] {
   const categories = new Map(visibleCategories(month).map((category) => [category.id, category]));
+  const remaining = new Map([...categories].map(([id, category]) => [id, category.balance]));
   const until = addDays(today, BILL_LOOKAHEAD_DAYS);
+  const due = scheduled
+    .filter((bill) => !bill.deleted && bill.date_next >= today && bill.date_next <= until &&
+      bill.date_next.slice(0, 7) === month.month.slice(0, 7))
+    .flatMap((bill) => {
+      const subtransactions = bill.subtransactions ?? [];
+      const rows = subtransactions.length ? subtransactions.filter((sub) => !sub.deleted) : [bill];
+      return rows
+        .filter((row) => row.amount < 0 && !row.transfer_account_id && row.category_id)
+        .map((row) => ({
+          scheduledId: row === bill ? bill.id : row.id,
+          payee: bill.payee_name ?? null,
+          categoryId: row.category_id!,
+          due: bill.date_next,
+          amount: -row.amount,
+        }));
+    })
+    .sort((a, b) => a.due.localeCompare(b.due));
 
   const items: BillItem[] = [];
-  for (const bill of scheduled) {
-    if (bill.deleted || bill.amount >= 0 || bill.transfer_account_id || !bill.category_id) continue;
-    if (bill.date_next < today || bill.date_next > until || bill.date_next.slice(0, 7) !== month.month.slice(0, 7)) continue;
-    const category = categories.get(bill.category_id);
-    if (!category || category.balance >= -bill.amount) continue;
+  for (const bill of due) {
+    const category = categories.get(bill.categoryId);
+    if (!category) continue;
+    const available = remaining.get(bill.categoryId)!;
+    remaining.set(bill.categoryId, available - bill.amount);
+    if (available >= bill.amount) continue;
     items.push({
-      scheduledId: bill.id,
-      payee: bill.payee_name ?? null,
+      scheduledId: bill.scheduledId,
+      payee: bill.payee,
       category: category.name,
-      due: bill.date_next,
-      amount: -bill.amount,
-      available: category.balance,
+      due: bill.due,
+      amount: bill.amount,
+      available,
     });
   }
-  return items.sort((a, b) => a.due.localeCompare(b.due));
+  return items;
 }
 
 export interface Backlog {

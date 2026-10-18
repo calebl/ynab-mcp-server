@@ -108,6 +108,7 @@ export interface FakeYnabState {
   month: ynab.MonthDetail;
   nextMonth: ynab.MonthDetail;
   scheduled: ynab.ScheduledTransactionDetail[];
+  currencyFormat: { iso_code: string; decimal_digits: number };
   /** Forces an HTTP status for any path containing the key. */
   failures: Record<string, number>;
   pushoverStatus: number;
@@ -131,6 +132,7 @@ export function fakeApis(overrides: Partial<FakeYnabState> = {}) {
     month: month(),
     nextMonth: month({ month: "2026-11-01" }),
     scheduled: [],
+    currencyFormat: { iso_code: "USD", decimal_digits: 2 },
     failures: {},
     pushoverStatus: 200,
     ...overrides,
@@ -168,9 +170,7 @@ export function fakeApis(overrides: Partial<FakeYnabState> = {}) {
       return json({ transactions: delta ? state.delta : state.transactions, server_knowledge: state.serverKnowledge });
     }
     if (rest === "/accounts") return json({ accounts: state.accounts, server_knowledge: state.serverKnowledge });
-    if (rest === "/settings") {
-      return json({ settings: { currency_format: { iso_code: "USD", decimal_digits: 2 } } });
-    }
+    if (rest === "/settings") return json({ settings: { currency_format: state.currencyFormat } });
     if (rest === "/categories") return json({ category_groups: state.categoryGroups, server_knowledge: state.serverKnowledge });
     if (rest === "/months/current") return json({ month: state.month });
     if (rest === `/months/${state.nextMonth.month}`) return json({ month: state.nextMonth });

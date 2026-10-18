@@ -244,14 +244,16 @@ what it would do, and alerts you about spending:
   and anything over the per-transaction cap are left for you.
 - **Assign** Ready to Assign to this month's underfunded targets, largest
   shortfall first, then spend what is left on next month's targets.
-- **Alert immediately** through Pushover when a category goes negative, Ready
-  to Assign goes negative, a bank import link breaks, or the configured plan
-  becomes unreachable. Immediate alerts are deduplicated by month or until the
-  condition clears, as appropriate.
+- **Alert immediately** through Pushover when any category goes negative,
+  including a hidden category, Ready to Assign goes negative, a bank import
+  link breaks, or the configured plan becomes unreachable. Immediate alerts
+  are deduplicated by month or until the condition clears, as appropriate.
 - **Report approaching limits in the daily digest.** Once a day Pushover sends
-  categories on pace to overspend, bills due within three days that their
-  category cannot cover, your unapproved and uncategorized backlog, and a
-  summary of what the service would do.
+  visible categories on pace to overspend, visible-category bills due within
+  three days that their combined due-date-ordered balance cannot cover, your
+  unapproved and uncategorized backlog, and a summary of what the service would
+  do. Split purchases and scheduled transactions count in each subtransaction's
+  category.
 
 **This version never writes to YNAB.** It runs in shadow mode: every decision is
 recorded in an audit log in D1, and the digest reports it, but nothing in your

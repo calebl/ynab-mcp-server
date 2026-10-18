@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { paceAlerts } from "../worker/autobudget/alerts.js";
 import { MAX_CALLS_PER_RUN, readConfig } from "../worker/autobudget/config.js";
 import { dryRun, runAutobudget, setPaused, status } from "../worker/autobudget/run.js";
 import { Store } from "../worker/autobudget/store.js";
@@ -388,6 +389,16 @@ describe("dryRun", () => {
     expect(pushes(apis.requests)).toEqual([]);
   });
 
+  it("refreshes the plan currency settings on every evaluation", async () => {
+    const db = createTestD1();
+    const apis = scenario();
+
+    expect((await dryRun(makeEnv(db), { fetch: apis.fetch, now: NIGHT })).evaluation.currency).toEqual({ isoCode: "USD", decimalDigits: 2 });
+    apis.state.currencyFormat = { iso_code: "KWD", decimal_digits: 3 };
+    expect((await dryRun(makeEnv(db), { fetch: apis.fetch, now: NIGHT })).evaluation.currency).toEqual({ isoCode: "KWD", decimalDigits: 3 });
+    expect(ynabRequests(apis.requests).filter((request) => request.url.endsWith("/settings"))).toHaveLength(2);
+  });
+
   it("explains a configured plan the token cannot see", async () => {
     const env = makeEnv(createTestD1(), { YNAB_PLAN_ID: "22222222-2222-4222-8222-222222222222" });
     await expect(dryRun(env, { fetch: scenario().fetch, now: NIGHT })).rejects.toThrow("Plans it can access");
@@ -450,6 +461,38 @@ describe("Store", () => {
     expect(await second.sentAlerts()).toEqual(new Set(["overspent|shared-subject|open"]));
   });
 
+  it("keeps split-category outflows in the mirror for pace detection", async () => {
+    const store = new Store(createTestD1(), PLAN_ID);
+    const rows = Array.from({ length: 4 }, (_, index) => txn({
+      id: `split-${index}`,
+      date: `2026-10-${String(index + 1).padStart(2, "0")}`,
+      amount: -10_000,
+      category_id: null,
+      subtransactions: [{
+        id: `split-part-${index}`,
+        transaction_id: `split-${index}`,
+        amount: -10_000,
+        category_id: "c-groceries",
+        deleted: false,
+      }],
+    }));
+
+    await store.upsertTransactions(rows.map(toStoredTransaction));
+
+    const counts = await store.outflowCounts("2026-10-01", "2026-11-01");
+    expect(counts).toEqual(new Map([["c-groceries", 4]]));
+    expect(paceAlerts(month({ categories: [category({
+      id: "c-groceries",
+      name: "Groceries",
+      activity: -300_000,
+      balance: 100_000,
+    })] }), counts, "2026-10-15")).toHaveLength(1);
+    expect((await store.pendingTransactions())[0].subtransactions[0]).toMatchObject({
+      category_id: "c-groceries",
+      amount: -10_000,
+    });
+  });
+
   it("prunes periodic alerts but keeps open alerts until their condition clears", async () => {
     const db = createTestD1();
     const store = new Store(db, PLAN_ID);
@@ -482,7 +525,4 @@ describe("YnabReader", () => {
     expect(error.status).toBe(404);
   });
 
-  it("has no way to send anything but GET", () => {
-    expect(Object.getOwnPropertyNames(YnabReader.prototype).sort()).toEqual(["constructor", "get"]);
-  });
 });

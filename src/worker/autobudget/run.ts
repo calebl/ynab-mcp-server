@@ -61,22 +61,15 @@ function nextMonthOf(month: string): string {
   return new Date(Date.UTC(year, mon, 1)).toISOString().slice(0, 10);
 }
 
-/** The plan's currency, read from its settings once and then cached. */
-async function planCurrency(reader: YnabReader, store: Store, planId: string, now: Date): Promise<Currency> {
-  const key = `currency:${planId}`;
-  const cached = await store.getState(key);
-  if (cached) return JSON.parse(cached) as Currency;
+async function planCurrency(reader: YnabReader, planId: string): Promise<Currency> {
   try {
     const data = await reader.get<{ settings: ynab.PlanSettings }>(`${planPath(planId)}/settings`);
     const format = data.settings.currency_format;
-    const currency: Currency = {
+    return {
       isoCode: format?.iso_code ?? null,
       decimalDigits: typeof format?.decimal_digits === "number" ? format.decimal_digits : DEFAULT_CURRENCY.decimalDigits,
     };
-    await store.setState(key, JSON.stringify(currency), now);
-    return currency;
   } catch (error) {
-    // A missing plan should surface as that, not as a currency fallback.
     if (error instanceof YnabRequestError && error.status === 404) throw error;
     return DEFAULT_CURRENCY;
   }
@@ -89,7 +82,7 @@ async function evaluate(reader: YnabReader, store: Store, planId: string, config
 
   const synced = await syncTransactions(reader, store, planId, today, now);
   await syncAccounts(reader, store, planId, now);
-  const currency = await planCurrency(reader, store, planId, now);
+  const currency = await planCurrency(reader, planId);
   const { category_groups: groups } = await reader.get<{ category_groups: ynab.CategoryGroupWithCategories[] }>(`${base}/categories`);
   const { month } = await reader.get<{ month: ynab.MonthDetail }>(`${base}/months/current`);
 

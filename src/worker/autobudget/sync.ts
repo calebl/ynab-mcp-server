@@ -20,6 +20,13 @@ export function toStoredTransaction(txn: ynab.TransactionDetail): StoredTransact
     matched_transaction_id: txn.matched_transaction_id ?? null,
     transfer_account_id: txn.transfer_account_id ?? null,
     split: (txn.subtransactions ?? []).some((sub) => !sub.deleted),
+    subtransactions: (txn.subtransactions ?? []).map((sub) => ({
+      id: sub.id,
+      amount: sub.amount,
+      category_id: sub.category_id ?? null,
+      transfer_account_id: sub.transfer_account_id ?? null,
+      deleted: sub.deleted,
+    })),
     deleted: txn.deleted,
   };
 }
