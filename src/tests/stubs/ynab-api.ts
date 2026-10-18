@@ -168,9 +168,12 @@ export function fakeApis(overrides: Partial<FakeYnabState> = {}) {
     if (rest === "/transactions") {
       const delta = url.searchParams.has("last_knowledge_of_server");
       const sinceDate = url.searchParams.get("since_date");
+      const type = url.searchParams.get("type");
       let transactions = state.transactions;
       if (delta) transactions = state.delta;
       else if (sinceDate) transactions = transactions.filter((transaction) => transaction.date >= sinceDate);
+      if (type === "unapproved") transactions = transactions.filter((transaction) => !transaction.approved);
+      if (type === "uncategorized") transactions = transactions.filter((transaction) => !transaction.category_id);
       return json({ transactions, server_knowledge: state.serverKnowledge });
     }
     if (rest === "/accounts") return json({ accounts: state.accounts, server_knowledge: state.serverKnowledge });

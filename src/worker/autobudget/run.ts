@@ -55,7 +55,7 @@ interface Evaluation {
   pace: PaceItem[];
   backlog: Backlog;
   currency: Currency;
-  synced: { transactions: number; full: boolean };
+  synced: { transactions: number; full: boolean; remaining: number };
 }
 
 function nextMonthOf(month: string): string {
@@ -144,7 +144,7 @@ async function evaluate(
     pace: paceAlerts(month, outflowCounts, today),
     backlog: backlog(pending),
     currency,
-    synced: { transactions: synced.applied, full: synced.full },
+    synced: { transactions: synced.applied, full: synced.full, remaining: synced.remaining },
   };
 }
 
@@ -266,6 +266,8 @@ export async function runAutobudget(env: WorkerEnv, options: RunOptions = {}): P
       const summary = {
         synced: evaluation.synced.transactions,
         full_sync: evaluation.synced.full,
+        // Rows of an unfinished sync that the next run applies.
+        sync_remaining: evaluation.synced.remaining,
         decisions: countActions(evaluation.decisions),
         recorded,
         alerts_sent: alertsSent,

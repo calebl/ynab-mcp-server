@@ -337,12 +337,16 @@ can see, and Pushover alerts you once.
   other client of that token, so a separate token for the Worker keeps the
   budgets apart.
 - **The first run reads 12 months of transactions plus the 48-day duplicate
-  evidence window.** Payee rules still use only the latest 12 months. Later
-  transaction and account syncs read only changes. On the Workers Free plan, a
-  large first read can exceed the 10 ms CPU limit for cron triggers; the Workers
-  Paid plan raises it. Steady-state runs are small. Every row returned by YNAB is size-batched
-  into D1 before the sync cursor advances; if persistence fails, the old cursor
-  is retained so the next run retries the response.
+  evidence window,** and every unapproved or uncategorized transaction however
+  old. Payee rules still use only the latest 12 months. Later transaction and
+  account syncs read only changes. On the Workers Free plan, a large first read
+  can exceed the 10 ms CPU limit for cron triggers; the Workers Paid plan raises
+  it. Steady-state runs are small.
+- **A large sync spreads over several runs.** Each run applies at most 10,000
+  transactions, so it stays inside D1's per-run query limit. The sync cursor
+  advances only once every row of the sync is applied; until then the run
+  record shows how many remain. If saving fails, the old cursor is kept and the
+  next run retries.
 - **One run at a time.** A lease in D1 stops an overlapping run or dry run
   from interleaving with a scheduled one.
 - **The audit log shows changes, not repeats.** A decision is recorded again

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { paceAlerts } from "../worker/autobudget/alerts.js";
-import { MAX_CALLS_PER_RUN, readConfig } from "../worker/autobudget/config.js";
+import { MAX_CALLS_PER_RUN, MAX_ROWS_PER_RUN, readConfig } from "../worker/autobudget/config.js";
 import { dryRun, runAutobudget, setPaused, status } from "../worker/autobudget/run.js";
 import { Store } from "../worker/autobudget/store.js";
 import { syncTransactions, toStoredAccount, toStoredTransaction } from "../worker/autobudget/sync.js";
@@ -777,19 +777,73 @@ describe("Store", () => {
 });
 
 describe("guarded syncs", () => {
-  it("applies every returned row and reports the applied count", async () => {
+  it("applies at most MAX_ROWS_PER_RUN rows per run and finishes a large sync on the next run", async () => {
     const db = createTestD1();
     const apis = scenario();
-    const extra = Array.from({ length: 15_001 }, (_, i) =>
+    const extra = Array.from({ length: MAX_ROWS_PER_RUN + 1_001 }, (_, i) =>
       txn({ id: `bulk-${i}`, date: "2025-11-15", approved: true, category_id: "c-dining", payee_id: "p-bulk" }));
     apis.state.transactions = [...apis.state.transactions, ...extra];
+    const total = apis.state.transactions.length;
+    const summaries = () => (db.sqlite.prepare("SELECT summary FROM run ORDER BY started_at, id").all() as Array<{ summary: string }>)
+      .map((row) => JSON.parse(row.summary));
 
     expect(await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT }))
-      .toMatchObject({ ran: true, outcome: "ok", synced: 15_005 });
+      .toMatchObject({ ran: true, outcome: "ok", synced: MAX_ROWS_PER_RUN });
+    expect(await new Store(db, PLAN_ID).getCursor("transactions")).toBeNull();
+    expect(summaries()[0]).toMatchObject({ synced: MAX_ROWS_PER_RUN, sync_remaining: total - MAX_ROWS_PER_RUN });
 
-    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM txn").get()).toEqual({ n: 15_005 });
-    const { summary } = db.sqlite.prepare("SELECT summary FROM run").get() as { summary: string };
-    expect(JSON.parse(summary)).toMatchObject({ synced: 15_005 });
+    expect(await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: new Date(NIGHT.getTime() + 3_600_000) }))
+      .toMatchObject({ ran: true, outcome: "ok", synced: total - MAX_ROWS_PER_RUN });
+    expect(await new Store(db, PLAN_ID).getCursor("transactions")).toBe(100);
+    expect(summaries()[1]).toMatchObject({ sync_remaining: 0 });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM txn").get()).toEqual({ n: total });
+  });
+
+  it("saves the first response's knowledge when a continued sync completes, so mid-sequence changes are re-sent", async () => {
+    const db = createTestD1();
+    const store = new Store(db, PLAN_ID);
+    const apis = fakeApis({
+      transactions: ["t-a", "t-b", "t-c", "t-d", "t-e"].map((id) => txn({ id, date: "2026-10-01" })),
+      serverKnowledge: 100,
+    });
+    const reader = () => new YnabReader("test-token", apis.fetch);
+
+    expect(await syncTransactions(reader(), store, PLAN_ID, "2026-10-18", NIGHT, undefined, 2))
+      .toEqual({ applied: 2, full: true, remaining: 3 });
+    // YNAB moves on and an already-applied row changes before the sequence ends.
+    apis.state.serverKnowledge = 150;
+    apis.state.transactions[0] = txn({ id: "t-a", date: "2026-10-01", category_id: "c-dining" });
+
+    expect(await syncTransactions(reader(), store, PLAN_ID, "2026-10-18", NIGHT, undefined, 2))
+      .toEqual({ applied: 2, full: true, remaining: 1 });
+    expect(await store.getCursor("transactions")).toBeNull();
+    expect(await syncTransactions(reader(), store, PLAN_ID, "2026-10-18", NIGHT, undefined, 2))
+      .toEqual({ applied: 1, full: true, remaining: 0 });
+
+    // Knowledge from the first response, so the next delta re-sends t-a's change.
+    expect(await store.getCursor("transactions")).toBe(100);
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM txn").get()).toEqual({ n: 5 });
+  });
+
+  it("includes every unapproved or uncategorized transaction in the first sync, however old", async () => {
+    const db = createTestD1();
+    const store = new Store(db, PLAN_ID);
+    const apis = fakeApis({
+      transactions: [
+        txn({ id: "old-unapproved", date: "2025-01-05" }),
+        txn({ id: "old-uncategorized", date: "2025-02-01", approved: true, category_id: null }),
+        txn({ id: "old-settled", date: "2025-03-01", approved: true, category_id: "c-dining" }),
+        txn({ id: "recent-settled", date: "2026-10-01", approved: true, category_id: "c-dining" }),
+      ],
+    });
+
+    await syncTransactions(new YnabReader("test-token", apis.fetch), store, PLAN_ID, "2026-10-18", NIGHT);
+
+    const ids = (db.sqlite.prepare("SELECT id FROM txn ORDER BY id").all() as Array<{ id: string }>).map((row) => row.id);
+    expect(ids).toEqual(["old-unapproved", "old-uncategorized", "recent-settled"]);
+    expect((await store.pendingTransactions()).map((row) => row.id).sort()).toEqual(["old-unapproved", "old-uncategorized"]);
+    const queries = ynabRequests(apis.requests).filter((r) => r.url.includes("/transactions")).map((r) => new URL(r.url).search);
+    expect(queries).toEqual(["?since_date=2025-08-14", "?type=unapproved", "?type=uncategorized"]);
   });
 
   it("does not advance the cursor when applying returned rows fails", async () => {

@@ -25,6 +25,13 @@ export const MAX_CALLS_PER_RUN = 20;
 /** Payee-history window; the first sync starts earlier to retain duplicate evidence. */
 export const HISTORY_MONTHS = 12;
 
+/**
+ * Most transactions one run applies to the mirror, about six D1 statements at
+ * this size, so every run stays inside the Free plan's 50-query limit. A
+ * larger sync continues on the next run.
+ */
+export const MAX_ROWS_PER_RUN = 10_000;
+
 export type RequestedMode = "off" | "shadow";
 
 export interface AutobudgetConfig {
