@@ -223,6 +223,32 @@ describe("runAutobudget", () => {
     expect((await status(env, NIGHT)).lastRun).toMatchObject({ outcome: "plan_not_visible" });
   });
 
+  it("clears plan visibility recovery before a later evaluation failure", async () => {
+    const db = createTestD1();
+    const apis = scenario();
+    const configuredPlan = "22222222-2222-4222-8222-222222222222";
+    const env = makeEnv(db, { YNAB_PLAN_ID: configuredPlan });
+    let visible = false;
+    const fetchWithChangingVisibility = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      return apis.fetch(visible ? url.replace(configuredPlan, PLAN_ID) : url, init);
+    }) as typeof fetch;
+
+    await runAutobudget(env, { fetch: fetchWithChangingVisibility, now: NIGHT });
+    visible = true;
+    apis.state.failures = { "/categories": 500 };
+    expect(await runAutobudget(env, { fetch: fetchWithChangingVisibility, now: NIGHT }))
+      .toMatchObject({ outcome: "error" });
+    visible = false;
+    apis.state.failures = {};
+    await runAutobudget(env, { fetch: fetchWithChangingVisibility, now: NIGHT });
+
+    expect(pushes(apis.requests).map((request) => pushParams(request).get("title"))).toEqual([
+      "Auto-budget cannot see its plan",
+      "Auto-budget cannot see its plan",
+    ]);
+  });
+
   it("records a rate-limited run without failing the Worker", async () => {
     const apis = scenario();
     apis.state.failures = { "/transactions": 429 };
@@ -245,7 +271,7 @@ describe("runAutobudget", () => {
     expect(pushes(apis.requests)).toHaveLength(1);
   });
 
-  it("re-alerts a bank import that breaks again after being fixed", async () => {
+  it("re-alerts a bank import repaired before a later evaluation failure", async () => {
     const db = createTestD1();
     const apis = scenario();
     apis.state.month = month({ categories: [dining] });
@@ -254,8 +280,11 @@ describe("runAutobudget", () => {
     apis.state.accounts = [broken];
     await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT });
     apis.state.accounts = [account({ direct_import_in_error: false })];
-    await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT });
+    apis.state.failures = { "/categories": 500 };
+    expect(await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT }))
+      .toMatchObject({ outcome: "error" });
     apis.state.accounts = [broken];
+    apis.state.failures = {};
     await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT });
 
     expect(pushes(apis.requests).map((r) => pushParams(r).get("title"))).toEqual([

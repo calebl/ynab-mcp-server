@@ -60,6 +60,10 @@ function overspendCategories(month: ynab.MonthDetail): ynab.Category[] {
  * negative Ready to Assign once a month, a broken bank import once until it
  * is fixed.
  */
+export function activeImportErrors(accounts: StoredAccount[]): StoredAccount[] {
+  return accounts.filter((account) => !account.closed && !account.deleted && account.direct_import_in_error);
+}
+
 export function immediateAlerts(month: ynab.MonthDetail, accounts: StoredAccount[], currency: Currency): ImmediateAlert[] {
   const alerts: ImmediateAlert[] = [];
 
@@ -85,16 +89,14 @@ export function immediateAlerts(month: ynab.MonthDetail, accounts: StoredAccount
     });
   }
 
-  for (const account of accounts) {
-    if (!account.closed && !account.deleted && account.direct_import_in_error) {
-      alerts.push({
-        rule: "import_error",
-        subjectId: account.id,
-        period: "open",
-        title: `Bank import broken: ${account.name}`,
-        message: `YNAB reports the direct import link for ${account.name} is in error. Reconnect it in YNAB.`,
-      });
-    }
+  for (const account of activeImportErrors(accounts)) {
+    alerts.push({
+      rule: "import_error",
+      subjectId: account.id,
+      period: "open",
+      title: `Bank import broken: ${account.name}`,
+      message: `YNAB reports the direct import link for ${account.name} is in error. Reconnect it in YNAB.`,
+    });
   }
 
   return alerts;

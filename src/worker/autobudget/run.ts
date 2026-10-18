@@ -6,6 +6,7 @@ import { getEligibleCategories } from "../../tools/SuggestCategoriesTool.js";
 import type { WorkerEnv } from "../env.js";
 import { localDateParts } from "../nag.js";
 import {
+  activeImportErrors,
   alertBatches,
   backlog,
   billsDue,
@@ -77,19 +78,30 @@ async function planCurrency(reader: YnabReader, planId: string): Promise<Currenc
 }
 
 /** Syncs, then works out every decision and alert. Reads YNAB; never writes to it. */
-async function evaluate(reader: YnabReader, store: Store, planId: string, config: AutobudgetConfig, now: Date): Promise<Evaluation> {
+async function evaluate(
+  reader: YnabReader,
+  store: Store,
+  planId: string,
+  config: AutobudgetConfig,
+  now: Date,
+  recordRecovery: boolean,
+): Promise<Evaluation> {
   const { date: today } = localDateParts(now, config.timeZone);
   const base = planPath(planId);
 
   const synced = await syncTransactions(reader, store, planId, today, now);
+  if (recordRecovery) await store.clearOpenAlerts("plan_not_visible", []);
   await syncAccounts(reader, store, planId, now);
+  const accounts = await store.accounts();
+  if (recordRecovery) {
+    await store.clearOpenAlerts("import_error", activeImportErrors(accounts).map((account) => account.id));
+  }
   const currency = await planCurrency(reader, planId);
   const { category_groups: groups } = await reader.get<{ category_groups: ynab.CategoryGroupWithCategories[] }>(`${base}/categories`);
   const { month } = await reader.get<{ month: ynab.MonthDetail }>(`${base}/months/${today.slice(0, 7)}-01`);
 
-  const [pending, accounts, possibleDuplicates] = await Promise.all([
+  const [pending, possibleDuplicates] = await Promise.all([
     store.pendingTransactions(),
-    store.accounts(),
     store.possibleDuplicateIds(),
   ]);
   const history = await store.payeeHistory(
@@ -204,13 +216,8 @@ export async function runAutobudget(env: WorkerEnv, options: RunOptions = {}): P
         await store.prune(new Date(now.getTime() - RETENTION_MS));
         await store.setState("last_prune", today, now);
       }
-      const evaluation = await evaluate(reader, store, planId, config, now);
+      const evaluation = await evaluate(reader, store, planId, config, now, true);
       const recorded = await store.recordDecisions(runId, config.mode, evaluation.decisions, now);
-
-      await store.clearOpenAlerts("plan_not_visible", []);
-      await store.clearOpenAlerts("import_error", evaluation.immediate
-        .filter((alert) => alert.rule === "import_error")
-        .map((alert) => alert.subjectId));
       const sent = await store.sentAlerts();
       const fresh = evaluation.immediate.filter((alert) => !sent.has(alertKey(alert)));
       let alertsSent = 0;
@@ -332,7 +339,7 @@ export async function dryRun(env: WorkerEnv, options: RunOptions = {}): Promise<
 
   const reader = new YnabReader(env.YNAB_API_TOKEN, options.fetch ?? fetch);
   try {
-    const evaluation = await evaluate(reader, store, planId, config, now);
+    const evaluation = await evaluate(reader, store, planId, config, now, false);
     const bills = await readBills(reader, planId, evaluation);
     return {
       mode: config.mode,
