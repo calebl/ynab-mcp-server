@@ -479,7 +479,7 @@ describe("Store", () => {
 
     await store.upsertTransactions(rows.map(toStoredTransaction));
 
-    const counts = await store.outflowCounts("2026-10-01", "2026-11-01");
+    const counts = await store.outflowCounts("2026-10-01", "2026-10-15");
     expect(counts).toEqual(new Map([["c-groceries", 4]]));
     expect(paceAlerts(month({ categories: [category({
       id: "c-groceries",
@@ -491,6 +491,33 @@ describe("Store", () => {
       category_id: "c-groceries",
       amount: -10_000,
     });
+  });
+
+  it("excludes future transactions from history and pace counts", async () => {
+    const store = new Store(createTestD1(), PLAN_ID);
+    const rows = [
+      txn({ id: "past", date: "2026-10-10", category_id: "c-dining", approved: true }),
+      txn({ id: "future-1", date: "2026-10-20", category_id: "c-dining", approved: true }),
+      txn({ id: "future-2", date: "2026-10-21", category_id: "c-dining", approved: true }),
+      txn({
+        id: "future-split",
+        date: "2026-10-22",
+        category_id: null,
+        approved: true,
+        subtransactions: [{
+          id: "future-part",
+          transaction_id: "future-split",
+          amount: -10_000,
+          category_id: "c-dining",
+          deleted: false,
+        }],
+      }),
+    ];
+    await store.upsertTransactions(rows.map(toStoredTransaction));
+
+    const history = await store.payeeHistory(["p-coffee"], "2025-10-01", "2026-10-15");
+    expect(history.get("p-coffee")).toEqual({ categories: new Map([["c-dining", 1]]), approved: 1 });
+    expect(await store.outflowCounts("2026-10-01", "2026-10-15")).toEqual(new Map([["c-dining", 1]]));
   });
 
   it("prunes periodic alerts but keeps open alerts until their condition clears", async () => {

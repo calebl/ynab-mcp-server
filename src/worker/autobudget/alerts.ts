@@ -167,8 +167,8 @@ export function billsDue(scheduled: ynab.ScheduledTransactionDetail[], month: yn
     .filter((bill) => !bill.deleted && bill.date_next >= today && bill.date_next <= until &&
       bill.date_next.slice(0, 7) === month.month.slice(0, 7))
     .flatMap((bill) => {
-      const subtransactions = bill.subtransactions ?? [];
-      const rows = subtransactions.length ? subtransactions.filter((sub) => !sub.deleted) : [bill];
+      const subtransactions = (bill.subtransactions ?? []).filter((sub) => !sub.deleted);
+      const rows = subtransactions.length ? subtransactions : [bill];
       return rows
         .filter((row) => row.amount < 0 && !row.transfer_account_id && row.category_id)
         .map((row) => ({

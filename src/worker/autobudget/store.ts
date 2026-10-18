@@ -203,15 +203,16 @@ export class Store {
     return results.map(toTransaction);
   }
 
-  /** Category use and approvals per payee since `sinceDate`, over ordinary (non-transfer, unsplit) rows. */
-  async payeeHistory(payeeIds: string[], sinceDate: string): Promise<Map<string, PayeeHistory>> {
+  /** Category use and approvals per payee within an inclusive date window, over ordinary rows. */
+  async payeeHistory(payeeIds: string[], sinceDate: string, throughDate: string): Promise<Map<string, PayeeHistory>> {
     const history = new Map<string, PayeeHistory>();
     for (const chunk of chunks([...new Set(payeeIds)])) {
       const { results } = await this.db.prepare(
         "SELECT payee_id, category_id, COUNT(*) AS n, SUM(approved) AS approved FROM txn " +
-        "WHERE plan_id = ?1 AND deleted = 0 AND date >= ?2 AND transfer_account_id IS NULL AND split = 0 " +
-        "AND payee_id IN (SELECT value FROM json_each(?3)) GROUP BY payee_id, category_id",
-      ).bind(this.planId, sinceDate, JSON.stringify(chunk)).all<{ payee_id: string; category_id: string | null; n: number; approved: number }>();
+        "WHERE plan_id = ?1 AND deleted = 0 AND date >= ?2 AND date <= ?3 " +
+        "AND transfer_account_id IS NULL AND split = 0 " +
+        "AND payee_id IN (SELECT value FROM json_each(?4)) GROUP BY payee_id, category_id",
+      ).bind(this.planId, sinceDate, throughDate, JSON.stringify(chunk)).all<{ payee_id: string; category_id: string | null; n: number; approved: number }>();
       for (const row of results) {
         const entry = history.get(row.payee_id) ?? { categories: new Map(), approved: 0 };
         if (row.category_id) entry.categories.set(row.category_id, row.n);
@@ -233,18 +234,18 @@ export class Store {
     return new Set(results.map((row) => row.id));
   }
 
-  /** Number of outflows per category dated within [from, to). */
-  async outflowCounts(from: string, to: string): Promise<Map<string, number>> {
+  /** Number of outflows per category within an inclusive date window. */
+  async outflowCounts(from: string, through: string): Promise<Map<string, number>> {
     const { results } = await this.db.prepare(
       "WITH category_outflow AS (" +
       "SELECT category_id FROM txn WHERE plan_id = ?1 AND deleted = 0 AND split = 0 AND amount < 0 " +
-      "AND category_id IS NOT NULL AND date >= ?2 AND date < ?3 " +
+      "AND category_id IS NOT NULL AND date >= ?2 AND date <= ?3 " +
       "UNION ALL SELECT s.value ->> 'category_id' FROM txn AS t, json_each(t.subtransactions) AS s " +
-      "WHERE t.plan_id = ?1 AND t.deleted = 0 AND t.date >= ?2 AND t.date < ?3 " +
+      "WHERE t.plan_id = ?1 AND t.deleted = 0 AND t.date >= ?2 AND t.date <= ?3 " +
       "AND (s.value ->> 'deleted') = 0 AND (s.value ->> 'amount') < 0 " +
       "AND (s.value ->> 'category_id') IS NOT NULL AND (s.value ->> 'transfer_account_id') IS NULL) " +
       "SELECT category_id, COUNT(*) AS n FROM category_outflow GROUP BY category_id",
-    ).bind(this.planId, from, to).all<{ category_id: string; n: number }>();
+    ).bind(this.planId, from, through).all<{ category_id: string; n: number }>();
     return new Map(results.map((row) => [row.category_id, row.n]));
   }
 

@@ -94,6 +94,7 @@ async function evaluate(reader: YnabReader, store: Store, planId: string, config
   const history = await store.payeeHistory(
     pending.flatMap((txn) => (txn.payee_id ? [txn.payee_id] : [])),
     historyStart(today),
+    today,
   );
 
   const decisions = transactionDecisions({
@@ -114,7 +115,7 @@ async function evaluate(reader: YnabReader, store: Store, planId: string, config
   }
   decisions.push(...assignDecisions(assign));
 
-  const outflowCounts = await store.outflowCounts(month.month, nextMonthOf(month.month));
+  const outflowCounts = await store.outflowCounts(month.month, today);
 
   return {
     today,

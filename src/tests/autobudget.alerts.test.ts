@@ -142,6 +142,27 @@ describe("bills due", () => {
     }]);
   });
 
+  it("falls back to the parent after all former split rows are deleted", () => {
+    const bill = scheduled({
+      id: "former-split",
+      category_id: "c-power",
+      amount: -80_000,
+      subtransactions: [{
+        id: "deleted-part",
+        transaction_id: "former-split",
+        amount: -80_000,
+        category_id: "c-power",
+        deleted: true,
+      }],
+    });
+
+    expect(billsDue([bill], month({ categories: [power] }), "2026-10-18")).toEqual([expect.objectContaining({
+      scheduledId: "former-split",
+      category: "Utilities",
+      amount: 80_000,
+    })]);
+  });
+
   it("ignores covered, distant, past, next-month, transfer and inflow items", () => {
     const m = month({ categories: [power] });
     const ignored = [
