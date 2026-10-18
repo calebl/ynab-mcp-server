@@ -339,7 +339,10 @@ can see, and Pushover alerts you once.
 - **The first run reads 12 months of transactions.** Later transaction and
   account syncs read only changes. On the Workers Free plan, a large first read
   can exceed the 10 ms CPU limit for cron triggers; the Workers Paid plan raises
-  it. Steady-state runs are small.
+  it. Steady-state runs are small. A single sync stores at most 15,000
+  transactions, keeping unapproved ones first and then the newest, so a very
+  large plan still fits D1's per-run query limit; the run record reports any
+  it left out.
 - **One run at a time.** A lease in D1 stops an overlapping run or dry run
   from interleaving with a scheduled one.
 - **The audit log shows changes, not repeats.** A decision is recorded again
@@ -349,7 +352,9 @@ can see, and Pushover alerts you once.
   logged again. Runs, decisions and periodic alerts are kept for 13 months.
   Unresolved open alerts are kept until their condition clears. The transaction
   mirror keeps the 12-month history window plus every pending transaction,
-  including approved uncategorized non-transfer, non-split rows, however old.
+  including approved uncategorized non-transfer, non-split rows, however old,
+  and any older transaction the duplicate check still needs to compare them
+  against.
 
 ### MCP tools
 

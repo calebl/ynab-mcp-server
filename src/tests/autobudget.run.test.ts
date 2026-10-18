@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { paceAlerts } from "../worker/autobudget/alerts.js";
-import { MAX_CALLS_PER_RUN, readConfig } from "../worker/autobudget/config.js";
+import { MAX_CALLS_PER_RUN, MAX_ROWS_PER_SYNC, readConfig } from "../worker/autobudget/config.js";
 import { dryRun, runAutobudget, setPaused, status } from "../worker/autobudget/run.js";
 import { Store } from "../worker/autobudget/store.js";
-import { toStoredAccount, toStoredTransaction } from "../worker/autobudget/sync.js";
+import { rowsToStore, toStoredAccount, toStoredTransaction } from "../worker/autobudget/sync.js";
 import { YnabReader, YnabRequestError } from "../worker/autobudget/ynab.js";
 import type { WorkerEnv } from "../worker/env.js";
 import { createTestD1 } from "./stubs/d1.js";
@@ -622,14 +622,16 @@ describe("Store", () => {
   it("keeps the transaction mirror to the history window, but never drops rows still waiting on the owner", async () => {
     const db = createTestD1();
     const store = new Store(db, PLAN_ID);
+    // Distinct amounts, so no settled row is a possible-duplicate twin of the pending one.
     await store.upsertTransactions([
-      txn({ id: "old-categorized", date: "2025-06-01", approved: true, category_id: "c-dining" }),
+      txn({ id: "old-categorized", date: "2025-06-01", amount: -1_000, approved: true, category_id: "c-dining" }),
       txn({ id: "old-unapproved", date: "2025-06-01" }),
-      txn({ id: "old-uncategorized", date: "2025-06-01", approved: true }),
-      txn({ id: "old-transfer", date: "2025-06-01", approved: true, transfer_account_id: "other-account" }),
+      txn({ id: "old-uncategorized", date: "2025-06-01", amount: -2_000, approved: true }),
+      txn({ id: "old-transfer", date: "2025-06-01", amount: -3_000, approved: true, transfer_account_id: "other-account" }),
       txn({
         id: "old-split",
         date: "2025-06-01",
+        amount: -4_000,
         approved: true,
         subtransactions: [{
           id: "old-split-part",
@@ -648,6 +650,20 @@ describe("Store", () => {
     const ids = (db.sqlite.prepare("SELECT id FROM txn ORDER BY id").all() as Array<{ id: string }>).map((row) => row.id);
     expect(ids).toEqual(["old-unapproved", "old-uncategorized", "recent-approved"]);
     expect((await store.pendingTransactions()).map((row) => row.id)).toEqual(["old-unapproved", "old-uncategorized"]);
+  });
+
+  it("keeps an old settled twin while a retained pending row still needs the duplicate check", async () => {
+    const store = new Store(createTestD1(), PLAN_ID);
+    await store.upsertTransactions([
+      txn({ id: "old-pending", date: "2025-03-10", amount: -5_000, category_id: "c-dining" }),
+      txn({ id: "old-twin", date: "2025-03-11", amount: -5_000, approved: true, category_id: "c-dining" }),
+      txn({ id: "old-unrelated", date: "2025-03-11", amount: -9_000, approved: true, category_id: "c-dining" }),
+    ].map(toStoredTransaction));
+
+    await store.prune(new Date("2025-01-01T00:00:00Z"), "2025-10-01");
+
+    expect(await store.possibleDuplicateIds()).toEqual(new Set(["old-pending"]));
+    expect((await store.pendingTransactions()).map((row) => row.id)).toEqual(["old-pending"]);
   });
 
   it("treats a same-amount row as a possible duplicate only within three days", async () => {
@@ -721,6 +737,36 @@ describe("Store", () => {
     expect(historyQueries).toBe(1);
     expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM account").get()).toEqual({ n: count });
     expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM decision").get()).toEqual({ n: count * 2 });
+  });
+});
+
+describe("bounded syncs", () => {
+  it("keeps rows waiting on the owner first, then the newest, when a sync returns too many", () => {
+    const rows = [
+      txn({ id: "old-settled", date: "2025-01-01", approved: true }),
+      txn({ id: "old-waiting", date: "2025-01-02" }),
+      txn({ id: "new-settled", date: "2026-10-01", approved: true }),
+      txn({ id: "mid-settled", date: "2026-03-01", approved: true }),
+    ].map(toStoredTransaction);
+
+    expect(rowsToStore(rows, 2).map((row) => row.id)).toEqual(["old-waiting", "new-settled"]);
+    expect(rowsToStore(rows, 10)).toBe(rows);
+  });
+
+  it("stores at most MAX_ROWS_PER_SYNC rows from one sync and reports the rest", async () => {
+    const db = createTestD1();
+    const apis = scenario();
+    const extra = Array.from({ length: MAX_ROWS_PER_SYNC }, (_, i) =>
+      txn({ id: `bulk-${i}`, date: "2025-11-15", approved: true, category_id: "c-dining", payee_id: "p-bulk" }));
+    apis.state.transactions = [...apis.state.transactions, ...extra];
+
+    expect(await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT })).toMatchObject({ ran: true, outcome: "ok" });
+
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM txn").get()).toEqual({ n: MAX_ROWS_PER_SYNC });
+    const { summary } = db.sqlite.prepare("SELECT summary FROM run").get() as { summary: string };
+    expect(JSON.parse(summary)).toMatchObject({ sync_rows_dropped: 4 });
+    // The pending row survives the cut; only the oldest settled history is left out.
+    expect(db.sqlite.prepare("SELECT id FROM txn WHERE id = 'pending-coffee'").get()).toEqual({ id: "pending-coffee" });
   });
 });
 

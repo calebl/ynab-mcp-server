@@ -354,14 +354,19 @@ export class Store {
    * Drops audit rows, runs and periodic alerts older than `before`, and keeps
    * the transaction mirror to the history window: deleted rows, and old rows
    * that are no longer pending, go. Every row still waiting on the owner stays,
-   * however old.
+   * however old, along with any settled row the duplicate check needs to
+   * compare it against.
    */
   async prune(before: Date, mirrorFrom: string): Promise<void> {
     const cutoff = before.toISOString();
     await this.db.batch([
       this.db.prepare(
         "DELETE FROM txn WHERE plan_id = ?1 AND (deleted = 1 OR (date < ?2 AND approved = 1 AND " +
-        "(category_id IS NOT NULL OR transfer_account_id IS NOT NULL OR split != 0)))",
+        "(category_id IS NOT NULL OR transfer_account_id IS NOT NULL OR split != 0) " +
+        // Keep an old settled row while it is the possible-duplicate twin of a retained pending row.
+        "AND NOT EXISTS (SELECT 1 FROM txn p WHERE p.plan_id = txn.plan_id AND p.deleted = 0 AND p.approved = 0 " +
+        "AND p.account_id = txn.account_id AND p.amount = txn.amount " +
+        "AND txn.date BETWEEN date(p.date, '-3 days') AND date(p.date, '+3 days'))))",
       ).bind(this.planId, mirrorFrom),
       this.db.prepare("DELETE FROM decision WHERE plan_id = ?1 AND created_at < ?2").bind(this.planId, cutoff),
       this.db.prepare("DELETE FROM run WHERE plan_id = ?1 AND started_at < ?2").bind(this.planId, cutoff),

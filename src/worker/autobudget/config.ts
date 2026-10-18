@@ -25,6 +25,13 @@ export const MAX_CALLS_PER_RUN = 20;
 /** How far back the first sync reads, which is also the payee-history window. */
 export const HISTORY_MONTHS = 12;
 
+/**
+ * Most transactions one sync stores. This bounds a run's D1 work (about nine
+ * statements at this size) on plans far larger than a household's, so the
+ * Free plan's 50-query limit holds however big the first read is.
+ */
+export const MAX_ROWS_PER_SYNC = 15_000;
+
 export type RequestedMode = "off" | "shadow";
 
 export interface AutobudgetConfig {
