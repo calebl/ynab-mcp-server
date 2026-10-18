@@ -351,7 +351,7 @@ client. They are not part of the npm package, which has no D1 database.
 | Tool | What it does |
 | --- | --- |
 | `ynab_autobudget_status` | Mode and why, pause state, last run, decisions recorded in the last 24 hours, and the caps |
-| `ynab_autobudget_plan` | Dry run: syncs its D1 mirror and shows what the service would do right now and the alerts it would raise. Records decisions and sends notifications only during scheduled runs. |
+| `ynab_autobudget_plan` | Dry run: syncs its D1 mirror and shows what the service would do right now, including immediate, pace and uncovered-bill alerts. Records decisions and sends notifications only during scheduled runs. |
 | `ynab_autobudget_pause` | Pauses the service, or resumes it with `paused: false` |
 
 ## Read-only mode

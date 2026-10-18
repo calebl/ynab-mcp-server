@@ -172,7 +172,7 @@ export function fakeApis(overrides: Partial<FakeYnabState> = {}) {
     if (rest === "/accounts") return json({ accounts: state.accounts, server_knowledge: state.serverKnowledge });
     if (rest === "/settings") return json({ settings: { currency_format: state.currencyFormat } });
     if (rest === "/categories") return json({ category_groups: state.categoryGroups, server_knowledge: state.serverKnowledge });
-    if (rest === "/months/current") return json({ month: state.month });
+    if (rest === `/months/${state.month.month}`) return json({ month: state.month });
     if (rest === `/months/${state.nextMonth.month}`) return json({ month: state.nextMonth });
     if (rest === "/scheduled_transactions") {
       return json({ scheduled_transactions: state.scheduled, server_knowledge: state.serverKnowledge });

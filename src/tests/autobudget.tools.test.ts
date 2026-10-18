@@ -5,13 +5,13 @@ import { registerTools, type ToolRegistrar } from "../registry.js";
 import { autobudgetTools } from "../worker/autobudget/tools.js";
 import type { WorkerEnv } from "../worker/env.js";
 import { createTestD1 } from "./stubs/d1.js";
-import { category, fakeApis, groups, month, PLAN_ID, txn } from "./stubs/ynab-api.js";
+import { category, fakeApis, groups, month, PLAN_ID, scheduled, txn } from "./stubs/ynab-api.js";
 
 const NOW = new Date("2026-10-18T03:00:00Z");
 
 function setup(overrides: Partial<WorkerEnv> = {}) {
   const dining = category({ id: "c-dining", name: "Dining Out" });
-  const rent = category({ id: "c-rent", name: "Rent", goal_under_funded: 150_000 });
+  const rent = category({ id: "c-rent", name: "Rent", balance: 30_000, goal_under_funded: 150_000 });
   const apis = fakeApis({
     transactions: [
       ...[1, 2, 3].map((day) => txn({ date: `2026-09-0${day}`, category_id: "c-dining", approved: true })),
@@ -19,6 +19,7 @@ function setup(overrides: Partial<WorkerEnv> = {}) {
     ],
     categoryGroups: groups([dining, rent]),
     month: month({ to_be_budgeted: 100_000, categories: [dining, rent] }),
+    scheduled: [scheduled({ id: "rent-bill", category_id: "c-rent", date_next: "2026-10-20", amount: -80_000 })],
   });
   const env: WorkerEnv = {
     YNAB_API_TOKEN: "test-token",
@@ -28,6 +29,7 @@ function setup(overrides: Partial<WorkerEnv> = {}) {
     YNAB_PLAN_ID: PLAN_ID,
     AUTOBUDGET_DB: createTestD1(),
     AUTOBUDGET_MODE: "shadow",
+    AUTOBUDGET_TIMEZONE: "UTC",
     ...overrides,
   };
 
@@ -105,7 +107,19 @@ describe("auto-budget tools", () => {
       summary: { "categorize.would_categorize": 1, "approve.would_approve": 1, "assign.would_assign": 1 },
       transactions_total: 2,
       assign: { month: "2026-10-01", ready_to_assign: 100, cap: 100, remaining_after: 0, next_month: null },
-      alerts: { immediate: [], on_pace_to_overspend: [], backlog: { unapproved: 1, uncategorized: 1, oldest: "2026-10-12" } },
+      alerts: {
+        immediate: [],
+        on_pace_to_overspend: [],
+        bills_due: [{
+          scheduled_id: "rent-bill",
+          payee: "Power Company",
+          category: "Rent",
+          due: "2026-10-20",
+          amount: 80,
+          available: 30,
+        }],
+        backlog: { unapproved: 1, uncategorized: 1, oldest: "2026-10-12" },
+      },
     });
     expect(body.transactions[0]).toMatchObject({
       transaction_id: "pending-coffee",
@@ -122,7 +136,8 @@ describe("auto-budget tools", () => {
       newBudgeted: 200,
       shortfallRemaining: 50,
     }]);
-    expect(apis.requests.every((r) => r.method === "GET")).toBe(true);
+    expect(apis.requests.every((r) => r.method === "GET" && r.body === null)).toBe(true);
+    expect(apis.requests.some((r) => r.url.endsWith("/scheduled_transactions"))).toBe(true);
   });
 
   it("plan lists at most `limit` transaction decisions", async () => {

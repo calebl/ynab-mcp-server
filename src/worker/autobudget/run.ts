@@ -16,6 +16,7 @@ import {
   paceAlerts,
   planNotVisibleAlert,
   type Backlog,
+  type BillItem,
   type Currency,
   type ImmediateAlert,
   type PaceItem,
@@ -84,7 +85,7 @@ async function evaluate(reader: YnabReader, store: Store, planId: string, config
   await syncAccounts(reader, store, planId, now);
   const currency = await planCurrency(reader, planId);
   const { category_groups: groups } = await reader.get<{ category_groups: ynab.CategoryGroupWithCategories[] }>(`${base}/categories`);
-  const { month } = await reader.get<{ month: ynab.MonthDetail }>(`${base}/months/current`);
+  const { month } = await reader.get<{ month: ynab.MonthDetail }>(`${base}/months/${today.slice(0, 7)}-01`);
 
   const [pending, accounts, possibleDuplicates] = await Promise.all([
     store.pendingTransactions(),
@@ -128,6 +129,13 @@ async function evaluate(reader: YnabReader, store: Store, planId: string, config
     currency,
     synced: { transactions: synced.changed, full: synced.full },
   };
+}
+
+async function readBills(reader: YnabReader, planId: string, evaluation: Evaluation): Promise<BillItem[]> {
+  const { scheduled_transactions: scheduled } = await reader.get<{ scheduled_transactions: ynab.ScheduledTransactionDetail[] }>(
+    `${planPath(planId)}/scheduled_transactions`,
+  );
+  return billsDue(scheduled, evaluation.month, evaluation.today);
 }
 
 function countActions(decisions: Decision[]): Record<string, number> {
@@ -225,16 +233,14 @@ export async function runAutobudget(env: WorkerEnv, options: RunOptions = {}): P
           digest = "not_configured";
         } else {
           try {
-            const { scheduled_transactions: scheduled } = await reader.get<{ scheduled_transactions: ynab.ScheduledTransactionDetail[] }>(
-              `${planPath(planId)}/scheduled_transactions`,
-            );
+            const bills = await readBills(reader, planId, evaluation);
             digest = await notify(buildDigest({
               date: evaluation.today,
               shadow: true,
               decisions: evaluation.decisions,
               assign: evaluation.assign,
               pace: evaluation.pace,
-              bills: billsDue(scheduled, evaluation.month, evaluation.today),
+              bills,
               backlog: evaluation.backlog,
               currency: evaluation.currency,
             }));
@@ -309,6 +315,7 @@ export interface DryRun {
   paused: boolean;
   calls: number;
   evaluation: Evaluation;
+  bills: BillItem[];
 }
 
 /**
@@ -326,6 +333,7 @@ export async function dryRun(env: WorkerEnv, options: RunOptions = {}): Promise<
   const reader = new YnabReader(env.YNAB_API_TOKEN, options.fetch ?? fetch);
   try {
     const evaluation = await evaluate(reader, store, planId, config, now);
+    const bills = await readBills(reader, planId, evaluation);
     return {
       mode: config.mode,
       requestedMode: config.requestedMode,
@@ -333,6 +341,7 @@ export async function dryRun(env: WorkerEnv, options: RunOptions = {}): Promise<
       paused: Boolean(await store.getState("paused")),
       calls: reader.calls,
       evaluation,
+      bills,
     };
   } catch (error) {
     if (error instanceof YnabRequestError && error.status === 404) {

@@ -89,6 +89,14 @@ export function autobudgetTools(env: WorkerEnv, options: RunOptions = {}): ToolE
               available: money(item.available),
               projected: money(item.projected),
             })),
+            bills_due: run.bills.map((bill) => ({
+              scheduled_id: bill.scheduledId,
+              payee: bill.payee,
+              category: bill.category,
+              due: bill.due,
+              amount: money(bill.amount),
+              available: money(bill.available),
+            })),
             backlog: ev.backlog,
           },
         });

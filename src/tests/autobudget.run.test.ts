@@ -103,6 +103,20 @@ describe("runAutobudget", () => {
     expect(run).toMatchObject({ outcome: "ok", mode: "shadow" });
   });
 
+  it("uses the explicit month containing today in the configured timezone", async () => {
+    const apis = scenario();
+    const now = new Date("2026-11-01T00:30:00Z");
+
+    const result = await dryRun(makeEnv(createTestD1(), {
+      AUTOBUDGET_TIMEZONE: "America/Los_Angeles",
+    }), { fetch: apis.fetch, now });
+
+    expect(result.evaluation.today).toBe("2026-10-31");
+    expect(result.evaluation.month.month).toBe("2026-10-01");
+    expect(ynabRequests(apis.requests).some((request) => request.url.endsWith("/months/2026-10-01"))).toBe(true);
+    expect(ynabRequests(apis.requests).some((request) => request.url.endsWith("/months/current"))).toBe(false);
+  });
+
   it("funds next month's targets with what this month's leave over, fetching next month only then", async () => {
     const db = createTestD1();
     const apis = scenario();
