@@ -32,7 +32,10 @@ export class YnabReader {
     }
     this.calls++;
 
-    const response = await this.fetchImpl(`${API_BASE}${path}`, {
+    // Worker globals enforce their receiver. Calling a captured `fetch` as a
+    // class property would pass this reader as the receiver and fail with
+    // "Illegal invocation" in workerd.
+    const response = await this.fetchImpl.call(globalThis, `${API_BASE}${path}`, {
       method: "GET",
       headers: { Authorization: `Bearer ${this.token}`, Accept: "application/json" },
     });

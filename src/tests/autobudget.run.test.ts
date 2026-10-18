@@ -725,6 +725,19 @@ describe("Store", () => {
 });
 
 describe("YnabReader", () => {
+  it("preserves the Worker fetch receiver when the global is captured", async () => {
+    let receiver: unknown;
+    const workerFetch = async function(this: unknown) {
+      receiver = this;
+      return new Response(JSON.stringify({ data: { plans: [] } }), {
+        headers: { "content-type": "application/json" },
+      });
+    } as typeof fetch;
+
+    await new YnabReader("test-token", workerFetch).get("/plans");
+    expect(receiver).toBe(globalThis);
+  });
+
   it("refuses requests past its budget", async () => {
     const reader = new YnabReader("test-token", scenario().fetch, 1);
     await reader.get("/plans");
