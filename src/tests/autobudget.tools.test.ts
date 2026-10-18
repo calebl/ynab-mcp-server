@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type * as ynab from "ynab";
 
 import { registerTools, type ToolRegistrar } from "../registry.js";
+import { MAX_ROWS_PER_RUN } from "../worker/autobudget/config.js";
 import { autobudgetTools } from "../worker/autobudget/tools.js";
 import type { WorkerEnv } from "../worker/env.js";
 import { createTestD1 } from "./stubs/d1.js";
@@ -138,6 +139,28 @@ describe("auto-budget tools", () => {
     }]);
     expect(apis.requests.every((r) => r.method === "GET" && r.body === null)).toBe(true);
     expect(apis.requests.some((r) => r.url.endsWith("/scheduled_transactions"))).toBe(true);
+  });
+
+  it("reports sync progress instead of recommendations while the mirror is incomplete", async () => {
+    const { call, apis } = setup();
+    apis.state.transactions = Array.from({ length: MAX_ROWS_PER_RUN + 1 }, (_, index) => txn({
+      id: `bulk-${String(index).padStart(5, "0")}`,
+      date: "2026-10-01",
+      category_id: "c-dining",
+      approved: true,
+    }));
+
+    const plan = (await call("ynab_autobudget_plan")).body;
+    expect(plan).toEqual({
+      success: true,
+      status: "sync_in_progress",
+      synced_transactions: MAX_ROWS_PER_RUN,
+      rows_remaining: 1,
+    });
+    expect(apis.requests.every((request) => request.url.includes("/transactions"))).toBe(true);
+
+    const status = (await call("ynab_autobudget_status")).body;
+    expect(status.syncInProgress).toEqual({ rowsRemaining: 1 });
   });
 
   it("plan lists at most `limit` transaction decisions", async () => {

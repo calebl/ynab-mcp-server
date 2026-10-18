@@ -33,7 +33,7 @@ import {
 } from "./decisions.js";
 import { sendPushover } from "./pushover.js";
 import { alertKey, Store } from "./store.js";
-import { historyStart, syncAccounts, syncTransactions } from "./sync.js";
+import { historyStart, syncAccounts, syncTransactions, transactionSyncRemaining } from "./sync.js";
 import { explainMissingPlan, planPath, YnabReader, YnabRequestError } from "./ynab.js";
 
 /** Longer than Cloudflare's 15-minute scheduled-handler limit. */
@@ -47,6 +47,7 @@ export interface RunOptions {
 }
 
 interface Evaluation {
+  syncInProgress: false;
   today: string;
   decisions: Decision[];
   assign: AssignPlan;
@@ -55,8 +56,15 @@ interface Evaluation {
   pace: PaceItem[];
   backlog: Backlog;
   currency: Currency;
+  synced: { transactions: number; full: boolean; remaining: 0 };
+}
+
+interface PendingSync {
+  syncInProgress: true;
   synced: { transactions: number; full: boolean; remaining: number };
 }
+
+type EvaluationResult = Evaluation | PendingSync;
 
 function nextMonthOf(month: string): string {
   const [year, mon] = month.split("-").map(Number);
@@ -88,12 +96,19 @@ async function evaluate(
   planId: string,
   config: AutobudgetConfig,
   now: Date,
-): Promise<Evaluation> {
+): Promise<EvaluationResult> {
   const { date: today } = localDateParts(now, config.timeZone);
   const base = planPath(planId);
 
   const synced = await syncTransactions(reader, store, planId, today, now,
     () => store.clearOpenAlerts("plan_not_visible", []));
+  if (synced.remaining > 0) {
+    return {
+      syncInProgress: true,
+      synced: { transactions: synced.applied, full: synced.full, remaining: synced.remaining },
+    };
+  }
+
   let accounts = await store.accounts();
   await syncAccounts(reader, store, planId, now, async (changed) => {
     const merged = new Map(accounts.map((account) => [account.id, account]));
@@ -136,6 +151,7 @@ async function evaluate(
   const outflowCounts = await store.outflowCounts(month.month, today);
 
   return {
+    syncInProgress: false,
     today,
     decisions,
     assign,
@@ -144,7 +160,7 @@ async function evaluate(
     pace: paceAlerts(month, outflowCounts, today),
     backlog: backlog(pending),
     currency,
-    synced: { transactions: synced.applied, full: synced.full, remaining: synced.remaining },
+    synced: { transactions: synced.applied, full: synced.full, remaining: 0 },
   };
 }
 
@@ -168,11 +184,12 @@ export type RunOutcome =
   | { ran: false; reason: string }
   | {
     ran: true;
-    outcome: "ok" | "plan_not_visible" | "rate_limited" | "error";
+    outcome: "ok" | "sync_in_progress" | "plan_not_visible" | "rate_limited" | "error";
     error?: string;
     mode: "shadow";
     calls: number;
     synced?: number;
+    syncRemaining?: number;
     decisions?: Record<string, number>;
     recorded?: number;
     alertsSent?: number;
@@ -222,6 +239,23 @@ export async function runAutobudget(env: WorkerEnv, options: RunOptions = {}): P
         await store.setState("last_prune", today, now);
       }
       const evaluation = await evaluate(reader, store, planId, config, now);
+      if (evaluation.syncInProgress) {
+        const summary = {
+          synced: evaluation.synced.transactions,
+          full_sync: evaluation.synced.full,
+          sync_remaining: evaluation.synced.remaining,
+        };
+        await store.finishRun(runId, now, "sync_in_progress", null, reader.calls, summary);
+        return {
+          ran: true,
+          outcome: "sync_in_progress",
+          mode: "shadow",
+          calls: reader.calls,
+          synced: evaluation.synced.transactions,
+          syncRemaining: evaluation.synced.remaining,
+        };
+      }
+
       const recorded = await store.recordDecisions(runId, config.mode, evaluation.decisions, now);
       const sent = await store.sentAlerts();
       const fresh = evaluation.immediate.filter((alert) => !sent.has(alertKey(alert)));
@@ -266,7 +300,6 @@ export async function runAutobudget(env: WorkerEnv, options: RunOptions = {}): P
       const summary = {
         synced: evaluation.synced.transactions,
         full_sync: evaluation.synced.full,
-        // Rows of an unfinished sync that the next run applies.
         sync_remaining: evaluation.synced.remaining,
         decisions: countActions(evaluation.decisions),
         recorded,
@@ -322,15 +355,18 @@ async function alertOnce(
   }
 }
 
-export interface DryRun {
+interface DryRunCommon {
   mode: AutobudgetConfig["mode"];
   requestedMode: AutobudgetConfig["requestedMode"];
   modeReason: string | null;
   paused: boolean;
   calls: number;
-  evaluation: Evaluation;
-  bills: BillItem[];
 }
+
+export type DryRun = DryRunCommon & (
+  | { syncInProgress: true; syncedTransactions: number; rowsRemaining: number }
+  | { syncInProgress: false; evaluation: Evaluation; bills: BillItem[] }
+);
 
 /**
  * What the service would do right now, without recording decisions or
@@ -348,16 +384,23 @@ export async function dryRun(env: WorkerEnv, options: RunOptions = {}): Promise<
   const reader = new YnabReader(env.YNAB_API_TOKEN, options.fetch ?? fetch);
   try {
     const evaluation = await evaluate(reader, store, planId, config, now);
-    const bills = await readBills(reader, planId, evaluation);
-    return {
+    const common = {
       mode: config.mode,
       requestedMode: config.requestedMode,
       modeReason: config.modeReason,
       paused: Boolean(await store.getState("paused")),
       calls: reader.calls,
-      evaluation,
-      bills,
     };
+    if (evaluation.syncInProgress) {
+      return {
+        ...common,
+        syncInProgress: true,
+        syncedTransactions: evaluation.synced.transactions,
+        rowsRemaining: evaluation.synced.remaining,
+      };
+    }
+    const bills = await readBills(reader, planId, evaluation);
+    return { ...common, syncInProgress: false, evaluation, bills };
   } catch (error) {
     if (error instanceof YnabRequestError && error.status === 404) {
       const explanation = await explainMissingPlan(reader, planId);
@@ -380,6 +423,7 @@ export interface Status {
   timeZone: string;
   lastRun: Awaited<ReturnType<Store["lastRun"]>>;
   decisionsLast24h: Array<{ stage: string; action: string; n: number }>;
+  syncInProgress: { rowsRemaining: number } | null;
   caps: typeof CAPS;
 }
 
@@ -388,6 +432,7 @@ export async function status(env: WorkerEnv, now = new Date()): Promise<Status> 
   if ("reason" in prepared) throw new Error(prepared.reason);
   const { config, store } = prepared;
   const paused = await store.getState("paused");
+  const rowsRemaining = await transactionSyncRemaining(store);
   return {
     mode: config.mode,
     requestedMode: config.requestedMode,
@@ -399,6 +444,7 @@ export async function status(env: WorkerEnv, now = new Date()): Promise<Status> 
     timeZone: config.timeZone,
     lastRun: await store.lastRun(),
     decisionsLast24h: await store.decisionCounts(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+    syncInProgress: rowsRemaining > 0 ? { rowsRemaining } : null,
     caps: CAPS,
   };
 }

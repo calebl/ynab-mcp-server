@@ -164,6 +164,8 @@ describe("runAutobudget", () => {
       AUTOBUDGET_TIMEZONE: "America/Los_Angeles",
     }), { fetch: apis.fetch, now });
 
+    expect(result.syncInProgress).toBe(false);
+    if (result.syncInProgress) throw new Error("unexpected incomplete sync");
     expect(result.evaluation.today).toBe("2026-10-31");
     expect(result.evaluation.month.month).toBe("2026-10-01");
     expect(ynabRequests(apis.requests).some((request) => request.url.endsWith("/months/2026-10-01"))).toBe(true);
@@ -478,7 +480,8 @@ describe("dryRun", () => {
     const apis = scenario();
     const run = await dryRun(makeEnv(db, { AUTOBUDGET_MODE: undefined }), { fetch: apis.fetch, now: DIGEST_TIME });
 
-    expect(run).toMatchObject({ mode: "off", paused: false });
+    expect(run).toMatchObject({ mode: "off", paused: false, syncInProgress: false });
+    if (run.syncInProgress) throw new Error("unexpected incomplete sync");
     expect(run.evaluation.decisions.map((d) => d.action)).toEqual(["would_categorize", "would_approve", "would_assign"]);
     expect(decisionRows(db)).toEqual([]);
     expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM run").get()).toEqual({ n: 0 });
@@ -489,9 +492,15 @@ describe("dryRun", () => {
     const db = createTestD1();
     const apis = scenario();
 
-    expect((await dryRun(makeEnv(db), { fetch: apis.fetch, now: NIGHT })).evaluation.currency).toEqual({ isoCode: "USD", decimalDigits: 2 });
+    const first = await dryRun(makeEnv(db), { fetch: apis.fetch, now: NIGHT });
+    expect(first.syncInProgress).toBe(false);
+    if (first.syncInProgress) throw new Error("unexpected incomplete sync");
+    expect(first.evaluation.currency).toEqual({ isoCode: "USD", decimalDigits: 2 });
     apis.state.currencyFormat = { iso_code: "KWD", decimal_digits: 3 };
-    expect((await dryRun(makeEnv(db), { fetch: apis.fetch, now: NIGHT })).evaluation.currency).toEqual({ isoCode: "KWD", decimalDigits: 3 });
+    const second = await dryRun(makeEnv(db), { fetch: apis.fetch, now: NIGHT });
+    expect(second.syncInProgress).toBe(false);
+    if (second.syncInProgress) throw new Error("unexpected incomplete sync");
+    expect(second.evaluation.currency).toEqual({ isoCode: "KWD", decimalDigits: 3 });
     expect(ynabRequests(apis.requests).filter((request) => request.url.endsWith("/settings"))).toHaveLength(2);
   });
 
@@ -788,7 +797,12 @@ describe("guarded syncs", () => {
       .map((row) => JSON.parse(row.summary));
 
     expect(await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT }))
-      .toMatchObject({ ran: true, outcome: "ok", synced: MAX_ROWS_PER_RUN });
+      .toMatchObject({
+        ran: true,
+        outcome: "sync_in_progress",
+        synced: MAX_ROWS_PER_RUN,
+        syncRemaining: total - MAX_ROWS_PER_RUN,
+      });
     expect(await new Store(db, PLAN_ID).getCursor("transactions")).toBeNull();
     expect(summaries()[0]).toMatchObject({ synced: MAX_ROWS_PER_RUN, sync_remaining: total - MAX_ROWS_PER_RUN });
 
@@ -797,6 +811,66 @@ describe("guarded syncs", () => {
     expect(await new Store(db, PLAN_ID).getCursor("transactions")).toBe(100);
     expect(summaries()[1]).toMatchObject({ sync_remaining: 0 });
     expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM txn").get()).toEqual({ n: total });
+  });
+
+  it("does not evaluate stale mirror data while a later sync batch contains its update", async () => {
+    const db = createTestD1();
+    const store = new Store(db, PLAN_ID);
+    const history = [1, 2, 3].map((day) => txn({
+      id: `history-${day}`,
+      date: `2026-09-0${day}`,
+      category_id: "c-dining",
+      approved: true,
+    }));
+    const stale = txn({
+      id: "zz-pending",
+      date: "2026-10-12",
+      category_id: "c-dining",
+      approved: false,
+    });
+    await store.upsertTransactions([...history, stale].map(toStoredTransaction));
+    await store.setCursor("transactions", 50, NIGHT);
+
+    const delta = Array.from({ length: MAX_ROWS_PER_RUN }, (_, index) => txn({
+      id: `bulk-${String(index).padStart(5, "0")}`,
+      date: "2026-10-01",
+      category_id: "c-dining",
+      approved: true,
+    }));
+    delta.push(txn({ ...stale, approved: true }));
+    const apis = fakeApis({
+      delta,
+      serverKnowledge: 100,
+      categoryGroups: groups([dining, overspent]),
+      month: month({ categories: [dining, overspent] }),
+    });
+
+    const partial = await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: DIGEST_TIME });
+
+    expect(partial).toMatchObject({
+      ran: true,
+      outcome: "sync_in_progress",
+      synced: MAX_ROWS_PER_RUN,
+      syncRemaining: 1,
+    });
+    expect(decisionRows(db)).toEqual([]);
+    expect(pushes(apis.requests)).toEqual([]);
+    expect(await store.getState("last_digest")).toBeNull();
+    expect(ynabRequests(apis.requests).map((request) => new URL(request.url).pathname)).toEqual([
+      `/v1/plans/${PLAN_ID}/transactions`,
+    ]);
+    expect(await status(makeEnv(db), DIGEST_TIME)).toMatchObject({
+      syncInProgress: { rowsRemaining: 1 },
+      decisionsLast24h: [],
+    });
+
+    const completed = await runAutobudget(makeEnv(db), {
+      fetch: apis.fetch,
+      now: new Date(DIGEST_TIME.getTime() + 3_600_000),
+    });
+    expect(completed).toMatchObject({ ran: true, outcome: "ok", synced: 1 });
+    expect(decisionRows(db).some((row) => row.subject_id === "zz-pending")).toBe(false);
+    expect(await store.getCursor("transactions")).toBe(100);
   });
 
   it("saves the first response's knowledge when a continued sync completes, so mid-sequence changes are re-sent", async () => {

@@ -71,6 +71,8 @@ interface SyncProgress {
   knowledge: number;
   /** Id of the last row applied; rows up to it were applied by earlier runs. */
   after: string;
+  /** Rows the next runs still need to apply. */
+  remaining: number;
 }
 
 const PROGRESS_KEY = "transaction_sync_progress";
@@ -107,6 +109,14 @@ function readProgress(raw: string | null, cursor: number | null): SyncProgress |
   return progress.from === cursor ? progress : null;
 }
 
+export async function transactionSyncRemaining(store: Store): Promise<number> {
+  const progress = readProgress(
+    await store.getState(PROGRESS_KEY),
+    await store.getCursor("transactions"),
+  );
+  return progress?.remaining ?? 0;
+}
+
 /**
  * Brings the transaction mirror up to date, applying at most `limit` rows per
  * run. The cursor never moves past rows that were not applied: a larger sync
@@ -136,7 +146,12 @@ export async function syncTransactions(
   const startKnowledge = progress?.knowledge ?? knowledge;
   const remaining = unapplied.length - batch.length;
   if (remaining > 0) {
-    const next: SyncProgress = { from: cursor, knowledge: startKnowledge, after: batch[batch.length - 1].id };
+    const next: SyncProgress = {
+      from: cursor,
+      knowledge: startKnowledge,
+      after: batch[batch.length - 1].id,
+      remaining,
+    };
     await store.setState(PROGRESS_KEY, JSON.stringify(next), now);
   } else {
     await store.setCursor("transactions", startKnowledge, now);

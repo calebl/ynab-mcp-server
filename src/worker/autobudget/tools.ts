@@ -45,6 +45,14 @@ export function autobudgetTools(env: WorkerEnv, options: RunOptions = {}): ToolE
     async execute(input: { limit?: number }) {
       try {
         const run = await dryRun(env, options);
+        if (run.syncInProgress) {
+          return result({
+            success: true,
+            status: "sync_in_progress",
+            synced_transactions: run.syncedTransactions,
+            rows_remaining: run.rowsRemaining,
+          });
+        }
         const { evaluation: ev } = run;
         const money = (milliunits: number) => toDollars(milliunits, ev.currency.decimalDigits);
         const transactionDecisions = ev.decisions.filter((d) => d.stage !== "assign");

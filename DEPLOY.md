@@ -344,8 +344,10 @@ can see, and Pushover alerts you once.
   it. Steady-state runs are small.
 - **A large sync spreads over several runs.** Each run applies at most 10,000
   transactions, so it stays inside D1's per-run query limit. The sync cursor
-  advances only once every row of the sync is applied; until then the run
-  record shows how many remain. If saving fails, the old cursor is kept and the
+  advances only once every row of the sync is applied. Until then, scheduled
+  runs do not evaluate decisions, send alerts, or send or consume the daily
+  digest, and the status and plan tools report sync progress and rows remaining
+  instead of recommendations. If saving fails, the old cursor is kept and the
   next run retries.
 - **One run at a time.** A lease in D1 stops an overlapping run or dry run
   from interleaving with a scheduled one.
@@ -367,8 +369,8 @@ client. They are not part of the npm package, which has no D1 database.
 
 | Tool | What it does |
 | --- | --- |
-| `ynab_autobudget_status` | Mode and why, pause state, last run, decisions recorded in the last 24 hours, and the caps |
-| `ynab_autobudget_plan` | Dry run: syncs its D1 mirror and shows what the service would do right now, including immediate, pace and uncovered-bill alerts. Records decisions and sends notifications only during scheduled runs. |
+| `ynab_autobudget_status` | Mode and why, pause state, sync progress, last run, decisions recorded in the last 24 hours, and the caps |
+| `ynab_autobudget_plan` | Dry run: syncs its D1 mirror and shows what the service would do right now, including immediate, pace and uncovered-bill alerts. While a continued sync is incomplete, it reports progress instead. Records decisions and sends notifications only during scheduled runs. |
 | `ynab_autobudget_pause` | Pauses the service, or resumes it with `paused: false` |
 
 ## Read-only mode
