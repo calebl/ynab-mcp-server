@@ -69,13 +69,6 @@ const alertKey = (alert: AlertKey) => `${alert.rule}|${alert.subjectId}|${alert.
 // count: a first sync of tens of thousands of transactions stays at a handful
 // of statements. The character budget leaves room for multi-byte UTF-8.
 const JSON_PARAM_CHARS = 600_000;
-const ID_CHUNK = 400;
-
-function chunks<T>(items: T[], size = ID_CHUNK): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
 
 /** Serializes rows into JSON arrays that each fit in one bound parameter. */
 export function jsonBatches(rows: unknown[], maxChars = JSON_PARAM_CHARS): string[] {
@@ -188,19 +181,19 @@ export class Store {
   }
 
   async upsertAccounts(rows: StoredAccount[]): Promise<void> {
-    const statements = chunks(rows).map((chunk) => this.db.prepare(
-      "INSERT INTO account (id, plan_id, name, on_budget, closed, deleted, direct_import_in_error) " +
-      "SELECT j.value ->> 'id', ?1, j.value ->> 'name', j.value ->> 'on_budget', j.value ->> 'closed', " +
-      "j.value ->> 'deleted', j.value ->> 'direct_import_in_error' FROM json_each(?2) AS j WHERE true " +
-      "ON CONFLICT (plan_id, id) DO UPDATE SET name = excluded.name, on_budget = excluded.on_budget, closed = excluded.closed, " +
-      "deleted = excluded.deleted, direct_import_in_error = excluded.direct_import_in_error",
-    ).bind(this.planId, JSON.stringify(chunk.map((row) => ({
+    const statements = jsonBatches(rows.map((row) => ({
       ...row,
       on_budget: row.on_budget ? 1 : 0,
       closed: row.closed ? 1 : 0,
       deleted: row.deleted ? 1 : 0,
       direct_import_in_error: row.direct_import_in_error ? 1 : 0,
-    })))));
+    }))).map((batch) => this.db.prepare(
+      "INSERT INTO account (id, plan_id, name, on_budget, closed, deleted, direct_import_in_error) " +
+      "SELECT j.value ->> 'id', ?1, j.value ->> 'name', j.value ->> 'on_budget', j.value ->> 'closed', " +
+      "j.value ->> 'deleted', j.value ->> 'direct_import_in_error' FROM json_each(?2) AS j WHERE true " +
+      "ON CONFLICT (plan_id, id) DO UPDATE SET name = excluded.name, on_budget = excluded.on_budget, closed = excluded.closed, " +
+      "deleted = excluded.deleted, direct_import_in_error = excluded.direct_import_in_error",
+    ).bind(this.planId, batch));
     if (statements.length) await this.db.batch(statements);
   }
 
@@ -228,13 +221,13 @@ export class Store {
   /** Category use and approvals per payee within an inclusive date window, over ordinary rows. */
   async payeeHistory(payeeIds: string[], sinceDate: string, throughDate: string): Promise<Map<string, PayeeHistory>> {
     const history = new Map<string, PayeeHistory>();
-    for (const chunk of chunks([...new Set(payeeIds)])) {
+    for (const batch of jsonBatches([...new Set(payeeIds)])) {
       const { results } = await this.db.prepare(
         "SELECT payee_id, category_id, COUNT(*) AS n, SUM(approved) AS approved FROM txn " +
         "WHERE plan_id = ?1 AND deleted = 0 AND date >= ?2 AND date <= ?3 " +
         "AND transfer_account_id IS NULL AND split = 0 " +
         "AND payee_id IN (SELECT value FROM json_each(?4)) GROUP BY payee_id, category_id",
-      ).bind(this.planId, sinceDate, throughDate, JSON.stringify(chunk)).all<{ payee_id: string; category_id: string | null; n: number; approved: number }>();
+      ).bind(this.planId, sinceDate, throughDate, batch).all<{ payee_id: string; category_id: string | null; n: number; approved: number }>();
       for (const row of results) {
         const entry = history.get(row.payee_id) ?? { categories: new Map(), approved: 0 };
         if (row.category_id) entry.categories.set(row.category_id, row.n);
@@ -306,11 +299,7 @@ export class Store {
       .map((decision) => ({ decision, key: decisionKey(decision) }))
       .filter(({ decision, key }) => latest.get(`${decision.stage}|${decision.subjectId}`) !== key);
 
-    const statements = chunks(fresh).map((chunk) => this.db.prepare(
-      "INSERT INTO decision (plan_id, run_id, stage, subject_id, action, reason, source, detail, decision_key, mode, created_at) " +
-      "SELECT ?1, ?2, j.value ->> 'stage', j.value ->> 'subjectId', j.value ->> 'action', j.value ->> 'reason', " +
-      "j.value ->> 'source', j.value ->> 'detail', j.value ->> 'key', ?3, ?4 FROM json_each(?5) AS j",
-    ).bind(this.planId, runId, mode, now.toISOString(), JSON.stringify(chunk.map(({ decision, key }) => ({
+    const statements = jsonBatches(fresh.map(({ decision, key }) => ({
       stage: decision.stage,
       subjectId: decision.subjectId,
       action: decision.action,
@@ -318,7 +307,11 @@ export class Store {
       source: decision.source,
       detail: JSON.stringify(decision.detail),
       key,
-    })))));
+    }))).map((batch) => this.db.prepare(
+      "INSERT INTO decision (plan_id, run_id, stage, subject_id, action, reason, source, detail, decision_key, mode, created_at) " +
+      "SELECT ?1, ?2, j.value ->> 'stage', j.value ->> 'subjectId', j.value ->> 'action', j.value ->> 'reason', " +
+      "j.value ->> 'source', j.value ->> 'detail', j.value ->> 'key', ?3, ?4 FROM json_each(?5) AS j",
+    ).bind(this.planId, runId, mode, now.toISOString(), batch));
     if (statements.length) await this.db.batch(statements);
     return fresh.length;
   }
@@ -338,11 +331,12 @@ export class Store {
   }
 
   async markAlertsSent(alerts: AlertKey[], now: Date): Promise<void> {
-    if (!alerts.length) return;
-    await this.db.prepare(
-      "INSERT OR IGNORE INTO alert (plan_id, rule, subject_id, period, sent_at) " +
-      "SELECT ?1, j.value ->> 'rule', j.value ->> 'subjectId', j.value ->> 'period', ?2 FROM json_each(?3) AS j",
-    ).bind(this.planId, now.toISOString(), JSON.stringify(alerts.map(({ rule, subjectId, period }) => ({ rule, subjectId, period })))).run();
+    const statements = jsonBatches(alerts.map(({ rule, subjectId, period }) => ({ rule, subjectId, period })))
+      .map((batch) => this.db.prepare(
+        "INSERT OR IGNORE INTO alert (plan_id, rule, subject_id, period, sent_at) " +
+        "SELECT ?1, j.value ->> 'rule', j.value ->> 'subjectId', j.value ->> 'period', ?2 FROM json_each(?3) AS j",
+      ).bind(this.planId, now.toISOString(), batch));
+    if (statements.length) await this.db.batch(statements);
   }
 
   /**

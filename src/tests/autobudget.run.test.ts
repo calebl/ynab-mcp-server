@@ -681,6 +681,47 @@ describe("Store", () => {
     expect(statements[0]).toBeLessThanOrEqual(15);
     expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM txn").get()).toEqual({ n: 20_001 });
   });
+
+  it("size-batches large backlog inputs into a handful of D1 queries", async () => {
+    const db = createTestD1();
+    const batchSizes: number[] = [];
+    let historyQueries = 0;
+    const batch = db.batch.bind(db);
+    const prepare = db.prepare.bind(db);
+    db.batch = (async (list: D1PreparedStatement[]) => {
+      batchSizes.push(list.length);
+      return batch(list);
+    }) as typeof db.batch;
+    db.prepare = ((sql: string) => {
+      if (sql.includes("payee_id IN")) historyQueries++;
+      return prepare(sql);
+    }) as typeof db.prepare;
+    const store = new Store(db, PLAN_ID);
+    const count = 10_001;
+
+    await store.upsertAccounts(Array.from({ length: count }, (_, i) =>
+      toStoredAccount(account({ id: `account-${i}`, name: `Account ${i}` }))));
+    expect(await store.payeeHistory(
+      Array.from({ length: count }, (_, i) => `payee-${i}`),
+      "2025-10-01",
+      "2026-10-15",
+    )).toEqual(new Map());
+    const decisions = Array.from({ length: count * 2 }, (_, i) => ({
+      stage: "categorize" as const,
+      subjectId: `transaction-${i}`,
+      action: "review" as const,
+      reason: "new_payee",
+      source: null,
+      detail: { payee: `Payee ${i}` },
+    }));
+    expect(await store.recordDecisions("large-run", "shadow", decisions, NIGHT)).toBe(count * 2);
+
+    expect(batchSizes).toHaveLength(2);
+    expect(batchSizes.reduce((sum, size) => sum + size, historyQueries)).toBeLessThanOrEqual(15);
+    expect(historyQueries).toBe(1);
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM account").get()).toEqual({ n: count });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM decision").get()).toEqual({ n: count * 2 });
+  });
 });
 
 describe("YnabReader", () => {
