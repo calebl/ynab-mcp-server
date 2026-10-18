@@ -178,7 +178,7 @@ function isFailureResult(result: unknown): boolean {
   }
 }
 
-/** The plan-visibility check, at most once per API client and configured plan. */
+/** In-flight plan-visibility checks, shared by concurrent failures. */
 const planChecks = new WeakMap<ynab.API, Map<string, Promise<string | null>>>();
 
 /**
@@ -197,13 +197,13 @@ async function explainDefaultPlanFailure(module: ToolModule, input: unknown, api
   if (!check) {
     check = (async () => describeMissingPlan(planId, (await api.plans.getPlans()).data.plans))();
     checks.set(planId, check);
-    // A failed lookup says nothing about the plan, so let a later failure retry it.
-    check.catch(() => checks.delete(planId));
   }
   try {
     return await check;
   } catch {
     return null;
+  } finally {
+    if (checks.get(planId) === check) checks.delete(planId);
   }
 }
 

@@ -407,9 +407,27 @@ describe("a configured plan the token cannot see", () => {
     expect(error).toContain("The configured plan configured-plan (YNAB_PLAN_ID) is not one of the plans this YNAB token can access");
     expect(error).toContain('"Household" (real-plan)');
 
-    // The plan list is read once per client, not on every failure.
     await registered.get("ynab_list_accounts")!.callback({});
-    expect(api.plans.getPlans).toHaveBeenCalledTimes(1);
+    expect(api.plans.getPlans).toHaveBeenCalledTimes(2);
+  });
+
+  it("revalidates plan visibility after access changes", async () => {
+    vi.stubEnv("YNAB_PLAN_ID", "configured-plan");
+    const plans = [{ id: "real-plan", name: "Household" }];
+    const api = apiWithPlans(plans);
+    const registered = register(api);
+
+    const missing = await registered.get("ynab_list_accounts")!.callback({});
+    expect(JSON.parse(missing.content[0].text).error).toContain("is not one of the plans");
+
+    plans.splice(0, plans.length, { id: "configured-plan", name: "Restored" });
+    const restored = await registered.get("ynab_list_accounts")!.callback({});
+    expect(JSON.parse(restored.content[0].text).error).toBe("Resource not found");
+
+    plans.splice(0, plans.length, { id: "real-plan", name: "Household" });
+    const revoked = await registered.get("ynab_list_accounts")!.callback({});
+    expect(JSON.parse(revoked.content[0].text).error).toContain("is not one of the plans");
+    expect(api.plans.getPlans).toHaveBeenCalledTimes(3);
   });
 
   it("leaves the error alone when the plan is visible or was passed explicitly", async () => {

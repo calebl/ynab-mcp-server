@@ -268,6 +268,66 @@ describe("runAutobudget", () => {
     expect(await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT })).toMatchObject({ alertsSent: 1 });
   });
 
+  it("marks only immediate-alert batches that Pushover delivered", async () => {
+    const db = createTestD1();
+    const apis = scenario();
+    const categories = Array.from({ length: 40 }, (_, index) => category({
+      id: `overspent-${index}`,
+      name: `Long overspent category ${index}`,
+      balance: -20_000,
+    }));
+    apis.state.categoryGroups = groups(categories);
+    apis.state.month = month({ categories });
+
+    const failSecondPush = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).hostname === "api.pushover.net") {
+        apis.state.pushoverStatus = pushes(apis.requests).length === 0 ? 200 : 500;
+      }
+      return apis.fetch(input, init);
+    }) as typeof fetch;
+
+    const first = await runAutobudget(makeEnv(db), { fetch: failSecondPush, now: NIGHT });
+    const markedAfterFailure = (db.sqlite.prepare("SELECT COUNT(*) AS n FROM alert").get() as { n: number }).n;
+    expect(first).toMatchObject({ outcome: "ok", alertsSent: markedAfterFailure, notifier: "failed: Pushover returned HTTP 500" });
+    expect(markedAfterFailure).toBeGreaterThan(0);
+    expect(markedAfterFailure).toBeLessThan(categories.length);
+    expect(pushes(apis.requests).every((request) => (pushParams(request).get("message")?.length ?? 0) <= 1024)).toBe(true);
+
+    apis.state.pushoverStatus = 200;
+    await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT });
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM alert").get()).toEqual({ n: categories.length });
+  });
+
+  it("does not build an undeliverable digest", async () => {
+    const apis = scenario();
+    const outcome = await runAutobudget(makeEnv(createTestD1(), { PUSHOVER_APP_TOKEN: undefined }), {
+      fetch: apis.fetch,
+      now: DIGEST_TIME,
+    });
+
+    expect(outcome).toMatchObject({ digest: "not_configured" });
+    expect(ynabRequests(apis.requests).some((request) => request.url.includes("/scheduled_transactions"))).toBe(false);
+    expect(pushes(apis.requests)).toEqual([]);
+  });
+
+  it.each(["scheduled read", "delivery"])("retries the daily digest after a failed %s", async (failure) => {
+    const db = createTestD1();
+    const apis = scenario();
+    apis.state.month = month({ categories: [dining, rent] });
+    if (failure === "scheduled read") apis.state.failures = { "/scheduled_transactions": 500 };
+    else apis.state.pushoverStatus = 500;
+
+    expect(await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: DIGEST_TIME }))
+      .toMatchObject({ digest: expect.stringContaining("failed:") });
+    expect(await new Store(db, PLAN_ID).getState("last_digest")).toBeNull();
+
+    apis.state.failures = {};
+    apis.state.pushoverStatus = 200;
+    const later = new Date("2026-10-18T09:05:00Z");
+    expect(await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: later })).toMatchObject({ digest: "sent" });
+    expect(await new Store(db, PLAN_ID).getState("last_digest")).toBe("2026-10-18");
+  });
+
   it("sends the daily digest once, in the digest hour", async () => {
     const db = createTestD1();
     const apis = scenario();
@@ -331,7 +391,7 @@ describe("Store", () => {
     ], old);
     await store.prune(new Date("2026-01-01T00:00:00Z"));
 
-    expect(await store.sentAlerts()).toEqual(new Set(["import_error\u0000checking\u0000open"]));
+    expect(await store.sentAlerts()).toEqual(new Set(["import_error|checking|open"]));
 
     await store.clearOpenAlerts("import_error", []);
     expect(await store.sentAlerts()).toEqual(new Set());

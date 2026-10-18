@@ -6,6 +6,7 @@ import { getEligibleCategories } from "../../tools/SuggestCategoriesTool.js";
 import type { WorkerEnv } from "../env.js";
 import { localDateParts } from "../nag.js";
 import {
+  alertBatches,
   backlog,
   billsDue,
   buildDigest,
@@ -35,7 +36,7 @@ import { explainMissingPlan, planPath, YnabReader, YnabRequestError } from "./yn
 
 /** A run normally takes seconds; the lease only has to outlast a stuck one. */
 const LEASE_MS = 10 * 60 * 1000;
-/** Audit rows, runs and alerts are kept for 13 months. */
+/** Audit rows, runs and periodic alerts are kept for 13 months. */
 const RETENTION_MS = 396 * 24 * 60 * 60 * 1000;
 
 export interface RunOptions {
@@ -207,43 +208,46 @@ export async function runAutobudget(env: WorkerEnv, options: RunOptions = {}): P
       const sent = await store.sentAlerts();
       const fresh = evaluation.immediate.filter((alert) => !sent.has(alertKey(alert)));
       let alertsSent = 0;
-      if (fresh.length) {
+      for (const batch of alertBatches(fresh)) {
         try {
-          // Only a delivered alert counts as sent, so an unconfigured or
-          // failing notifier retries on the next run.
-          if (await notify(combineAlerts(fresh)) === "sent") {
-            await store.markAlertsSent(fresh, now);
-            alertsSent = fresh.length;
-            notifier = "sent";
-          }
+          if (await notify(combineAlerts(batch)) !== "sent") break;
+          await store.markAlertsSent(batch, now);
+          alertsSent += batch.length;
+          notifier = "sent";
         } catch (error) {
           notifier = `failed: ${getErrorMessage(error)}`;
+          break;
         }
       }
 
       let digest = "not_due";
       const { hour } = localDateParts(now, config.timeZone);
-      if (hour === config.digestHour && await store.getState("last_digest") !== evaluation.today) {
-        try {
-          const { scheduled_transactions: scheduled } = await reader.get<{ scheduled_transactions: ynab.ScheduledTransactionDetail[] }>(
-            `${planPath(planId)}/scheduled_transactions`,
-          );
-          digest = await notify(buildDigest({
-            date: evaluation.today,
-            shadow: true,
-            decisions: evaluation.decisions,
-            assign: evaluation.assign,
-            pace: evaluation.pace,
-            bills: billsDue(scheduled, evaluation.month, evaluation.today),
-            backlog: evaluation.backlog,
-            currency: evaluation.currency,
-          }));
-        } catch (error) {
-          digest = `failed: ${getErrorMessage(error)}`;
+      if (hour >= config.digestHour && await store.getState("last_digest") !== evaluation.today) {
+        if (!config.notifierConfigured) {
+          digest = "not_configured";
+        } else {
+          try {
+            const { scheduled_transactions: scheduled } = await reader.get<{ scheduled_transactions: ynab.ScheduledTransactionDetail[] }>(
+              `${planPath(planId)}/scheduled_transactions`,
+            );
+            digest = await notify(buildDigest({
+              date: evaluation.today,
+              shadow: true,
+              decisions: evaluation.decisions,
+              assign: evaluation.assign,
+              pace: evaluation.pace,
+              bills: billsDue(scheduled, evaluation.month, evaluation.today),
+              backlog: evaluation.backlog,
+              currency: evaluation.currency,
+            }));
+            if (digest === "sent") {
+              await store.setState("last_digest", evaluation.today, now);
+              await store.prune(new Date(now.getTime() - RETENTION_MS));
+            }
+          } catch (error) {
+            digest = `failed: ${getErrorMessage(error)}`;
+          }
         }
-        // One attempt a day: the digest hour has passed by the next run.
-        await store.setState("last_digest", evaluation.today, now);
-        await store.prune(new Date(now.getTime() - RETENTION_MS));
       }
 
       const summary = {

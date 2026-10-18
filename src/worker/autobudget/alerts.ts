@@ -256,6 +256,25 @@ export function buildDigest(input: DigestInput): { title: string; message: strin
   };
 }
 
+export function alertBatches(alerts: ImmediateAlert[]): ImmediateAlert[][] {
+  const batches: ImmediateAlert[][] = [];
+  let batch: ImmediateAlert[] = [];
+  let messageLength = 0;
+
+  for (const alert of alerts) {
+    const addedLength = alert.message.length + (batch.length ? 1 : 0);
+    if (batch.length && messageLength + addedLength > MAX_MESSAGE_LENGTH) {
+      batches.push(batch);
+      batch = [];
+      messageLength = 0;
+    }
+    batch.push(alert);
+    messageLength += alert.message.length + (batch.length > 1 ? 1 : 0);
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
 /** Combines newly noticed immediate alerts into one notification. */
 export function combineAlerts(alerts: ImmediateAlert[]): { title: string; message: string } {
   const title = alerts.length === 1 ? alerts[0].title : `${alerts.length} budget alerts`;
