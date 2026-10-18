@@ -873,7 +873,74 @@ describe("guarded syncs", () => {
     expect(await store.getCursor("transactions")).toBe(100);
   });
 
-  it("saves the first response's knowledge when a continued sync completes, so mid-sequence changes are re-sent", async () => {
+  it("catches up an initial multi-request snapshot before evaluating it", async () => {
+    const db = createTestD1();
+    const store = new Store(db, PLAN_ID);
+    const history = [1, 2, 3].map((day) => txn({
+      id: `initial-history-${day}`,
+      date: `2026-09-0${day}`,
+      category_id: "c-dining",
+      approved: true,
+    }));
+    const stale = txn({
+      id: "zz-initial-pending",
+      date: "2026-10-12",
+      category_id: "c-dining",
+      approved: false,
+    });
+    const approved = txn({ ...stale, approved: true });
+    const delta = Array.from({ length: MAX_ROWS_PER_RUN }, (_, index) => txn({
+      id: `initial-bulk-${String(index).padStart(5, "0")}`,
+      date: "2026-10-01",
+      category_id: "c-dining",
+      approved: true,
+    }));
+    delta.push(approved);
+    const apis = fakeApis({
+      transactions: [...history, stale],
+      serverKnowledge: 100,
+      categoryGroups: groups([dining, overspent]),
+      month: month({ categories: [dining, overspent] }),
+    });
+    const changingFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await apis.fetch(input, init);
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/transactions") && url.searchParams.has("since_date")) {
+        apis.state.transactions = [...history, approved];
+        apis.state.delta = delta;
+        apis.state.serverKnowledge = 101;
+      }
+      return response;
+    }) as typeof fetch;
+
+    const partial = await runAutobudget(makeEnv(db), { fetch: changingFetch, now: DIGEST_TIME });
+
+    expect(partial).toMatchObject({
+      ran: true,
+      outcome: "sync_in_progress",
+      synced: MAX_ROWS_PER_RUN,
+      syncRemaining: 5,
+    });
+    expect(decisionRows(db)).toEqual([]);
+    expect(pushes(apis.requests)).toEqual([]);
+    expect(await store.getState("last_digest")).toBeNull();
+    expect(ynabRequests(apis.requests).map((request) => new URL(request.url).search)).toEqual([
+      "?since_date=2025-08-14",
+      "?type=unapproved",
+      "?type=uncategorized",
+      "?last_knowledge_of_server=100",
+    ]);
+
+    const completed = await runAutobudget(makeEnv(db), {
+      fetch: changingFetch,
+      now: new Date(DIGEST_TIME.getTime() + 3_600_000),
+    });
+    expect(completed).toMatchObject({ ran: true, outcome: "ok", synced: 5 });
+    expect(decisionRows(db).some((row) => row.subject_id === "zz-initial-pending")).toBe(false);
+    expect(await store.getCursor("transactions")).toBe(101);
+  });
+
+  it("catches up changes made while a continued initial sync was in progress", async () => {
     const db = createTestD1();
     const store = new Store(db, PLAN_ID);
     const apis = fakeApis({
@@ -884,19 +951,20 @@ describe("guarded syncs", () => {
 
     expect(await syncTransactions(reader(), store, PLAN_ID, "2026-10-18", NIGHT, undefined, 2))
       .toEqual({ applied: 2, full: true, remaining: 3 });
-    // YNAB moves on and an already-applied row changes before the sequence ends.
+    const changed = txn({ id: "t-a", date: "2026-10-01", category_id: "c-dining" });
     apis.state.serverKnowledge = 150;
-    apis.state.transactions[0] = txn({ id: "t-a", date: "2026-10-01", category_id: "c-dining" });
+    apis.state.transactions[0] = changed;
+    apis.state.delta = [changed];
 
     expect(await syncTransactions(reader(), store, PLAN_ID, "2026-10-18", NIGHT, undefined, 2))
       .toEqual({ applied: 2, full: true, remaining: 1 });
     expect(await store.getCursor("transactions")).toBeNull();
     expect(await syncTransactions(reader(), store, PLAN_ID, "2026-10-18", NIGHT, undefined, 2))
-      .toEqual({ applied: 1, full: true, remaining: 0 });
+      .toEqual({ applied: 2, full: true, remaining: 0 });
 
-    // Knowledge from the first response, so the next delta re-sends t-a's change.
-    expect(await store.getCursor("transactions")).toBe(100);
+    expect(await store.getCursor("transactions")).toBe(150);
     expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM txn").get()).toEqual({ n: 5 });
+    expect(db.sqlite.prepare("SELECT category_id FROM txn WHERE id = 't-a'").get()).toEqual({ category_id: "c-dining" });
   });
 
   it("includes every unapproved or uncategorized transaction in the first sync, however old", async () => {
@@ -917,7 +985,12 @@ describe("guarded syncs", () => {
     expect(ids).toEqual(["old-unapproved", "old-uncategorized", "recent-settled"]);
     expect((await store.pendingTransactions()).map((row) => row.id).sort()).toEqual(["old-unapproved", "old-uncategorized"]);
     const queries = ynabRequests(apis.requests).filter((r) => r.url.includes("/transactions")).map((r) => new URL(r.url).search);
-    expect(queries).toEqual(["?since_date=2025-08-14", "?type=unapproved", "?type=uncategorized"]);
+    expect(queries).toEqual([
+      "?since_date=2025-08-14",
+      "?type=unapproved",
+      "?type=uncategorized",
+      "?last_knowledge_of_server=100",
+    ]);
   });
 
   it("does not advance the cursor when applying returned rows fails", async () => {

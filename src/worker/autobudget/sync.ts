@@ -69,8 +69,8 @@ interface SyncProgress {
   from: number | null;
   /** Server knowledge of the sequence's first response. */
   knowledge: number;
-  /** Id of the last row applied; rows up to it were applied by earlier runs. */
-  after: string;
+  /** Id of the last row applied; null when no row fit in the previous run. */
+  after: string | null;
   /** Rows the next runs still need to apply. */
   remaining: number;
 }
@@ -117,6 +117,39 @@ export async function transactionSyncRemaining(store: Store): Promise<number> {
   return progress?.remaining ?? 0;
 }
 
+async function applyTransactions(
+  store: Store,
+  cursor: number | null,
+  progress: SyncProgress | null,
+  rows: ynab.TransactionDetail[],
+  knowledge: number,
+  now: Date,
+  limit: number,
+): Promise<{ applied: number; remaining: number; knowledge: number }> {
+  const unapplied = rows
+    .map(toStoredTransaction)
+    .filter((row) => !progress || progress.after === null || row.id > progress.after)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const batch = unapplied.slice(0, limit);
+  await store.upsertTransactions(batch);
+
+  const startKnowledge = progress?.knowledge ?? knowledge;
+  const remaining = unapplied.length - batch.length;
+  if (remaining > 0) {
+    const next: SyncProgress = {
+      from: cursor,
+      knowledge: startKnowledge,
+      after: batch[batch.length - 1]?.id ?? null,
+      remaining,
+    };
+    await store.setState(PROGRESS_KEY, JSON.stringify(next), now);
+  } else {
+    await store.setCursor("transactions", startKnowledge, now);
+    await store.deleteState(PROGRESS_KEY);
+  }
+  return { applied: batch.length, remaining, knowledge: startKnowledge };
+}
+
 /**
  * Brings the transaction mirror up to date, applying at most `limit` rows per
  * run. The cursor never moves past rows that were not applied: a larger sync
@@ -133,31 +166,37 @@ export async function syncTransactions(
 ): Promise<SyncResult> {
   const cursor = await store.getCursor("transactions");
   const progress = readProgress(await store.getState(PROGRESS_KEY), cursor);
-  const { rows, knowledge } = await readTransactions(reader, planId, cursor, today);
+  const firstRead = await readTransactions(reader, planId, cursor, today);
   await afterRead?.();
 
-  const unapplied = rows
-    .map(toStoredTransaction)
-    .filter((row) => !progress || row.id > progress.after)
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const batch = unapplied.slice(0, limit);
-  await store.upsertTransactions(batch);
-
-  const startKnowledge = progress?.knowledge ?? knowledge;
-  const remaining = unapplied.length - batch.length;
-  if (remaining > 0) {
-    const next: SyncProgress = {
-      from: cursor,
-      knowledge: startKnowledge,
-      after: batch[batch.length - 1].id,
-      remaining,
-    };
-    await store.setState(PROGRESS_KEY, JSON.stringify(next), now);
-  } else {
-    await store.setCursor("transactions", startKnowledge, now);
-    await store.deleteState(PROGRESS_KEY);
+  const first = await applyTransactions(
+    store,
+    cursor,
+    progress,
+    firstRead.rows,
+    firstRead.knowledge,
+    now,
+    limit,
+  );
+  if (first.remaining > 0 || cursor !== null) {
+    return { applied: first.applied, full: cursor === null, remaining: first.remaining };
   }
-  return { applied: batch.length, full: cursor === null, remaining };
+
+  const catchup = await readTransactions(reader, planId, first.knowledge, today);
+  const second = await applyTransactions(
+    store,
+    first.knowledge,
+    null,
+    catchup.rows,
+    catchup.knowledge,
+    now,
+    limit - first.applied,
+  );
+  return {
+    applied: first.applied + second.applied,
+    full: true,
+    remaining: second.remaining,
+  };
 }
 
 export async function syncAccounts(

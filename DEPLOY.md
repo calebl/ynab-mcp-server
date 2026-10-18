@@ -338,10 +338,12 @@ can see, and Pushover alerts you once.
   budgets apart.
 - **The first run reads 12 months of transactions plus the 48-day duplicate
   evidence window,** and every unapproved or uncategorized transaction however
-  old. Payee rules still use only the latest 12 months. Later transaction and
-  account syncs read only changes. On the Workers Free plan, a large first read
-  can exceed the 10 ms CPU limit for cron triggers; the Workers Paid plan raises
-  it. Steady-state runs are small.
+  old. Payee rules still use only the latest 12 months. Before evaluating that
+  initial snapshot, the service applies a delta from the oldest server knowledge
+  returned by those requests. Later transaction and account syncs read only
+  changes. On the Workers Free plan, a large first read can exceed the 10 ms CPU
+  limit for cron triggers; the Workers Paid plan raises it. Steady-state runs are
+  small.
 - **A large sync spreads over several runs.** Each run applies at most 10,000
   transactions, so it stays inside D1's per-run query limit. The sync cursor
   advances only once every row of the sync is applied. Until then, scheduled
