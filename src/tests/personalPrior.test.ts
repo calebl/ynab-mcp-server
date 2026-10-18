@@ -65,8 +65,7 @@ describe("personalPrior", () => {
 
     // Only shared account and amount features remain, so the base rate decides.
     expect(ranking[0].categoryId).toBe("cat-large");
-    expect(prior.knownNameTokens(unrelated)).toBe(0);
-    expect(prior.knownNameTokens(row({ payee_name: "Lumen Pantry West" }))).toBe(2);
+    expect(ranking[0].probability).toBeGreaterThan(0.9);
   });
 
   it("ranks nothing without training rows", () => {

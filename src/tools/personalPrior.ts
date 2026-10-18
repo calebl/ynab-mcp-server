@@ -27,8 +27,6 @@ export interface PersonalPrior {
   trainingRows: number;
   categoryCount: number;
   rank(transaction: ynab.TransactionDetail): PriorRanking[];
-  /** How many of the transaction's name tokens appear in training; zero means no name evidence. */
-  knownNameTokens(transaction: ynab.TransactionDetail): number;
 }
 
 function nameTokens(value: string | null | undefined): string[] {
@@ -98,9 +96,6 @@ export function trainPersonalPrior(rows: ynab.TransactionDetail[]): PersonalPrio
       return scores
         .map((entry) => ({ categoryId: entry.categoryId, probability: Math.exp(entry.score - best) / normalizer }))
         .sort((a, b) => b.probability - a.probability || a.categoryId.localeCompare(b.categoryId));
-    },
-    knownNameTokens(transaction) {
-      return priorFeatures(transaction).filter((feature) => feature.startsWith("name:") && vocabulary.has(feature)).length;
     },
   };
 }

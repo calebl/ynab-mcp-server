@@ -71,9 +71,10 @@ Without these, a model number has no meaning.
   last-used against plurality as the pick when rows disagree.
 - **Personal prior:** train a naive-Bayes classifier on only the rows dated
   before each scored row. Use name tokens from the payee and both import
-  fields, the account, and an amount bucket; `src/tools/personalPrior.ts` is
-  the implementation the tool uses. Report top-1 and top-3, and precision and
-  coverage at probability cut-offs such as 0.6, 0.8 and 0.9.
+  fields, the account, and an amount bucket, ignoring name tokens absent from
+  training; `src/tools/personalPrior.ts` is the implementation the tool uses.
+  Report top-1 and top-3, and precision and coverage at probability cut-offs
+  such as 0.6, 0.8 and 0.9.
 
 The tool's routing (`history_rule` → `personal_prior` → model) is itself a
 baseline. Score the end-to-end pipeline, not just each piece: how many rows get

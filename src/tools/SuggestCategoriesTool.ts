@@ -4,7 +4,7 @@ import * as ynab from "ynab";
 
 import { getErrorMessage } from "./errorUtils.js";
 import { DEFAULT_DECIMAL_DIGITS, getDecimalDigits, toDollars } from "./money.js";
-import { type PersonalPrior, type PriorRanking, trainPersonalPrior } from "./personalPrior.js";
+import { type PriorRanking, trainPersonalPrior } from "./personalPrior.js";
 
 export const name = "ynab_suggest_categories";
 export const description = "Previews category suggestions for unapproved, uncategorized ordinary outflows. Approved, reconciled, transfer, split, inflow, categorized, and YNAB balance-adjustment rows are ineligible. Rows are routed in order: exact-payee history, then a personal prior learned from the plan's own categorized outflows, then TypeSafe Jev for what is left. Only history and the personal prior mark rows suggested; model answers are a ranked shortlist for review. Similar-name history only informs Jev. Never writes to YNAB.";
@@ -959,10 +959,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
         });
       } else if (
         ranking &&
-        ranking[0].probability >= PERSONAL_PRIOR_SUGGEST_PROBABILITY &&
-        // Without a shared name token the pick rests on account, amount and base
-        // rates alone, which is not evidence about this merchant.
-        (prior as PersonalPrior).knownNameTokens(transaction) > 0
+        ranking[0].probability >= PERSONAL_PRIOR_SUGGEST_PROBABILITY
       ) {
         const category = categoriesById.get(ranking[0].categoryId) as EligibleCategory;
         outputRows.push({

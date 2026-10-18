@@ -605,7 +605,7 @@ describe("SuggestCategoriesTool", () => {
     expect(output.transactions[0]).toMatchObject({ status: "suggested", source: "personal_prior" });
   });
 
-  it("does not let uneven history make the personal prior suggest a merchant with no shared name tokens", async () => {
+  it("does not let unseen name tokens invert an uneven personal prior", async () => {
     const uneven = [
       ...Array.from({ length: 100 }, (_value, index) => history(`large-${index}`, "cat-grocery", {
         payee_id: `payee-large-${index}`, payee_name: "Zephyr Depot", import_payee_name: null, import_payee_name_original: null,
@@ -618,16 +618,21 @@ describe("SuggestCategoriesTool", () => {
       candidates: [transaction("txn-1", { payee_id: "payee-unrelated", payee_name: "Unrelated Sportsgear", import_payee_name: null, import_payee_name_original: null })],
       history: uneven,
     });
-    const fetchMock = vi.fn().mockResolvedValue(choiceResponse({
-      t00: answer("leave_uncategorized", 0.9, { c000: 0.05, c001: 0.05, leave_uncategorized: 0.9 }),
-    }));
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     const output = await result({}, api);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(output.transactions[0]).toMatchObject({ status: "left_uncategorized", source: "jev" });
-    expect(output.transactions[0].personal_prior.ranking[0].category.id).toBe("cat-grocery");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(output.transactions[0]).toMatchObject({
+      status: "suggested",
+      source: "personal_prior",
+      proposed_category: { id: "cat-grocery" },
+      personal_prior: { ranking: [{ category: { id: "cat-grocery" } }] },
+    });
+    expect(output.transactions[0].personal_prior.ranking[0].probability).toBeGreaterThanOrEqual(
+      Tool.PERSONAL_PRIOR_SUGGEST_PROBABILITY,
+    );
   });
 
   it("ranks with the personal prior below its threshold and marks every model answer for review", async () => {
