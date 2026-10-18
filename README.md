@@ -220,8 +220,8 @@ that answered:
    The pinned model's stored review threshold is therefore 0; thresholds stay
    model-specific because confidence scales differ between models.
 
-Similar-name history always goes to the model as suggestive evidence and is
-never a rule. The history summary's `reference_category_id` is the category a
+Similar-name history is never a rule; when a row reaches the model, it is
+included as suggestive evidence. The history summary's `reference_category_id` is the category a
 proposal is compared with: the most recently used one for exact-payee history,
 and the plurality for similar-name history. A similar-name disagreement is
 reported as `conflict` but does not change the status, because a prefix match
@@ -247,8 +247,9 @@ review-only. To evaluate your own plan, or a local model, see
 Enabling this feature sends the transaction's display payee, imported/original
 payee, memo, amount, date, and account name/type/on-budget status, plus visible
 category group and category names, to **TypeSafe as a third-party processor**.
-For similar-name matches only, it also sends the matched payee names and
-per-category key, group, name, and count. When `YNAB_AI_TYPICAL_PAYEES=true`,
+For model-bound rows with similar-name matches, it also sends the matched payee
+names and per-category key, group, name, and count. When
+`YNAB_AI_TYPICAL_PAYEES=true`,
 every request also lists up to eight of each category's most frequent payee
 names from the last 12 months (`typical_payees`), and the response sets
 `typical_payees_sent: true`. This makes the model noticeably more accurate on a
