@@ -872,6 +872,8 @@ describe("guarded syncs", () => {
     });
 
     expect(completed).toMatchObject({ ran: true, outcome: "ok", synced: 2 });
+    const summary = db.sqlite.prepare("SELECT summary FROM run ORDER BY started_at DESC, id DESC LIMIT 1").get() as { summary: string };
+    expect(JSON.parse(summary.summary)).toMatchObject({ full_sync: false });
     expect(decisionRows(db).some((row) => row.subject_id === "aa-pending")).toBe(false);
     expect(await store.getCursor("transactions")).toBe(101);
     expect(ynabRequests(apis.requests).slice(-2).map((request) => new URL(request.url).search)).toEqual([

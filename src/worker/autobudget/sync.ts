@@ -194,7 +194,7 @@ export async function syncTransactions(
   );
   return {
     applied: first.applied + second.applied,
-    full: true,
+    full: cursor === null,
     remaining: second.remaining,
   };
 }
