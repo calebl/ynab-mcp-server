@@ -52,7 +52,7 @@ Environment variables:
 | `YNAB_PLAN_ID` | no | Default plan, so tools can omit `planId`. Find it with `ynab_list_plans`. |
 | `TYPESAFE_API_KEY` | no | Operator-owned TypeSafe credential. Required, but not sufficient, to enable category suggestions. |
 | `YNAB_AI_CATEGORIZATION` | no | Set to `"true"` together with `TYPESAFE_API_KEY` to expose the opt-in suggestion tool. |
-| `YNAB_AI_TYPICAL_PAYEES` | no | Set to `"true"` to send each category's most frequent payee names from the last 12 months to the model with every suggestion request. Off by default because it discloses aggregated payee history to TypeSafe. |
+| `YNAB_AI_TYPICAL_PAYEES` | no | Set to `"true"` to send each category's most frequent payee names from the last 12 months with each model request. Off by default because it discloses aggregated payee history to TypeSafe. |
 | `YNAB_READ_ONLY` | no | Set to `"true"` (case-insensitive; surrounding whitespace is ignored) to register only the tools that read data, in both the stdio server and the Worker. |
 
 ### Local: Claude Desktop / Claude Code
@@ -249,9 +249,9 @@ payee, memo, amount, date, and account name/type/on-budget status, plus visible
 category group and category names, to **TypeSafe as a third-party processor**.
 For model-bound rows with similar-name matches, it also sends the matched payee
 names and per-category key, group, name, and count. When
-`YNAB_AI_TYPICAL_PAYEES=true`,
-every request also lists up to eight of each category's most frequent payee
-names from the last 12 months (`typical_payees`), and the response sets
+`YNAB_AI_TYPICAL_PAYEES=true`, each model request also lists up to eight of each
+category's most frequent payee names from the last 12 months
+(`typical_payees`), and the response sets
 `typical_payees_sent: true`. This makes the model noticeably more accurate on a
 household's own filing habits, but it discloses aggregated payee history, so it
 is off by default. It does not send YNAB UUIDs, balances, goals,
