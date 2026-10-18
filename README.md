@@ -52,6 +52,7 @@ Environment variables:
 | `YNAB_PLAN_ID` | no | Default plan, so tools can omit `planId`. Find it with `ynab_list_plans`. |
 | `TYPESAFE_API_KEY` | no | Operator-owned TypeSafe credential. Required, but not sufficient, to enable category suggestions. |
 | `YNAB_AI_CATEGORIZATION` | no | Set to `"true"` together with `TYPESAFE_API_KEY` to expose the opt-in suggestion tool. |
+| `YNAB_AI_TYPICAL_PAYEES` | no | Set to `"true"` to send each category's most frequent payee names from the last 12 months to the model with every suggestion request. Off by default because it discloses aggregated payee history to TypeSafe. |
 | `YNAB_READ_ONLY` | no | Set to `"true"` (case-insensitive; surrounding whitespace is ignored) to register only the tools that read data, in both the stdio server and the Worker. |
 
 ### Local: Claude Desktop / Claude Code
@@ -192,34 +193,78 @@ and removing everything except letters and numbers, one name begins the other
 and the shorter is at least six characters, so a truncated bank payee such as
 "Better Bl" draws on "Better Blend" history. Each history summary reports
 `match` (`payee`, `similar_payee_name`, or `null`) and
-`matched_payee_names`. The deterministic history rule applies only when at
-least three exact-payee rows all use the same still-eligible category. Similar-
-name history always goes to the model as suggestive evidence and never bypasses
-it. Every other eligible row goes to TypeSafe's pinned `jev-1.13.0` System One
-model in batches of ten. A disagreement between exact-payee history plurality
-and the model forces `needs_review`; similar-name disagreement is reported in
-the history summary but does not force review because a prefix match does not
-establish merchant identity. Every inspected eligible row includes a status,
-content fingerprint, proposed category, confidence, winning probability, up to three
-alternatives, and history summary. Applying a suggestion remains a separate,
-explicit human decision using `ynab_apply_category_suggestions` (or the general
-`ynab_update_transaction` tool).
+`matched_payee_names`.
+
+Each eligible row is then routed in this order, and `source` names the step
+that answered:
+
+1. **Exact-payee history (`history_rule`).** When at least one qualifying row
+   has the same payee ID and every such row uses the same still-eligible
+   category, that category is `suggested`. When those rows disagree, the row is
+   `needs_review` and proposes the most recently used category, with the
+   others as `top_alternatives` carrying their `history_count`. No model call is
+   made for either case.
+2. **Personal prior (`personal_prior`).** A naive-Bayes classifier is trained
+   for each request on the plan's own categorized ordinary outflows from the
+   same 12-month history, using payee and bank-import name tokens, the account,
+   and a coarse amount bucket. It needs at least 50 such rows across two or
+   more categories. When its top category reaches probability 0.9, the row is
+   `suggested` without a model call. The probability is reported under
+   `personal_prior.ranking`, never as `model_confidence`. Below 0.9 the prior
+   only ranks: its top three appear on the model's row for comparison.
+3. **Model (`jev`).** Every remaining row goes to TypeSafe's pinned
+   `jev-1.13.0` System One model in batches of ten. A model answer is a ranked
+   shortlist, never a suggestion: it is `needs_review` at or above the pinned
+   model's review threshold (0.5 for `jev-1.13.0`), `uncertain` below it, and
+   `left_uncategorized` when the model chooses not to pick. Thresholds are
+   stored per pinned model because confidence scales differ between models.
+
+Similar-name history always goes to the model as suggestive evidence and is
+never a rule. The history summary's `reference_category_id` is the category a
+proposal is compared with: the most recently used one for exact-payee history,
+and the plurality for similar-name history. A similar-name disagreement is
+reported as `conflict` but does not change the status, because a prefix match
+does not establish merchant identity. Every inspected eligible row includes a
+status, source, content fingerprint, proposed category, model confidence and
+winning probability (model rows only), up to three alternatives, the history
+summary, and the personal-prior ranking where one was computed. The response's
+`thresholds` object reports the values in force, and `personal_prior` reports
+how many rows trained the prior and whether it was used. Applying a suggestion
+remains a separate, explicit human decision using
+`ynab_apply_category_suggestions` (or the general `ynab_update_transaction`
+tool).
+
+Why this order: households file payees their own way, such as restaurants
+under a groceries category or clinics under a savings category. A
+general-purpose model cannot know that, but the plan's own history encodes it.
+On real household history, history rules and the personal prior were much more
+accurate than a model on the same rows. The model's high-confidence answers
+were wrong far more often than on synthetic fixtures, which is why they are
+review-only. To evaluate your own plan, or a local model, see
+[Evaluating categorization and local decision models](./docs/local-decision-model.md).
 
 Enabling this feature sends the transaction's display payee, imported/original
 payee, memo, amount, date, and account name/type/on-budget status, plus visible
 category group and category names, to **TypeSafe as a third-party processor**.
 For similar-name matches only, it also sends the matched payee names and
-per-category key, group, name, and count. It does not send YNAB UUIDs, balances,
-goals, approval/cleared state, or raw transaction history. TypeSafe's published
+per-category key, group, name, and count. When `YNAB_AI_TYPICAL_PAYEES=true`,
+every request also lists up to eight of each category's most frequent payee
+names from the last 12 months (`typical_payees`), and the response sets
+`typical_payees_sent: true`. This makes the model noticeably more accurate on a
+household's own filing habits, but it discloses aggregated payee history, so it
+is off by default. It does not send YNAB UUIDs, balances, goals,
+approval/cleared state, or raw transaction history. Rows answered by history or
+the personal prior are never sent. TypeSafe's published
 Jev 1.13 price at the time of this release is **$0.042 per million input tokens;
 output tokens are free**. The tool returns preflight estimates, actual token
 usage, and projected cost on each run
 and refuses requests over its per-call token/cost ceilings. Pricing and
 provider limits can change; check <https://docs.typesafe.ai/models>.
 
-The prototype is intentionally narrow and not default-on. Its supporting
+The prototype is intentionally narrow and not default-on. Its original
 98.3% exact-label, 98.9% top-three, and 60/60 expected-abstention results came
-from 40 synthetic, single-evaluator fixtures—not a production accuracy claim.
+from 40 synthetic, single-evaluator fixtures, not a production accuracy claim.
+Real household history is much harder, as described above.
 
 ### Reporting
 

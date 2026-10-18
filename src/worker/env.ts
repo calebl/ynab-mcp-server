@@ -23,6 +23,8 @@ export interface WorkerEnv {
   TYPESAFE_API_KEY?: string;
   /** Set to "true" as a separate opt-in for category suggestions. */
   YNAB_AI_CATEGORIZATION?: string;
+  /** Set to "true" to send each category's most frequent payee names to the model. */
+  YNAB_AI_TYPICAL_PAYEES?: string;
 
   /**
    * Calendar reminder. Absent means the scheduled nag stays switched off.
