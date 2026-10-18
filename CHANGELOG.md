@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ynab_suggest_categories` learns a personal prior from the plan's own categorized outflows on each request. This is a naive-Bayes classifier over payee and bank-import name tokens, the account, and an amount bucket. When training history spans at least two categories, a pick at probability 0.9 or higher is returned as `suggested` with `source: "personal_prior"` and no model call. Name tokens never seen in training are ignored. Lower picks only rank, under each model row's new `personal_prior.ranking`. The response reports the prior's training size under `personal_prior`.
 - Optional `YNAB_AI_TYPICAL_PAYEES=true` setting (stdio and Worker) that adds each eligible category's most frequent payee names to the model request as `typical_payees`, reported by the new `typical_payees_sent` response field. It is off by default because it discloses aggregated payee history to TypeSafe.
 - [Evaluating categorization and local decision models](docs/local-decision-model.md): how to build a labeled set from your own history, measure baselines, and evaluate a local decision model that speaks the same request shape.
+- Optional auto-budget service in the Cloudflare Worker, run by the existing hourly cron trigger. It syncs from YNAB with delta requests into a D1 database, records what it would categorize, approve and assign to targets in an audit log, alerts through Pushover on overspending, negative Ready to Assign and broken bank imports, and sends a daily digest with spending pace, underfunded bills and the unapproved backlog. This version runs in shadow mode only and never writes to YNAB; `YNAB_READ_ONLY` keeps it in shadow mode. Off unless `AUTOBUDGET_MODE` and an `AUTOBUDGET_DB` binding are set; see DEPLOY.md.
+- Worker-only MCP tools `ynab_autobudget_status`, `ynab_autobudget_plan` (dry run) and `ynab_autobudget_pause`, served when `AUTOBUDGET_DB` is bound.
 
 ### Changed
 - `ynab_suggest_categories` now routes rows to exact-payee history, then the personal prior, then the model.
@@ -18,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Disagreeing exact-payee history no longer goes to the model. The row is `needs_review` with source `history_rule`, proposing the most recently used category, with the others as `top_alternatives` carrying `history_count` and `probability: null`.
 - History summaries add `reference_category_id`: the last-used category for exact-payee history, or the plurality for similar-name history. Agreement and `conflict` are now judged against it; `dominant_category_id` is still reported.
 - Model answers are never `suggested`. Every answer naming a category is `needs_review`; only an explicit model abstention is `left_uncategorized`. Review thresholds are stored per pinned model and the current model's is 0, matching that behavior. The response's `thresholds.suggested_at_or_above` is now `null`, and new fields report the model, history-rule floor and personal-prior settings.
+
+### Fixed
+- When `YNAB_PLAN_ID` names a plan the token cannot access, calls that rely on it now say so and list the plans the token can see, instead of failing with YNAB's bare "Resource not found".
 
 ## [0.4.2] - 2026-10-14
 

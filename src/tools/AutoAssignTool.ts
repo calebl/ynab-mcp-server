@@ -22,7 +22,7 @@ interface AutoAssignInput {
   maxTotal?: number;
 }
 
-interface PlannedAssignment {
+export interface PlannedAssignment {
   categoryId: string;
   name: string;
   currentBudgeted: number;
@@ -35,7 +35,7 @@ interface PlannedAssignment {
 
 
 /** Builds the assignment plan in milliunits, biggest shortfall first. */
-function planAssignments(
+export function planAssignments(
   categories: ynab.Category[],
   availableMilliunits: number,
   decimalDigits: number

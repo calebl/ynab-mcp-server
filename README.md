@@ -24,7 +24,10 @@ It runs two ways from one codebase:
   with your computer switched off. See [DEPLOY.md](./DEPLOY.md).
 
 Both entry points register the same tools from `src/registry.ts`, so a tool
-written once is available in both.
+written once is available in both. The Worker can also run an optional
+scheduled auto-budget service that alerts you about spending and records what it
+would categorize, approve and assign, without changing your plan; see
+[Auto-budget service](./DEPLOY.md#auto-budget-service-optional).
 
 Other providers:
 

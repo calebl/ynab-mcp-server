@@ -385,3 +385,59 @@ describe("tool registration", () => {
     }
   });
 });
+
+describe("a configured plan the token cannot see", () => {
+  const notFound = { error: { id: "404.2", name: "resource_not_found", detail: "Resource not found" } };
+
+  function apiWithPlans(plans: Array<{ id: string; name: string }>) {
+    return {
+      plans: { getPlans: vi.fn().mockResolvedValue({ data: { plans } }) },
+      accounts: { getAccounts: vi.fn().mockRejectedValue(notFound) },
+    } as unknown as ynab.API;
+  }
+
+  it("is named in the error of a call that relied on it, with the plans the token can see", async () => {
+    vi.stubEnv("YNAB_PLAN_ID", "configured-plan");
+    const api = apiWithPlans([{ id: "real-plan", name: "Household" }]);
+    const registered = register(api);
+
+    const result = await registered.get("ynab_list_accounts")!.callback({});
+    expect(result.isError).toBe(true);
+    const { error } = JSON.parse(result.content[0].text);
+    expect(error).toContain("The configured plan configured-plan (YNAB_PLAN_ID) is not one of the plans this YNAB token can access");
+    expect(error).toContain('"Household" (real-plan)');
+
+    // The plan list is read once per client, not on every failure.
+    await registered.get("ynab_list_accounts")!.callback({});
+    expect(api.plans.getPlans).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the error alone when the plan is visible or was passed explicitly", async () => {
+    vi.stubEnv("YNAB_PLAN_ID", "real-plan");
+    const visible = await register(apiWithPlans([{ id: "real-plan", name: "Household" }]))
+      .get("ynab_list_accounts")!.callback({});
+    expect(JSON.parse(visible.content[0].text).error).toBe("Resource not found");
+
+    vi.stubEnv("YNAB_PLAN_ID", "configured-plan");
+    const api = apiWithPlans([]);
+    const explicit = await register(api).get("ynab_list_accounts")!.callback({ planId: "other-plan" });
+    expect(JSON.parse(explicit.content[0].text).error).toBe("Resource not found");
+    expect(api.plans.getPlans).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the original error when the plan list cannot be read", async () => {
+    vi.stubEnv("YNAB_PLAN_ID", "configured-plan");
+    const api = {
+      plans: { getPlans: vi.fn().mockRejectedValue(new Error("offline")) },
+      accounts: { getAccounts: vi.fn().mockRejectedValue(notFound) },
+    } as unknown as ynab.API;
+    const registered = register(api);
+
+    for (let i = 0; i < 2; i++) {
+      const result = await registered.get("ynab_list_accounts")!.callback({});
+      expect(JSON.parse(result.content[0].text).error).toBe("Resource not found");
+    }
+    // A failed lookup is not cached.
+    expect(api.plans.getPlans).toHaveBeenCalledTimes(2);
+  });
+});

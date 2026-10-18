@@ -1,6 +1,8 @@
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
 
 import { GitHubHandler } from "./github-handler.js";
+import { getErrorMessage } from "../tools/errorUtils.js";
+import { runAutobudget } from "./autobudget/run.js";
 import { McpApiHandler } from "./mcp.js";
 import { runNag } from "./nag.js";
 import type { WorkerEnv } from "./env.js";
@@ -21,7 +23,8 @@ export default {
 
   /**
    * Runs hourly. The nag itself only acts in the configured local hour, so the
-   * reminder holds its wall-clock time through daylight saving changes.
+   * reminder holds its wall-clock time through daylight saving changes. The
+   * auto-budget service runs every hour it is switched on.
    */
   async scheduled(_event: ScheduledController, env: WorkerEnv, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
@@ -34,5 +37,10 @@ export default {
         console.log("oauth purge:", JSON.stringify(purged));
       }
     })());
+
+    ctx.waitUntil(runAutobudget(env)
+      // The outcome carries counts and the run's own error text, never amounts or payees.
+      .then((outcome) => console.log("autobudget:", JSON.stringify(outcome)))
+      .catch((error) => console.error("autobudget failed:", getErrorMessage(error))));
   },
 };

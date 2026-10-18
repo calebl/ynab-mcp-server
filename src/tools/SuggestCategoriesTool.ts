@@ -180,7 +180,7 @@ const EXCLUDED_CATEGORY_IDS = new Set([
 ]);
 
 // YNAB creates these system payees, which the API exposes only by name.
-const BALANCE_ADJUSTMENT_PAYEE_NAMES = new Set([
+export const BALANCE_ADJUSTMENT_PAYEE_NAMES = new Set([
   "Starting Balance",
   "Manual Balance Adjustment",
   "Reconciliation Balance Adjustment",

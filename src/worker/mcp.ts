@@ -1,7 +1,8 @@
 import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
 import * as ynab from "ynab";
 
-import { isReadOnly, registerAll } from "../registry.js";
+import { isReadOnly, registerAll, registerTools } from "../registry.js";
+import { autobudgetTools } from "./autobudget/tools.js";
 import type { WorkerEnv } from "./env.js";
 
 /**
@@ -34,7 +35,10 @@ export function createServer(env: WorkerEnv) {
   });
 
   const api = new ynab.API(env.YNAB_API_TOKEN);
-  registerAll(server, api, { readOnly: isReadOnly(env.YNAB_READ_ONLY) });
+  const readOnly = isReadOnly(env.YNAB_READ_ONLY);
+  registerAll(server, api, { readOnly });
+  // The auto-budget tools keep their state in D1, which only the Worker has.
+  if (env.AUTOBUDGET_DB) registerTools(server, api, autobudgetTools(env), { readOnly });
 
   return server;
 }

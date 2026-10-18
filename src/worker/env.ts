@@ -40,4 +40,19 @@ export interface WorkerEnv {
    */
   NAG_HOUR_MIN?: string;
   NAG_HOUR_MAX?: string;
+
+  /**
+   * Auto-budget service. Absent database means the service stays off and its
+   * tools are not registered.
+   */
+  AUTOBUDGET_DB?: D1Database;
+  /** "off" (default), "shadow" or "live". This version never writes to YNAB, so "live" runs as shadow. */
+  AUTOBUDGET_MODE?: string;
+  /** IANA zone for the daily digest. Defaults to NAG_TIMEZONE, then America/Los_Angeles. */
+  AUTOBUDGET_TIMEZONE?: string;
+  /** Local hour (0-23) the daily digest is sent. Defaults to 8. */
+  AUTOBUDGET_DIGEST_HOUR?: string;
+  /** Pushover credentials for alerts and the digest. Secrets; absent means nothing is sent. */
+  PUSHOVER_APP_TOKEN?: string;
+  PUSHOVER_USER_KEY?: string;
 }
