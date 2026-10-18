@@ -89,13 +89,17 @@ async function evaluate(
   const { date: today } = localDateParts(now, config.timeZone);
   const base = planPath(planId);
 
-  const synced = await syncTransactions(reader, store, planId, today, now);
-  if (recordRecovery) await store.clearOpenAlerts("plan_not_visible", []);
-  await syncAccounts(reader, store, planId, now);
-  const accounts = await store.accounts();
-  if (recordRecovery) {
-    await store.clearOpenAlerts("import_error", activeImportErrors(accounts).map((account) => account.id));
-  }
+  const synced = await syncTransactions(reader, store, planId, today, now,
+    recordRecovery ? () => store.clearOpenAlerts("plan_not_visible", []) : undefined);
+  let accounts = await store.accounts();
+  await syncAccounts(reader, store, planId, now, async (changed) => {
+    const merged = new Map(accounts.map((account) => [account.id, account]));
+    for (const account of changed) merged.set(account.id, account);
+    accounts = [...merged.values()];
+    if (recordRecovery) {
+      await store.clearOpenAlerts("import_error", activeImportErrors(accounts).map((account) => account.id));
+    }
+  });
   const currency = await planCurrency(reader, planId);
   const { category_groups: groups } = await reader.get<{ category_groups: ynab.CategoryGroupWithCategories[] }>(`${base}/categories`);
   const { month } = await reader.get<{ month: ynab.MonthDetail }>(`${base}/months/${today.slice(0, 7)}-01`);

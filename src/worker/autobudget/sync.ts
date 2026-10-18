@@ -61,22 +61,38 @@ export interface SyncResult {
  * window; every later one asks only for what changed since the stored
  * `server_knowledge`, which is a few bytes when nothing did.
  */
-export async function syncTransactions(reader: YnabReader, store: Store, planId: string, today: string, now: Date): Promise<SyncResult> {
+export async function syncTransactions(
+  reader: YnabReader,
+  store: Store,
+  planId: string,
+  today: string,
+  now: Date,
+  afterRead?: () => Promise<void>,
+): Promise<SyncResult> {
   const cursor = await store.getCursor("transactions");
   const query = cursor === null ? `since_date=${historyStart(today)}` : `last_knowledge_of_server=${cursor}`;
   const data = await reader.get<{ transactions: ynab.TransactionDetail[]; server_knowledge: number }>(
     `${planPath(planId)}/transactions?${query}`,
   );
+  await afterRead?.();
   await store.upsertTransactions(data.transactions.map(toStoredTransaction));
   await store.setCursor("transactions", data.server_knowledge, now);
   return { changed: data.transactions.length, full: cursor === null };
 }
 
-export async function syncAccounts(reader: YnabReader, store: Store, planId: string, now: Date): Promise<SyncResult> {
+export async function syncAccounts(
+  reader: YnabReader,
+  store: Store,
+  planId: string,
+  now: Date,
+  afterRead?: (accounts: StoredAccount[]) => Promise<void>,
+): Promise<SyncResult> {
   const cursor = await store.getCursor("accounts");
   const query = cursor === null ? "" : `?last_knowledge_of_server=${cursor}`;
   const data = await reader.get<{ accounts: ynab.Account[]; server_knowledge: number }>(`${planPath(planId)}/accounts${query}`);
-  await store.upsertAccounts(data.accounts.map(toStoredAccount));
+  const accounts = data.accounts.map(toStoredAccount);
+  await afterRead?.(accounts);
+  await store.upsertAccounts(accounts);
   await store.setCursor("accounts", data.server_knowledge, now);
   return { changed: data.accounts.length, full: cursor === null };
 }

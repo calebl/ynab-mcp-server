@@ -54,6 +54,26 @@ function decisionRows(db: ReturnType<typeof createTestD1>) {
   return db.sqlite.prepare("SELECT stage, subject_id, action, reason FROM decision ORDER BY id").all() as Array<Record<string, string>>;
 }
 
+function controllableBatchFailure(db: D1Database): { binding: D1Database; failNextBatch: () => void } {
+  let failNext = false;
+  const binding = new Proxy(db, {
+    get(target, property) {
+      if (property === "batch") {
+        return async (statements: D1PreparedStatement[]) => {
+          if (failNext) {
+            failNext = false;
+            throw new Error("injected D1 persistence failure");
+          }
+          return target.batch(statements);
+        };
+      }
+      const value = Reflect.get(target, property);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { binding, failNextBatch: () => { failNext = true; } };
+}
+
 describe("runAutobudget", () => {
   it("reads the history window first, then asks YNAB only for what changed", async () => {
     const db = createTestD1();
@@ -223,11 +243,12 @@ describe("runAutobudget", () => {
     expect((await status(env, NIGHT)).lastRun).toMatchObject({ outcome: "plan_not_visible" });
   });
 
-  it("clears plan visibility recovery before a later evaluation failure", async () => {
+  it("clears plan visibility recovery before transaction persistence", async () => {
     const db = createTestD1();
     const apis = scenario();
     const configuredPlan = "22222222-2222-4222-8222-222222222222";
-    const env = makeEnv(db, { YNAB_PLAN_ID: configuredPlan });
+    const failure = controllableBatchFailure(db);
+    const env = makeEnv(failure.binding, { YNAB_PLAN_ID: configuredPlan });
     let visible = false;
     const fetchWithChangingVisibility = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -236,11 +257,10 @@ describe("runAutobudget", () => {
 
     await runAutobudget(env, { fetch: fetchWithChangingVisibility, now: NIGHT });
     visible = true;
-    apis.state.failures = { "/categories": 500 };
+    failure.failNextBatch();
     expect(await runAutobudget(env, { fetch: fetchWithChangingVisibility, now: NIGHT }))
-      .toMatchObject({ outcome: "error" });
+      .toMatchObject({ outcome: "error", error: "injected D1 persistence failure" });
     visible = false;
-    apis.state.failures = {};
     await runAutobudget(env, { fetch: fetchWithChangingVisibility, now: NIGHT });
 
     expect(pushes(apis.requests).map((request) => pushParams(request).get("title"))).toEqual([
@@ -271,21 +291,21 @@ describe("runAutobudget", () => {
     expect(pushes(apis.requests)).toHaveLength(1);
   });
 
-  it("re-alerts a bank import repaired before a later evaluation failure", async () => {
+  it("clears repaired import alerts before account persistence", async () => {
     const db = createTestD1();
     const apis = scenario();
     apis.state.month = month({ categories: [dining] });
     const broken = account({ direct_import_in_error: true });
+    const failure = controllableBatchFailure(db);
 
     apis.state.accounts = [broken];
-    await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT });
+    await runAutobudget(makeEnv(failure.binding), { fetch: apis.fetch, now: NIGHT });
+    failure.failNextBatch();
     apis.state.accounts = [account({ direct_import_in_error: false })];
-    apis.state.failures = { "/categories": 500 };
-    expect(await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT }))
-      .toMatchObject({ outcome: "error" });
+    expect(await runAutobudget(makeEnv(failure.binding), { fetch: apis.fetch, now: NIGHT }))
+      .toMatchObject({ outcome: "error", error: "injected D1 persistence failure" });
     apis.state.accounts = [broken];
-    apis.state.failures = {};
-    await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT });
+    await runAutobudget(makeEnv(failure.binding), { fetch: apis.fetch, now: NIGHT });
 
     expect(pushes(apis.requests).map((r) => pushParams(r).get("title"))).toEqual([
       "Bank import broken: Checking",
