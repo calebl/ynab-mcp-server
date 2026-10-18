@@ -178,6 +178,17 @@ function isFailureResult(result: unknown): boolean {
   }
 }
 
+function attachPlanExplanation(result: any, explanation: string) {
+  const content = [...(result.content ?? [])];
+  try {
+    const detail = JSON.parse(content[0].text);
+    content[0] = { ...content[0], text: JSON.stringify({ ...detail, plan_visibility_error: explanation }, null, 2) };
+  } catch {
+    content.push({ type: "text" as const, text: explanation });
+  }
+  return { ...result, content, isError: true };
+}
+
 /** In-flight plan-visibility checks, shared by concurrent failures. */
 const planChecks = new WeakMap<ynab.API, Map<string, Promise<string | null>>>();
 
@@ -213,7 +224,7 @@ async function executeTool(module: ToolModule, input: unknown, api: ynab.API) {
     const result = await module.execute(input, api);
     if (!isFailureResult(result)) return result;
     const explanation = await explainDefaultPlanFailure(module, input, api);
-    return explanation ? toolError(explanation) : { ...result, isError: true };
+    return explanation ? attachPlanExplanation(result, explanation) : { ...result, isError: true };
   } catch (error) {
     return toolError((await explainDefaultPlanFailure(module, input, api)) ?? getErrorMessage(error));
   }

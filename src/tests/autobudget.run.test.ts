@@ -623,8 +623,22 @@ describe("Store", () => {
     const db = createTestD1();
     const store = new Store(db, PLAN_ID);
     await store.upsertTransactions([
-      txn({ id: "old-approved", date: "2025-06-01", approved: true, category_id: "c-dining" }),
+      txn({ id: "old-categorized", date: "2025-06-01", approved: true, category_id: "c-dining" }),
       txn({ id: "old-unapproved", date: "2025-06-01" }),
+      txn({ id: "old-uncategorized", date: "2025-06-01", approved: true }),
+      txn({ id: "old-transfer", date: "2025-06-01", approved: true, transfer_account_id: "other-account" }),
+      txn({
+        id: "old-split",
+        date: "2025-06-01",
+        approved: true,
+        subtransactions: [{
+          id: "old-split-part",
+          transaction_id: "old-split",
+          amount: -12_500,
+          category_id: "c-dining",
+          deleted: false,
+        }],
+      }),
       txn({ id: "recent-deleted", date: "2026-10-01", deleted: true }),
       txn({ id: "recent-approved", date: "2026-10-01", approved: true, category_id: "c-dining" }),
     ].map(toStoredTransaction));
@@ -632,7 +646,8 @@ describe("Store", () => {
     await store.prune(new Date("2025-01-01T00:00:00Z"), "2025-10-01");
 
     const ids = (db.sqlite.prepare("SELECT id FROM txn ORDER BY id").all() as Array<{ id: string }>).map((row) => row.id);
-    expect(ids).toEqual(["old-unapproved", "recent-approved"]);
+    expect(ids).toEqual(["old-unapproved", "old-uncategorized", "recent-approved"]);
+    expect((await store.pendingTransactions()).map((row) => row.id)).toEqual(["old-unapproved", "old-uncategorized"]);
   });
 
   it("treats a same-amount row as a possible duplicate only within three days", async () => {

@@ -344,9 +344,12 @@ can see, and Pushover alerts you once.
   from interleaving with a scheduled one.
 - **The audit log shows changes, not repeats.** A decision is recorded again
   only when it differs from the last one for that transaction or category.
-  Runs, decisions and periodic alerts are kept for 13 months. Unresolved open
-  alerts are kept until their condition clears. The transaction mirror keeps
-  the 12-month history window plus every unapproved transaction, however old.
+  Phase 1 records the first shadow decision per subject; if that subject returns
+  to the identical state without an intervening recorded decision, it is not
+  logged again. Runs, decisions and periodic alerts are kept for 13 months.
+  Unresolved open alerts are kept until their condition clears. The transaction
+  mirror keeps the 12-month history window plus every pending transaction,
+  including approved uncategorized non-transfer, non-split rows, however old.
 
 ### MCP tools
 
