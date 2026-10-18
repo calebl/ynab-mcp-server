@@ -231,8 +231,8 @@ status, source, content fingerprint, proposed category, model confidence and
 winning probability (model rows only), up to three alternatives, the history
 summary, and the personal-prior ranking where one was computed. The response's
 `thresholds` object reports the values in force, and `personal_prior` reports
-how many rows trained the prior and whether it was used. Applying a suggestion
-remains a separate, explicit human decision using
+how many rows trained the prior and whether it was available for routing.
+Applying a suggestion remains a separate, explicit human decision using
 `ynab_apply_category_suggestions` (or the general `ynab_update_transaction`
 tool).
 

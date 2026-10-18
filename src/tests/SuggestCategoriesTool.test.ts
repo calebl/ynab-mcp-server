@@ -628,8 +628,9 @@ describe("SuggestCategoriesTool", () => {
       status: "suggested",
       source: "personal_prior",
       proposed_category: { id: "cat-grocery" },
-      personal_prior: { ranking: [{ category: { id: "cat-grocery" } }] },
     });
+    expect(output.transactions[0].personal_prior.ranking[0].category.id).toBe("cat-grocery");
+    expect(output.transactions[0].personal_prior.ranking[0].category.id).not.toBe("cat-dining");
     expect(output.transactions[0].personal_prior.ranking[0].probability).toBeGreaterThanOrEqual(
       Tool.PERSONAL_PRIOR_SUGGEST_PROBABILITY,
     );
