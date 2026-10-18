@@ -389,18 +389,19 @@ export async function dryRun(env: WorkerEnv, options: RunOptions = {}): Promise<
       requestedMode: config.requestedMode,
       modeReason: config.modeReason,
       paused: Boolean(await store.getState("paused")),
-      calls: reader.calls,
     };
     if (evaluation.syncInProgress) {
       return {
         ...common,
+        calls: reader.calls,
         syncInProgress: true,
         syncedTransactions: evaluation.synced.transactions,
         rowsRemaining: evaluation.synced.remaining,
       };
     }
     const bills = await readBills(reader, planId, evaluation);
-    return { ...common, syncInProgress: false, evaluation, bills };
+    // Counted after the bills request, so the total includes every call this dry run made.
+    return { ...common, calls: reader.calls, syncInProgress: false, evaluation, bills };
   } catch (error) {
     if (error instanceof YnabRequestError && error.status === 404) {
       const explanation = await explainMissingPlan(reader, planId);

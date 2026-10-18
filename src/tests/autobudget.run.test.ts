@@ -475,6 +475,14 @@ describe("runAutobudget", () => {
 });
 
 describe("dryRun", () => {
+  it("reports every YNAB request it made, the bills request included", async () => {
+    const apis = scenario();
+    const run = await dryRun(makeEnv(createTestD1()), { fetch: apis.fetch, now: NIGHT });
+
+    expect(ynabRequests(apis.requests).some((r) => r.url.includes("/scheduled_transactions"))).toBe(true);
+    expect(run.calls).toBe(ynabRequests(apis.requests).length);
+  });
+
   it("shows the decisions without recording them or notifying", async () => {
     const db = createTestD1();
     const apis = scenario();
