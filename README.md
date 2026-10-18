@@ -23,8 +23,11 @@ It runs two ways from one codebase:
   claude.ai as a custom connector, so it works from the web and the mobile app
   with your computer switched off. See [DEPLOY.md](./DEPLOY.md).
 
-Both entry points register the same tools from `src/registry.ts`, so a tool
-written once is available in both.
+Both entry points register the shared tools from `src/registry.ts`. The Worker
+can also run an optional scheduled auto-budget service that records what it
+would categorize, approve and assign without changing your plan and delivers
+spending alerts; see
+[Auto-budget service](./DEPLOY.md#auto-budget-service-optional).
 
 Other providers:
 
@@ -53,7 +56,7 @@ Environment variables:
 | `TYPESAFE_API_KEY` | no | Operator-owned TypeSafe credential. Required, but not sufficient, to enable category suggestions. |
 | `YNAB_AI_CATEGORIZATION` | no | Set to `"true"` together with `TYPESAFE_API_KEY` to expose the opt-in suggestion tool. |
 | `YNAB_AI_TYPICAL_PAYEES` | no | Set to `"true"` to send each category's most frequent payee names from the last 12 months with each model request. Off by default because it discloses aggregated payee history to TypeSafe. |
-| `YNAB_READ_ONLY` | no | Set to `"true"` (case-insensitive; surrounding whitespace is ignored) to register only the tools that read data, in both the stdio server and the Worker. |
+| `YNAB_READ_ONLY` | no | Set to `"true"` (case-insensitive; surrounding whitespace is ignored) to remove tools that write to YNAB, in both the stdio server and the Worker. |
 
 ### Local: Claude Desktop / Claude Code
 
@@ -79,7 +82,9 @@ claude.ai or the Claude mobile app, deploy `src/worker/` to Cloudflare Workers
 and add it as a custom connector. [DEPLOY.md](./DEPLOY.md) has the full walk
 through; the shape of it:
 
-1. Copy `wrangler.example.jsonc` to the git-ignored `wrangler.jsonc`, run
+1. Copy `wrangler.example.jsonc` to the git-ignored `wrangler.jsonc`, remove
+   the optional placeholder `AUTOBUDGET_DB` block unless you are configuring
+   the [auto-budget service](./DEPLOY.md#auto-budget-service-optional), run
    `npx wrangler login`, then create the `OAUTH_KV` namespace
 2. `npm run deploy` once to learn your `*.workers.dev` hostname
 3. Create a GitHub OAuth app whose callback is `https://<host>/callback`
@@ -125,8 +130,8 @@ YNAB recommends a Personal Access Token for an individual accessing their own
 account
 ([Personal Access Tokens](https://api.ynab.com/#personal-access-tokens)).
 
-Setting `YNAB_READ_ONLY` to `"true"` drops every write tool from the tool list,
-which is worth considering for a connector you will mostly use on a phone.
+Setting `YNAB_READ_ONLY` to `"true"` drops every YNAB write tool from the tool
+list, which is worth considering for a connector you will mostly use on a phone.
 
 ## Tools
 
@@ -336,10 +341,10 @@ text content, so a failed write is never mistaken for a successful one.
 #### Tool annotations
 
 Every tool advertises MCP annotations (`readOnlyHint`, `destructiveHint`,
-`idempotentHint`, `openWorldHint`) alongside its schema. Reading tools are
-`readOnlyHint: true`; among the writing tools, only `ynab_delete_transaction`
-sets `destructiveHint: true`. A client may use these hints to decide which
-calls need a confirmation prompt.
+`idempotentHint`, `openWorldHint`) alongside its schema. Tools that change
+neither YNAB nor the Worker's service state are `readOnlyHint: true`; among the
+YNAB writing tools, only `ynab_delete_transaction` sets `destructiveHint: true`.
+A client may use these hints to decide which calls need a confirmation prompt.
 
 #### `cleared` and `flagColor`
 

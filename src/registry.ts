@@ -26,6 +26,7 @@ import * as CashFlowTool from "./tools/CashFlowTool.js";
 import * as SuggestCategoriesTool from "./tools/SuggestCategoriesTool.js";
 import * as ApplyCategorySuggestionsTool from "./tools/ApplyCategorySuggestionsTool.js";
 import { getErrorMessage, toolError } from "./tools/errorUtils.js";
+import { configuredPlanId, describeMissingPlan } from "./tools/planId.js";
 
 /** A tool module as exported by every file in src/tools. */
 interface ToolModule {
@@ -40,6 +41,11 @@ export interface ToolEntry {
   module: ToolModule;
   /** True when the tool changes data in YNAB rather than only reading it. */
   writes: boolean;
+  /**
+   * True when the tool changes this server's own state but never YNAB data.
+   * It is not advertised as read-only, yet stays available in read-only mode.
+   */
+  changesServerState?: boolean;
   /** True when the tool's effect cannot be undone. Defaults to false. */
   destructive?: boolean;
   /** True when repeating the call with the same arguments has no further effect. Defaults to false. */
@@ -107,7 +113,7 @@ export function isReadOnly(value: string | undefined): boolean {
 }
 
 export interface RegisterOptions {
-  /** Register only the read-only tools. */
+  /** Omit tools that write to YNAB. */
   readOnly?: boolean;
 }
 
@@ -147,7 +153,7 @@ function nullCompatibleInputSchema(inputSchema: Record<string, unknown>) {
 function buildAnnotations(tool: ToolEntry) {
   return {
     title: tool.title,
-    readOnlyHint: !tool.writes,
+    readOnlyHint: !tool.writes && !tool.changesServerState,
     destructiveHint: Boolean(tool.destructive),
     idempotentHint: Boolean(tool.idempotent),
     openWorldHint: true,
@@ -172,22 +178,72 @@ function isFailureResult(result: unknown): boolean {
   }
 }
 
+function attachPlanExplanation(result: any, explanation: string) {
+  const content = [...(result.content ?? [])];
+  try {
+    const detail = JSON.parse(content[0].text);
+    content[0] = { ...content[0], text: JSON.stringify({ ...detail, plan_visibility_error: explanation }, null, 2) };
+  } catch {
+    content.push({ type: "text" as const, text: explanation });
+  }
+  return { ...result, content, isError: true };
+}
+
+/** In-flight plan-visibility checks, shared by concurrent failures. */
+const planChecks = new WeakMap<ynab.API, Map<string, Promise<string | null>>>();
+
+/**
+ * When a call that fell back to the configured plan fails, checks whether the
+ * token can see that plan at all and, if not, says so instead of the bare
+ * "Resource not found". Returns null when the plan is fine or the check fails.
+ */
+async function explainDefaultPlanFailure(module: ToolModule, input: unknown, api: ynab.API): Promise<string | null> {
+  const given = input as { planId?: unknown; budgetId?: unknown } | undefined;
+  const planId = configuredPlanId();
+  if (!("planId" in module.inputSchema) || given?.planId || given?.budgetId || !planId) return null;
+
+  const checks = planChecks.get(api) ?? new Map<string, Promise<string | null>>();
+  planChecks.set(api, checks);
+  let check = checks.get(planId);
+  if (!check) {
+    check = (async () => describeMissingPlan(planId, (await api.plans.getPlans()).data.plans))();
+    checks.set(planId, check);
+  }
+  try {
+    return await check;
+  } catch {
+    return null;
+  } finally {
+    if (checks.get(planId) === check) checks.delete(planId);
+  }
+}
+
 /** Runs a tool's execute, guaranteeing a failure - thrown or `{success: false}` - comes back as `isError: true`. */
 async function executeTool(module: ToolModule, input: unknown, api: ynab.API) {
   try {
     const result = await module.execute(input, api);
-    return isFailureResult(result) ? { ...result, isError: true } : result;
+    if (!isFailureResult(result)) return result;
+    const explanation = await explainDefaultPlanFailure(module, input, api);
+    return explanation ? attachPlanExplanation(result, explanation) : { ...result, isError: true };
   } catch (error) {
-    return toolError(getErrorMessage(error));
+    return toolError((await explainDefaultPlanFailure(module, input, api)) ?? getErrorMessage(error));
   }
 }
 
-/** Register every tool (or only the read-only ones) against a server instance. */
+/** Register every tool, optionally omitting YNAB write tools, against a server instance. */
 export function registerAll(server: ToolRegistrar, api: ynab.API, options: RegisterOptions = {}) {
   const selected = tools.filter((tool) =>
-    (!options.readOnly || !tool.writes) &&
-    (!tool.requiresAiCategorization || SuggestCategoriesTool.isCategorySuggestionEnabled())
+    !tool.requiresAiCategorization || SuggestCategoriesTool.isCategorySuggestionEnabled()
   );
+  return registerTools(server, api, selected, options);
+}
+
+/**
+ * Register the given entries, dropping YNAB write tools in read-only mode.
+ * The Worker also uses this for the tools only it can serve.
+ */
+export function registerTools(server: ToolRegistrar, api: ynab.API, entries: ToolEntry[], options: RegisterOptions = {}) {
+  const selected = entries.filter((tool) => !options.readOnly || !tool.writes);
 
   for (const tool of selected) {
     const { title, module } = tool;

@@ -31,6 +31,7 @@ This is a **Model Context Protocol (MCP) server** that provides AI tools for int
 - **Tool registry**: `src/registry.ts` - the single list of tools, shared by both entry points
 - **stdio entry**: `src/index.ts` - local server for Claude Code / Claude Desktop
 - **Worker entry**: `src/worker/` - Cloudflare Worker serving the same tools over HTTP behind GitHub OAuth (see `DEPLOY.md`)
+- **Auto-budget service**: `src/worker/autobudget/` - Worker-only scheduled job and its MCP tools, with D1 schema in `migrations/` (see `DEPLOY.md`)
 - **Tools**: `src/tools/*.ts` - Each tool is a separate module exporting `name`, `description`, `inputSchema`, and `execute` function
 - **Tests**: `src/tests/*.test.ts` - Vitest tests for each tool
 

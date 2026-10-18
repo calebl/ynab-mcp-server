@@ -3,6 +3,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import { createServer, McpApiHandler } from "../worker/mcp.js";
 import { tools } from "../registry.js";
 import type { WorkerEnv } from "../worker/env.js";
+import { createTestD1 } from "./stubs/d1.js";
 
 const env: WorkerEnv = {
   YNAB_API_TOKEN: "test-token",
@@ -129,5 +130,16 @@ describe("worker MCP handler", () => {
     expect(names).toContain("ynab_budget_summary");
     expect(names).not.toContain("ynab_create_transaction");
     expect(names).not.toContain("ynab_delete_transaction");
+  });
+
+  it("serves the auto-budget tools only with their database bound, read-only mode included", async () => {
+    const autobudget = ["ynab_autobudget_status", "ynab_autobudget_plan", "ynab_autobudget_pause"];
+    const names = async (overrides: Partial<WorkerEnv>) =>
+      (await readResult(await call({ jsonrpc: "2.0", id: 6, method: "tools/list" }, overrides)))
+        .result.tools.map((t: { name: string }) => t.name);
+
+    expect(await names({})).not.toContain("ynab_autobudget_status");
+    const bound = await names({ AUTOBUDGET_DB: createTestD1(), YNAB_READ_ONLY: "true" });
+    expect(bound).toEqual(expect.arrayContaining(autobudget));
   });
 });

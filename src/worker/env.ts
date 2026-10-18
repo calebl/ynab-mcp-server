@@ -17,7 +17,7 @@ export interface WorkerEnv {
    * allowed. May be a plain var or a secret.
    */
   ALLOWED_REDIRECT_URIS?: string;
-  /** Set to "true" to expose only the read-only tools. */
+  /** Set to "true" to omit tools that write to YNAB. */
   YNAB_READ_ONLY?: string;
   /** TypeSafe API credential for the optional category suggestion preview. */
   TYPESAFE_API_KEY?: string;
@@ -40,4 +40,19 @@ export interface WorkerEnv {
    */
   NAG_HOUR_MIN?: string;
   NAG_HOUR_MAX?: string;
+
+  /**
+   * Auto-budget service. Absent database means the service stays off and its
+   * tools are not registered.
+   */
+  AUTOBUDGET_DB?: D1Database;
+  /** "off" (default) or "shadow". */
+  AUTOBUDGET_MODE?: string;
+  /** IANA zone for the daily digest. Defaults to NAG_TIMEZONE, then America/Los_Angeles. */
+  AUTOBUDGET_TIMEZONE?: string;
+  /** Local hour (0-23) the daily digest is sent. Defaults to 8. */
+  AUTOBUDGET_DIGEST_HOUR?: string;
+  /** Pushover credentials for alerts and the digest. Secrets; absent means nothing is sent. */
+  PUSHOVER_APP_TOKEN?: string;
+  PUSHOVER_USER_KEY?: string;
 }

@@ -23,12 +23,16 @@ anyone who finds the URL rewrite those plans.
 ### 1. Create your local Wrangler config and log in
 
 The repository provides a template; the real config is git-ignored because it
-contains your account-specific KV namespace ID.
+contains your account-specific Cloudflare resource IDs.
 
 ```bash
 cp wrangler.example.jsonc wrangler.jsonc
 npx wrangler login
 ```
+
+The template includes an optional `AUTOBUDGET_DB` block with a placeholder D1
+ID. Remove that block before your first deploy unless you are setting up the
+auto-budget service below.
 
 ### 2. Create the KV namespace for OAuth state and grants
 
@@ -231,13 +235,155 @@ See [Category suggestions](./README.md#category-suggestions-optional) for the
 authoritative data-sharing contract, model and cost limits, and evaluation
 caveats.
 
+## Auto-budget service (optional)
+
+The Worker can run an auto-budget service on its hourly cron trigger. Each run
+delta-syncs transactions and accounts from YNAB, works out what it would do,
+and alerts you about spending:
+
+- **Categorize** an unapproved outflow when at least three categorized
+  transactions for its payee in the last 12 months all used the same category.
+- **Approve** a categorized transaction from a payee you have approved at least
+  three times before. Transfers, splits, matched pairs, possible duplicates
+  and anything over the per-transaction cap are left for you.
+- **Assign** Ready to Assign to this month's underfunded targets, largest
+  shortfall first, then spend what is left on next month's targets.
+- **Alert immediately** through Pushover when any category goes negative,
+  including a hidden category, Ready to Assign goes negative, a bank import
+  link breaks, or the configured plan becomes unreachable. Immediate alerts
+  are deduplicated by month or until the condition clears, as appropriate.
+- **Report approaching limits in the daily digest.** Once a day Pushover sends
+  visible categories on pace to overspend, visible-category bills due within
+  three days that their combined due-date-ordered balance cannot cover, your
+  unapproved and uncategorized backlog, and a summary of what the service would
+  do. Split purchases and scheduled transactions count in each subtransaction's
+  category.
+
+**This version never writes to YNAB.** It runs in shadow mode: new or changed
+decisions are recorded in an audit log in D1, and the digest reports the current
+plan, but nothing in your YNAB plan changes. Its YNAB client can only send GET
+requests. Later versions will add write stages that you switch on one at a time.
+
+The caps the write stages will enforce already shape the shadow decisions, so
+the log shows what a later write stage would do: at most $250 per transaction,
+at most min(Ready to Assign, total underfunded, $5,000) assigned per day, and at most
+25 transactions and 10 categories per run. Transactions it changes will carry a
+purple flag.
+
+### 1. Create the D1 database
+
+```bash
+npx wrangler d1 create ynab-autobudget
+```
+
+Add the binding it prints to `wrangler.jsonc`, keeping the binding name
+`AUTOBUDGET_DB`, then create the tables:
+
+```jsonc
+"d1_databases": [
+  {
+    "binding": "AUTOBUDGET_DB",
+    "database_name": "ynab-autobudget",
+    "database_id": "<id from wrangler d1 create>",
+    "migrations_dir": "migrations"
+  }
+]
+```
+
+```bash
+npx wrangler d1 migrations apply ynab-autobudget --remote
+```
+
+Run the `migrations apply` command again after any upgrade that adds a file
+under `migrations/`.
+
+### 2. Set up Pushover
+
+Create an application at [pushover.net](https://pushover.net/apps/build), then
+store its API token and your user key as secrets:
+
+```bash
+npx wrangler secret put PUSHOVER_APP_TOKEN
+npx wrangler secret put PUSHOVER_USER_KEY
+```
+
+Without both secrets the service still runs and records decisions, but sends
+nothing. Alerts it could not deliver are retried on the next run.
+
+### 3. Switch it on and deploy
+
+Set `AUTOBUDGET_MODE` to `"shadow"` in `wrangler.jsonc` and deploy:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `AUTOBUDGET_MODE` | `off` | `off` or `shadow`. Other values are rejected as unrecognized. |
+| `AUTOBUDGET_TIMEZONE` | `NAG_TIMEZONE`, then `America/Los_Angeles` | IANA zone for the daily digest |
+| `AUTOBUDGET_DIGEST_HOUR` | `8` | Local hour (0-23) the digest is sent |
+| `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_KEY` | — | Secrets. Pushover credentials; unset sends nothing. |
+
+The service uses `YNAB_PLAN_ID` (or the deprecated `YNAB_BUDGET_ID`). If the
+token cannot see that plan, each run records an error that names the plans it
+can see, and Pushover alerts you once.
+
+### How it behaves
+
+- **YNAB_READ_ONLY is a hard stop.** This phase supports only shadow mode, and
+  `YNAB_READ_ONLY=true` prevents later write stages from changing that.
+- **Pause from any MCP client.** `ynab_autobudget_pause` stops every scheduled
+  run until you resume it with `paused: false`. It changes only the service's
+  own state, so it stays available in read-only mode.
+- **Small, predictable API use.** A run makes about five YNAB requests and
+  never more than 20. YNAB allows 200 an hour per token, shared with every
+  other client of that token, so a separate token for the Worker keeps the
+  budgets apart.
+- **The first run reads 12 months of transactions plus the 48-day duplicate
+  evidence window,** and every unapproved or uncategorized transaction however
+  old. Payee rules still use only the latest 12 months. Before evaluating that
+  initial snapshot, the service applies a delta from the oldest server knowledge
+  returned by those requests. Later transaction and account syncs read only
+  changes. On the Workers Free plan, a large first read can exceed the 10 ms CPU
+  limit for cron triggers; the Workers Paid plan raises it. Steady-state runs are
+  small.
+- **A large sync spreads over several runs.** Each run applies at most 10,000
+  transactions, so it stays inside D1's per-run query limit. After any continued
+  response finishes, the service applies one complete delta from its saved
+  cursor before treating the mirror as current. Until then, scheduled runs do
+  not evaluate decisions, send alerts, or send or consume the daily digest, and
+  the status and plan tools report sync progress and rows remaining instead of
+  recommendations. If saving fails, the old cursor is kept and the next run
+  retries.
+- **One run at a time.** A lease in D1 stops an overlapping run or dry run
+  from interleaving with a scheduled one.
+- **The audit log shows changes, not repeats.** A decision is recorded again
+  only when it differs from the last one for that transaction or category.
+  Phase 1 records the first shadow decision per subject; if that subject returns
+  to the identical state without an intervening recorded decision, it is not
+  logged again. Runs, decisions and periodic alerts are kept for 13 months.
+  Unresolved open alerts are kept until their condition clears. The transaction
+  mirror keeps the 12-month history window, a further 45-day evidence margin
+  plus the three-day duplicate lookback for settled rows, and every pending
+  transaction, including approved uncategorized non-transfer, non-split rows,
+  however old. Possible duplicates older than that fixed window are not detected.
+
+### MCP tools
+
+When `AUTOBUDGET_DB` is bound, the Worker also serves these tools to any MCP
+client. They are not part of the npm package, which has no D1 database.
+
+| Tool | What it does |
+| --- | --- |
+| `ynab_autobudget_status` | Mode and why, pause state, sync progress, last run, decisions recorded in the last 24 hours, and the caps |
+| `ynab_autobudget_plan` | Dry run: syncs its D1 mirror and shows what the service would do right now, including immediate, pace and uncovered-bill alerts. While a continued sync is incomplete, it reports progress instead. Records decisions and sends notifications only during scheduled runs. |
+| `ynab_autobudget_pause` | Pauses the service, or resumes it with `paused: false` |
+
 ## Read-only mode
 
-To expose only the tools that read data and none that change it, set
-`YNAB_READ_ONLY` to `"true"` in `wrangler.jsonc` and redeploy. The write tools
-disappear from `tools/list` entirely rather than failing when called. The
+To expose no tools that write to YNAB, set `YNAB_READ_ONLY` to `"true"` in
+`wrangler.jsonc` and redeploy. The YNAB write tools disappear from `tools/list`
+entirely rather than failing when called. The
 TypeSafe preview is registered as read-only and remains available in this mode
-only when both its feature flag and secret are configured.
+only when both its feature flag and secret are configured. The auto-budget
+service stays in shadow mode, and its tools stay available.
 
 ## Local development
 
@@ -257,4 +403,6 @@ paths and the OAuth metadata endpoints.
 | `src/index.ts` | stdio entry (local Claude Code / Claude Desktop) |
 | `src/worker/index.ts` | Worker entry: OAuth in front of the MCP handler |
 | `src/worker/mcp.ts` | Builds the MCP server and serves `/mcp` |
+| `src/worker/autobudget/` | The auto-budget service and its MCP tools |
+| `migrations/` | D1 schema for the auto-budget service |
 | `src/worker/github-handler.ts` | GitHub sign-in and the single-user gate |
