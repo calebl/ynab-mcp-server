@@ -244,11 +244,14 @@ what it would do, and alerts you about spending:
   and anything over the per-transaction cap are left for you.
 - **Assign** Ready to Assign to this month's underfunded targets, largest
   shortfall first, then spend what is left on next month's targets.
-- **Alert** through Pushover the moment a category goes negative, Ready to
-  Assign goes negative, or a bank import link breaks. Once a day it sends a
-  digest with categories on pace to overspend, bills due within three days
-  that their category cannot cover, your unapproved and uncategorized backlog,
-  and a summary of what it would do.
+- **Alert immediately** through Pushover when a category goes negative, Ready
+  to Assign goes negative, a bank import link breaks, or the configured plan
+  becomes unreachable. Immediate alerts are deduplicated by month or until the
+  condition clears, as appropriate.
+- **Report approaching limits in the daily digest.** Once a day Pushover sends
+  categories on pace to overspend, bills due within three days that their
+  category cannot cover, your unapproved and uncategorized backlog, and a
+  summary of what the service would do.
 
 **This version never writes to YNAB.** It runs in shadow mode: every decision is
 recorded in an audit log in D1, and the digest reports it, but nothing in your
@@ -335,7 +338,8 @@ can see, and Pushover alerts you once.
   from interleaving with a scheduled one.
 - **The audit log shows changes, not repeats.** A decision is recorded again
   only when it differs from the last one for that transaction or category.
-  Runs, decisions and alerts are kept for 13 months.
+  Runs, decisions and periodic alerts are kept for 13 months. Unresolved open
+  alerts are kept until their condition clears.
 
 ### MCP tools
 

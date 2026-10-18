@@ -311,7 +311,7 @@ export class Store {
     await this.db.batch([
       this.db.prepare("DELETE FROM decision WHERE created_at < ?1").bind(cutoff),
       this.db.prepare("DELETE FROM run WHERE started_at < ?1").bind(cutoff),
-      this.db.prepare("DELETE FROM alert WHERE sent_at < ?1").bind(cutoff),
+      this.db.prepare("DELETE FROM alert WHERE period != 'open' AND sent_at < ?1").bind(cutoff),
     ]);
   }
 }

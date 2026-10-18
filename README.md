@@ -25,8 +25,10 @@ It runs two ways from one codebase:
 
 Both entry points register the same tools from `src/registry.ts`, so a tool
 written once is available in both. The Worker can also run an optional
-scheduled auto-budget service that alerts you about spending and records what it
-would categorize, approve and assign, without changing your plan; see
+scheduled auto-budget service that immediately alerts on overspending, negative
+Ready to Assign, broken imports, and an unreachable plan; approaching-limit
+warnings arrive in its daily digest. It also records what it would categorize,
+approve and assign without changing your plan; see
 [Auto-budget service](./DEPLOY.md#auto-budget-service-optional).
 
 Other providers:

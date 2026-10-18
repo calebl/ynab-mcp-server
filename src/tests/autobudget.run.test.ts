@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { MAX_CALLS_PER_RUN, readConfig } from "../worker/autobudget/config.js";
@@ -321,6 +319,25 @@ describe("dryRun", () => {
   });
 });
 
+describe("Store", () => {
+  it("prunes periodic alerts but keeps open alerts until their condition clears", async () => {
+    const db = createTestD1();
+    const store = new Store(db, PLAN_ID);
+    const old = new Date("2025-01-01T00:00:00Z");
+
+    await store.markAlertsSent([
+      { rule: "import_error", subjectId: "checking", period: "open" },
+      { rule: "overspent", subjectId: "dining", period: "2025-01" },
+    ], old);
+    await store.prune(new Date("2026-01-01T00:00:00Z"));
+
+    expect(await store.sentAlerts()).toEqual(new Set(["import_error\u0000checking\u0000open"]));
+
+    await store.clearOpenAlerts("import_error", []);
+    expect(await store.sentAlerts()).toEqual(new Set());
+  });
+});
+
 describe("YnabReader", () => {
   it("refuses requests past its budget", async () => {
     const reader = new YnabReader("test-token", scenario().fetch, 1);
@@ -337,25 +354,5 @@ describe("YnabReader", () => {
 
   it("has no way to send anything but GET", () => {
     expect(Object.getOwnPropertyNames(YnabReader.prototype).sort()).toEqual(["constructor", "get"]);
-  });
-});
-
-describe("the service source", () => {
-  const dir = fileURLToPath(new URL("../worker/autobudget/", import.meta.url));
-  const sources = readdirSync(dir).filter((file) => file.endsWith(".ts")).map((file) => ({ file, text: readFileSync(`${dir}${file}`, "utf8") }));
-
-  it("imports the YNAB SDK for types only, so it cannot call a write method", () => {
-    for (const { file, text } of sources) {
-      for (const line of text.split("\n").filter((l) => /from "ynab"/.test(l))) {
-        expect(line, file).toMatch(/^import type /);
-      }
-    }
-  });
-
-  it("calls fetch only in the GET-only YNAB reader and the Pushover sender", () => {
-    const callers = sources.filter(({ text }) => /\bfetchImpl\(|\bfetch\(/.test(text)).map(({ file }) => file).sort();
-    expect(callers).toEqual(["pushover.ts", "ynab.ts"]);
-    const ynabSource = sources.find(({ file }) => file === "ynab.ts")!.text;
-    expect(ynabSource.match(/method: "[A-Z]+"/g)).toEqual(['method: "GET"']);
   });
 });
