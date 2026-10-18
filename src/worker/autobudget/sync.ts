@@ -52,14 +52,15 @@ export function historyStart(today: string): string {
 export interface SyncResult {
   /** Rows durably applied to the mirror. */
   applied: number;
-  /** True when there was no cursor yet and the whole history window was read. */
+  /** True when there was no cursor yet and the whole retained mirror window was read. */
   full: boolean;
 }
 
 /**
- * Brings the transaction mirror up to date. The first sync reads the history
- * window; every later one asks only for what changed since the stored
- * `server_knowledge`, which is a few bytes when nothing did.
+ * Brings the transaction mirror up to date. The first sync reads the payee
+ * history window plus retained duplicate evidence; every later one asks only
+ * for changes since the stored `server_knowledge`, which is a few bytes when
+ * nothing changed.
  */
 export async function syncTransactions(
   reader: YnabReader,

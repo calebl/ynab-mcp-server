@@ -22,7 +22,7 @@ export const MARKER_FLAG_COLOR = "purple";
 /** Self-imposed YNAB request budget per run; the token's limit is 200 per hour, shared with every other client. */
 export const MAX_CALLS_PER_RUN = 20;
 
-/** How far back the first sync reads, which is also the payee-history window. */
+/** Payee-history window; the first sync starts earlier to retain duplicate evidence. */
 export const HISTORY_MONTHS = 12;
 
 export type RequestedMode = "off" | "shadow";
