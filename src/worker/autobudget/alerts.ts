@@ -234,6 +234,14 @@ export function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
+function boundedDigestList(label: string, items: string[], maxItems: number, maxLength: number): string {
+  const shown = items.slice(0, maxItems);
+  const omitted = items.length - shown.length;
+  const prefix = `${label}: `;
+  const suffix = `${omitted ? `; +${omitted} more` : ""}.`;
+  return `${prefix}${truncate(shown.join("; "), maxLength - prefix.length - suffix.length)}${suffix}`;
+}
+
 export function buildDigest(input: DigestInput): { title: string; message: string } {
   const money = (milliunits: number) => formatMoney(milliunits, input.currency);
   const count = (stage: string, action: string) =>
@@ -250,32 +258,32 @@ export function buildDigest(input: DigestInput): { title: string; message: strin
     `assign ${money(assigned)} to ${input.assign.current.length} categor${input.assign.current.length === 1 ? "y" : "ies"}`,
   ];
   if (forNext > 0) plans.push(`${money(forNext)} to next month's targets`);
-  lines.push(`Would ${plans.join(", ")}.`);
-
-  if (input.pace.length) {
-    lines.push(`On pace to overspend: ${input.pace.map((item) =>
-      `${item.name} (${money(item.spent)} of ${money(item.available)}, heading for ${money(item.projected)})`
-    ).join("; ")}.`);
-  }
+  lines.push(truncate(`Would ${plans.join(", ")}.`, 160));
 
   if (input.bills.length) {
-    lines.push(`Bills due without enough set aside: ${input.bills.map((bill) =>
+    lines.push(boundedDigestList("Bills due without enough set aside", input.bills.map((bill) =>
       `${bill.payee ?? bill.category} on ${bill.due} (${money(bill.amount)} due, ${money(bill.available)} in ${bill.category})`
-    ).join("; ")}.`);
+    ), 3, 260));
+  }
+
+  if (input.assign.readyToAssign !== 0) {
+    lines.push(truncate(`Ready to Assign: ${money(input.assign.readyToAssign)}; ${money(input.assign.remaining)} left after targets.`, 110));
   }
 
   const { unapproved, uncategorized, oldest } = input.backlog;
   if (unapproved || uncategorized) {
-    lines.push(`Waiting on you: ${unapproved} unapproved, ${uncategorized} uncategorized${oldest ? ` (oldest ${oldest})` : ""}.`);
+    lines.push(truncate(`Waiting on you: ${unapproved} unapproved, ${uncategorized} uncategorized${oldest ? ` (oldest ${oldest})` : ""}.`, 110));
   }
 
-  if (input.assign.readyToAssign !== 0) {
-    lines.push(`Ready to Assign: ${money(input.assign.readyToAssign)}; ${money(input.assign.remaining)} left after targets.`);
+  if (input.pace.length) {
+    lines.push(boundedDigestList("On pace to overspend", input.pace.map((item) =>
+      `${item.name} (${money(item.spent)} of ${money(item.available)}, heading for ${money(item.projected)})`
+    ), 3, 260));
   }
 
   return {
     title: `Budget digest for ${input.date}`,
-    message: truncate(lines.join("\n"), MAX_MESSAGE_LENGTH),
+    message: lines.join("\n"),
   };
 }
 

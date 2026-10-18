@@ -213,18 +213,50 @@ describe("digest", () => {
     expect(digest.message.split("\n")).toEqual([
       "Shadow mode: nothing was changed in YNAB.",
       "Would categorize 1, approve 1, assign $60.00 to 1 category, $25.00 to next month's targets.",
-      "On pace to overspend: Groceries ($300.00 of $400.00, heading for $620.00).",
       "Bills due without enough set aside: Power Company on 2026-10-20 ($80.00 due, $30.00 in Utilities).",
-      "Waiting on you: 7 unapproved, 3 uncategorized (oldest 2026-10-02).",
       "Ready to Assign: $100.00; $15.00 left after targets.",
+      "Waiting on you: 7 unapproved, 3 uncategorized (oldest 2026-10-02).",
+      "On pace to overspend: Groceries ($300.00 of $400.00, heading for $620.00).",
     ]);
   });
 
-  it("fits Pushover's message limit", () => {
-    const many = Array.from({ length: 80 }, (_, i) => ({ categoryId: `c${i}`, name: `Category ${i}`, spent: 1, available: 1, projected: 2 }));
-    const digest = buildDigest({ date: "2026-10-18", shadow: true, decisions: [], assign, pace: many, bills: [], backlog: { unapproved: 0, uncategorized: 0, oldest: null }, currency: USD });
+  it("keeps every populated section within Pushover's message limit", () => {
+    const pace = Array.from({ length: 80 }, (_, i) => ({
+      categoryId: `c${i}`,
+      name: `Very long spending category ${i}`,
+      spent: 100_000,
+      available: 200_000,
+      projected: 300_000,
+    }));
+    const bills = Array.from({ length: 80 }, (_, i) => ({
+      scheduledId: `s${i}`,
+      payee: `Very long utility provider ${i}`,
+      category: `Very long bill category ${i}`,
+      due: "2026-10-20",
+      amount: 80_000,
+      available: 30_000,
+    }));
+    const digest = buildDigest({
+      date: "2026-10-18",
+      shadow: true,
+      decisions,
+      assign,
+      pace,
+      bills,
+      backlog: { unapproved: 7, uncategorized: 3, oldest: "2026-10-02" },
+      currency: USD,
+    });
+
     expect(digest.message.length).toBeLessThanOrEqual(MAX_MESSAGE_LENGTH);
-    expect(digest.message.endsWith("…")).toBe(true);
+    expect(digest.message).toContain("Shadow mode:");
+    expect(digest.message).toContain("Would categorize");
+    expect(digest.message).toContain("Bills due without enough set aside:");
+    expect(digest.message).toContain("Ready to Assign:");
+    expect(digest.message).toContain("Waiting on you:");
+    expect(digest.message).toContain("On pace to overspend:");
+    expect(digest.message.match(/\+77 more/g)).toHaveLength(2);
+    expect(digest.message.indexOf("Bills due")).toBeLessThan(digest.message.indexOf("On pace"));
+    expect(digest.message.indexOf("Ready to Assign")).toBeLessThan(digest.message.indexOf("On pace"));
   });
 
   it("combines several immediate alerts into one notification", () => {
