@@ -72,6 +72,12 @@ const JSON_PARAM_CHARS = 600_000;
 const DUPLICATE_LOOKBACK_DAYS = 3;
 const DUPLICATE_EVIDENCE_MARGIN_DAYS = 45;
 
+export function transactionMirrorStart(historyFrom: string): string {
+  const start = new Date(`${historyFrom}T00:00:00Z`);
+  start.setUTCDate(start.getUTCDate() - DUPLICATE_EVIDENCE_MARGIN_DAYS - DUPLICATE_LOOKBACK_DAYS);
+  return start.toISOString().slice(0, 10);
+}
+
 /** Serializes rows into JSON arrays that each fit in one bound parameter. */
 export function jsonBatches(rows: unknown[], maxChars = JSON_PARAM_CHARS): string[] {
   const batches: string[] = [];
@@ -359,15 +365,11 @@ export class Store {
    */
   async prune(before: Date, mirrorFrom: string): Promise<void> {
     const cutoff = before.toISOString();
-    const evidenceFrom = new Date(`${mirrorFrom}T00:00:00Z`);
-    evidenceFrom.setUTCDate(
-      evidenceFrom.getUTCDate() - DUPLICATE_EVIDENCE_MARGIN_DAYS - DUPLICATE_LOOKBACK_DAYS,
-    );
     await this.db.batch([
       this.db.prepare(
         "DELETE FROM txn WHERE plan_id = ?1 AND (deleted = 1 OR (date < ?2 AND approved = 1 AND " +
         "(category_id IS NOT NULL OR transfer_account_id IS NOT NULL OR split != 0)))",
-      ).bind(this.planId, evidenceFrom.toISOString().slice(0, 10)),
+      ).bind(this.planId, transactionMirrorStart(mirrorFrom)),
       this.db.prepare("DELETE FROM decision WHERE plan_id = ?1 AND created_at < ?2").bind(this.planId, cutoff),
       this.db.prepare("DELETE FROM run WHERE plan_id = ?1 AND started_at < ?2").bind(this.planId, cutoff),
       this.db.prepare("DELETE FROM alert WHERE plan_id = ?1 AND period != 'open' AND sent_at < ?2").bind(this.planId, cutoff),

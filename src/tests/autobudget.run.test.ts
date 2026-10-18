@@ -75,13 +75,13 @@ function controllableBatchFailure(db: D1Database): { binding: D1Database; failNe
 }
 
 describe("runAutobudget", () => {
-  it("reads the history window first, then asks YNAB only for what changed", async () => {
+  it("reads the retained mirror window first, then asks YNAB only for what changed", async () => {
     const db = createTestD1();
     const apis = scenario();
 
     await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT });
     const first = ynabRequests(apis.requests).find((r) => r.url.includes("/transactions"))!;
-    expect(new URL(first.url).searchParams.get("since_date")).toBe("2025-10-01");
+    expect(new URL(first.url).searchParams.get("since_date")).toBe("2025-08-14");
 
     apis.requests.length = 0;
     apis.state.delta = [txn({ id: "pending-coffee", date: "2026-10-12", amount: -8_000, category_id: "c-dining" })];
@@ -92,6 +92,39 @@ describe("runAutobudget", () => {
 
     const mirrored = db.sqlite.prepare("SELECT category_id FROM txn WHERE id = 'pending-coffee'").get() as { category_id: string };
     expect(mirrored.category_id).toBe("c-dining");
+  });
+
+  it("loads retained duplicate evidence during the first sync", async () => {
+    const db = createTestD1();
+    const history = [1, 2, 3].map((day) =>
+      txn({ id: `known-${day}`, date: `2026-09-0${day}`, category_id: "c-dining", approved: true }));
+    const pending = txn({
+      id: "history-boundary-pending",
+      date: "2025-10-01",
+      amount: -5_000,
+      category_id: "c-dining",
+    });
+    const twin = txn({
+      id: "retained-twin",
+      date: "2025-09-28",
+      amount: -5_000,
+      category_id: "c-dining",
+      approved: true,
+    });
+    const apis = fakeApis({
+      transactions: [...history, pending, twin],
+      categoryGroups: groups([dining]),
+      month: month({ categories: [dining] }),
+    });
+
+    await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT });
+
+    expect(decisionRows(db)).toEqual([{
+      stage: "approve",
+      subject_id: "history-boundary-pending",
+      action: "review",
+      reason: "possible_duplicate",
+    }]);
   });
 
   it("records shadow decisions in the audit log, and again only when they change", async () => {

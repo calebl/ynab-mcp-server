@@ -1,7 +1,7 @@
 import type * as ynab from "ynab";
 
 import { HISTORY_MONTHS } from "./config.js";
-import type { StoredAccount, StoredTransaction, Store } from "./store.js";
+import { transactionMirrorStart, type StoredAccount, type StoredTransaction, type Store } from "./store.js";
 import { planPath, type YnabReader } from "./ynab.js";
 
 export function toStoredTransaction(txn: ynab.TransactionDetail): StoredTransaction {
@@ -70,7 +70,9 @@ export async function syncTransactions(
   afterRead?: () => Promise<void>,
 ): Promise<SyncResult> {
   const cursor = await store.getCursor("transactions");
-  const query = cursor === null ? `since_date=${historyStart(today)}` : `last_knowledge_of_server=${cursor}`;
+  const query = cursor === null
+    ? `since_date=${transactionMirrorStart(historyStart(today))}`
+    : `last_knowledge_of_server=${cursor}`;
   const data = await reader.get<{ transactions: ynab.TransactionDetail[]; server_knowledge: number }>(
     `${planPath(planId)}/transactions?${query}`,
   );

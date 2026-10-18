@@ -336,10 +336,11 @@ can see, and Pushover alerts you once.
   never more than 20. YNAB allows 200 an hour per token, shared with every
   other client of that token, so a separate token for the Worker keeps the
   budgets apart.
-- **The first run reads 12 months of transactions.** Later transaction and
-  account syncs read only changes. On the Workers Free plan, a large first read
-  can exceed the 10 ms CPU limit for cron triggers; the Workers Paid plan raises
-  it. Steady-state runs are small. Every row returned by YNAB is size-batched
+- **The first run reads 12 months of transactions plus the 48-day duplicate
+  evidence window.** Payee rules still use only the latest 12 months. Later
+  transaction and account syncs read only changes. On the Workers Free plan, a
+  large first read can exceed the 10 ms CPU limit for cron triggers; the Workers
+  Paid plan raises it. Steady-state runs are small. Every row returned by YNAB is size-batched
   into D1 before the sync cursor advances; if persistence fails, the old cursor
   is retained so the next run retries the response.
 - **One run at a time.** A lease in D1 stops an overlapping run or dry run

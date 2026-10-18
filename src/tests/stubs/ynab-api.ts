@@ -167,7 +167,11 @@ export function fakeApis(overrides: Partial<FakeYnabState> = {}) {
 
     if (rest === "/transactions") {
       const delta = url.searchParams.has("last_knowledge_of_server");
-      return json({ transactions: delta ? state.delta : state.transactions, server_knowledge: state.serverKnowledge });
+      const sinceDate = url.searchParams.get("since_date");
+      let transactions = state.transactions;
+      if (delta) transactions = state.delta;
+      else if (sinceDate) transactions = transactions.filter((transaction) => transaction.date >= sinceDate);
+      return json({ transactions, server_knowledge: state.serverKnowledge });
     }
     if (rest === "/accounts") return json({ accounts: state.accounts, server_knowledge: state.serverKnowledge });
     if (rest === "/settings") return json({ settings: { currency_format: state.currencyFormat } });
