@@ -77,28 +77,29 @@ async function planCurrency(reader: YnabReader, planId: string): Promise<Currenc
   }
 }
 
-/** Syncs, then works out every decision and alert. Reads YNAB; never writes to it. */
+/**
+ * Syncs, then works out every decision and alert. Reads YNAB; never writes to
+ * it. Recovered open alerts are cleared as soon as the data proving recovery
+ * arrives, on every sync: the mirror moves on, so a later break must alert.
+ */
 async function evaluate(
   reader: YnabReader,
   store: Store,
   planId: string,
   config: AutobudgetConfig,
   now: Date,
-  recordRecovery: boolean,
 ): Promise<Evaluation> {
   const { date: today } = localDateParts(now, config.timeZone);
   const base = planPath(planId);
 
   const synced = await syncTransactions(reader, store, planId, today, now,
-    recordRecovery ? () => store.clearOpenAlerts("plan_not_visible", []) : undefined);
+    () => store.clearOpenAlerts("plan_not_visible", []));
   let accounts = await store.accounts();
   await syncAccounts(reader, store, planId, now, async (changed) => {
     const merged = new Map(accounts.map((account) => [account.id, account]));
     for (const account of changed) merged.set(account.id, account);
     accounts = [...merged.values()];
-    if (recordRecovery) {
-      await store.clearOpenAlerts("import_error", activeImportErrors(accounts).map((account) => account.id));
-    }
+    await store.clearOpenAlerts("import_error", activeImportErrors(accounts).map((account) => account.id));
   });
   const currency = await planCurrency(reader, planId);
   const { category_groups: groups } = await reader.get<{ category_groups: ynab.CategoryGroupWithCategories[] }>(`${base}/categories`);
@@ -217,10 +218,10 @@ export async function runAutobudget(env: WorkerEnv, options: RunOptions = {}): P
     try {
       const { date: today } = localDateParts(now, config.timeZone);
       if (await store.getState("last_prune") !== today) {
-        await store.prune(new Date(now.getTime() - RETENTION_MS));
+        await store.prune(new Date(now.getTime() - RETENTION_MS), historyStart(today));
         await store.setState("last_prune", today, now);
       }
-      const evaluation = await evaluate(reader, store, planId, config, now, true);
+      const evaluation = await evaluate(reader, store, planId, config, now);
       const recorded = await store.recordDecisions(runId, config.mode, evaluation.decisions, now);
       const sent = await store.sentAlerts();
       const fresh = evaluation.immediate.filter((alert) => !sent.has(alertKey(alert)));
@@ -330,8 +331,9 @@ export interface DryRun {
 }
 
 /**
- * What the service would do right now, without recording or sending
- * anything. It still syncs the mirror, which only caches YNAB data.
+ * What the service would do right now, without recording decisions or
+ * sending anything. It still syncs the mirror, which only caches YNAB data,
+ * and forgets open alerts whose condition that sync shows has cleared.
  */
 export async function dryRun(env: WorkerEnv, options: RunOptions = {}): Promise<DryRun> {
   const now = options.now ?? new Date();
@@ -343,7 +345,7 @@ export async function dryRun(env: WorkerEnv, options: RunOptions = {}): Promise<
 
   const reader = new YnabReader(env.YNAB_API_TOKEN, options.fetch ?? fetch);
   try {
-    const evaluation = await evaluate(reader, store, planId, config, now, false);
+    const evaluation = await evaluate(reader, store, planId, config, now);
     const bills = await readBills(reader, planId, evaluation);
     return {
       mode: config.mode,

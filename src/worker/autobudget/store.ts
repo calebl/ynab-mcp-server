@@ -64,14 +64,36 @@ const alertKey = (alert: AlertKey) => `${alert.rule}|${alert.subjectId}|${alert.
 
 // D1 caps a query at 100 bound parameters, and each statement in a batch
 // counts toward the per-invocation query limit (50 on the Free plan). Rows
-// therefore travel as one JSON parameter, unpacked with json_each, in chunks
-// that stay well inside the statement-size limit.
-const JSON_CHUNK = 400;
+// therefore travel as one JSON parameter, unpacked with json_each. A bound
+// string may be up to 2 MB, so batches are sized by length rather than row
+// count: a first sync of tens of thousands of transactions stays at a handful
+// of statements. The character budget leaves room for multi-byte UTF-8.
+const JSON_PARAM_CHARS = 600_000;
+const ID_CHUNK = 400;
 
-function chunks<T>(items: T[], size = JSON_CHUNK): T[][] {
+function chunks<T>(items: T[], size = ID_CHUNK): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
   return out;
+}
+
+/** Serializes rows into JSON arrays that each fit in one bound parameter. */
+export function jsonBatches(rows: unknown[], maxChars = JSON_PARAM_CHARS): string[] {
+  const batches: string[] = [];
+  let current: string[] = [];
+  let length = 2;
+  for (const row of rows) {
+    const json = JSON.stringify(row);
+    if (current.length && length + json.length + 1 > maxChars) {
+      batches.push(`[${current.join(",")}]`);
+      current = [];
+      length = 2;
+    }
+    current.push(json);
+    length += json.length + 1;
+  }
+  if (current.length) batches.push(`[${current.join(",")}]`);
+  return batches;
 }
 
 const bool = (value: unknown) => value === 1 || value === true;
@@ -141,7 +163,13 @@ export class Store {
   }
 
   async upsertTransactions(rows: StoredTransaction[]): Promise<void> {
-    const statements = chunks(rows).map((chunk) => this.db.prepare(
+    const statements = jsonBatches(rows.map((row) => ({
+      ...row,
+      approved: row.approved ? 1 : 0,
+      split: row.split ? 1 : 0,
+      subtransactions: JSON.stringify(row.subtransactions),
+      deleted: row.deleted ? 1 : 0,
+    }))).map((batch) => this.db.prepare(
       "INSERT INTO txn (id, plan_id, date, amount, account_id, payee_id, payee_name, category_id, approved, cleared, " +
       "flag_color, import_id, matched_transaction_id, transfer_account_id, split, subtransactions, deleted) " +
       "SELECT j.value ->> 'id', ?1, j.value ->> 'date', j.value ->> 'amount', j.value ->> 'account_id', " +
@@ -155,13 +183,7 @@ export class Store {
       "import_id = excluded.import_id, matched_transaction_id = excluded.matched_transaction_id, " +
       "transfer_account_id = excluded.transfer_account_id, split = excluded.split, " +
       "subtransactions = excluded.subtransactions, deleted = excluded.deleted",
-    ).bind(this.planId, JSON.stringify(chunk.map((row) => ({
-      ...row,
-      approved: row.approved ? 1 : 0,
-      split: row.split ? 1 : 0,
-      subtransactions: JSON.stringify(row.subtransactions),
-      deleted: row.deleted ? 1 : 0,
-    })))));
+    ).bind(this.planId, batch));
     if (statements.length) await this.db.batch(statements);
   }
 
@@ -228,7 +250,8 @@ export class Store {
     const { results } = await this.db.prepare(
       "SELECT DISTINCT p.id FROM txn p JOIN txn o ON o.plan_id = p.plan_id AND o.account_id = p.account_id " +
       "AND o.amount = p.amount AND o.id <> p.id AND o.deleted = 0 " +
-      "AND abs(julianday(o.date) - julianday(p.date)) <= 3 " +
+      // A range on date (not a computed difference) lets the txn_account index bound the scan.
+      "AND o.date BETWEEN date(p.date, '-3 days') AND date(p.date, '+3 days') " +
       "WHERE p.plan_id = ?1 AND p.deleted = 0 AND p.approved = 0",
     ).bind(this.planId).all<{ id: string }>();
     return new Set(results.map((row) => row.id));
@@ -333,10 +356,17 @@ export class Store {
     ).bind(this.planId, rule, JSON.stringify(stillActive)).run();
   }
 
-  /** Drops audit rows, runs and alerts older than `before`. */
-  async prune(before: Date): Promise<void> {
+  /**
+   * Drops audit rows, runs and periodic alerts older than `before`, and keeps
+   * the transaction mirror to the history window: deleted rows, and approved
+   * rows dated before `mirrorFrom` (YYYY-MM-DD), go. Unapproved rows stay,
+   * however old, because they are still waiting on the owner.
+   */
+  async prune(before: Date, mirrorFrom: string): Promise<void> {
     const cutoff = before.toISOString();
     await this.db.batch([
+      this.db.prepare("DELETE FROM txn WHERE plan_id = ?1 AND (deleted = 1 OR (approved = 1 AND date < ?2))")
+        .bind(this.planId, mirrorFrom),
       this.db.prepare("DELETE FROM decision WHERE plan_id = ?1 AND created_at < ?2").bind(this.planId, cutoff),
       this.db.prepare("DELETE FROM run WHERE plan_id = ?1 AND started_at < ?2").bind(this.planId, cutoff),
       this.db.prepare("DELETE FROM alert WHERE plan_id = ?1 AND period != 'open' AND sent_at < ?2").bind(this.planId, cutoff),

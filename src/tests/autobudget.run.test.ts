@@ -466,6 +466,25 @@ describe("dryRun", () => {
     const env = makeEnv(createTestD1(), { YNAB_PLAN_ID: "22222222-2222-4222-8222-222222222222" });
     await expect(dryRun(env, { fetch: scenario().fetch, now: NIGHT })).rejects.toThrow("Plans it can access");
   });
+
+  it("records a recovery it syncs, so a break after a dry run still alerts", async () => {
+    const db = createTestD1();
+    const apis = scenario();
+    apis.state.month = month({ categories: [dining] });
+    const titles = () => pushes(apis.requests).map((r) => pushParams(r).get("title"));
+
+    apis.state.accounts = [account({ direct_import_in_error: true })];
+    await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT });
+    expect(titles()).toEqual(["Bank import broken: Checking"]);
+
+    // The link is repaired; only a dry run sees it before it breaks again.
+    apis.state.accounts = [account({ direct_import_in_error: false })];
+    await dryRun(makeEnv(db), { fetch: apis.fetch, now: NIGHT });
+    apis.state.accounts = [account({ direct_import_in_error: true })];
+    await runAutobudget(makeEnv(db), { fetch: apis.fetch, now: NIGHT });
+
+    expect(titles()).toEqual(["Bank import broken: Checking", "Bank import broken: Checking"]);
+  });
 });
 
 describe("Store", () => {
@@ -592,12 +611,60 @@ describe("Store", () => {
       { rule: "import_error", subjectId: "checking", period: "open" },
       { rule: "overspent", subjectId: "dining", period: "2025-01" },
     ], old);
-    await store.prune(new Date("2026-01-01T00:00:00Z"));
+    await store.prune(new Date("2026-01-01T00:00:00Z"), "2025-01-01");
 
     expect(await store.sentAlerts()).toEqual(new Set(["import_error|checking|open"]));
 
     await store.clearOpenAlerts("import_error", []);
     expect(await store.sentAlerts()).toEqual(new Set());
+  });
+
+  it("keeps the transaction mirror to the history window, but never drops rows still waiting on the owner", async () => {
+    const db = createTestD1();
+    const store = new Store(db, PLAN_ID);
+    await store.upsertTransactions([
+      txn({ id: "old-approved", date: "2025-06-01", approved: true, category_id: "c-dining" }),
+      txn({ id: "old-unapproved", date: "2025-06-01" }),
+      txn({ id: "recent-deleted", date: "2026-10-01", deleted: true }),
+      txn({ id: "recent-approved", date: "2026-10-01", approved: true, category_id: "c-dining" }),
+    ].map(toStoredTransaction));
+
+    await store.prune(new Date("2025-01-01T00:00:00Z"), "2025-10-01");
+
+    const ids = (db.sqlite.prepare("SELECT id FROM txn ORDER BY id").all() as Array<{ id: string }>).map((row) => row.id);
+    expect(ids).toEqual(["old-unapproved", "recent-approved"]);
+  });
+
+  it("treats a same-amount row as a possible duplicate only within three days", async () => {
+    const store = new Store(createTestD1(), PLAN_ID);
+    await store.upsertTransactions([
+      txn({ id: "near", date: "2026-10-10", amount: -5_000 }),
+      txn({ id: "near-twin", date: "2026-10-13", amount: -5_000, approved: true }),
+      txn({ id: "far", date: "2026-10-01", amount: -7_000 }),
+      txn({ id: "far-twin", date: "2026-10-05", amount: -7_000, approved: true }),
+    ].map(toStoredTransaction));
+
+    expect(await store.possibleDuplicateIds()).toEqual(new Set(["near"]));
+  });
+
+  it("writes a large first sync in a few statements, well inside D1's per-run query limit", async () => {
+    const db = createTestD1();
+    const statements: number[] = [];
+    const batch = db.batch.bind(db);
+    db.batch = (async (list: D1PreparedStatement[]) => {
+      statements.push(list.length);
+      return batch(list);
+    }) as typeof db.batch;
+    const store = new Store(db, PLAN_ID);
+    const rows = Array.from({ length: 20_001 }, (_, i) =>
+      toStoredTransaction(txn({ id: `bulk-${i}`, date: "2026-09-15", approved: true, category_id: "c-dining" })));
+
+    await store.upsertTransactions(rows);
+
+    // A run makes roughly 20 other D1 queries, and the Free plan allows 50.
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toBeLessThanOrEqual(15);
+    expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM txn").get()).toEqual({ n: 20_001 });
   });
 });
 
