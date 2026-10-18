@@ -1,6 +1,6 @@
 import type * as ynab from "ynab";
 
-import { HISTORY_MONTHS, MAX_ROWS_PER_SYNC } from "./config.js";
+import { HISTORY_MONTHS } from "./config.js";
 import type { StoredAccount, StoredTransaction, Store } from "./store.js";
 import { planPath, type YnabReader } from "./ynab.js";
 
@@ -50,25 +50,10 @@ export function historyStart(today: string): string {
 }
 
 export interface SyncResult {
-  /** Rows the response carried. */
-  changed: number;
+  /** Rows durably applied to the mirror. */
+  applied: number;
   /** True when there was no cursor yet and the whole history window was read. */
   full: boolean;
-  /** Rows not stored because the response exceeded MAX_ROWS_PER_SYNC. */
-  dropped: number;
-}
-
-/**
- * Picks the rows one sync stores when YNAB returns more than `limit`: rows
- * still waiting on the owner first, then the most recent. What is left out is
- * the oldest settled history, which matters least to every decision.
- */
-export function rowsToStore(rows: StoredTransaction[], limit = MAX_ROWS_PER_SYNC): StoredTransaction[] {
-  if (rows.length <= limit) return rows;
-  const waiting = (row: StoredTransaction) => !row.deleted && !row.approved;
-  return [...rows]
-    .sort((a, b) => Number(waiting(b)) - Number(waiting(a)) || b.date.localeCompare(a.date))
-    .slice(0, limit);
 }
 
 /**
@@ -90,10 +75,10 @@ export async function syncTransactions(
     `${planPath(planId)}/transactions?${query}`,
   );
   await afterRead?.();
-  const stored = rowsToStore(data.transactions.map(toStoredTransaction));
-  await store.upsertTransactions(stored);
+  const transactions = data.transactions.map(toStoredTransaction);
+  await store.upsertTransactions(transactions);
   await store.setCursor("transactions", data.server_knowledge, now);
-  return { changed: data.transactions.length, full: cursor === null, dropped: data.transactions.length - stored.length };
+  return { applied: transactions.length, full: cursor === null };
 }
 
 export async function syncAccounts(
@@ -110,5 +95,5 @@ export async function syncAccounts(
   await afterRead?.(accounts);
   await store.upsertAccounts(accounts);
   await store.setCursor("accounts", data.server_knowledge, now);
-  return { changed: data.accounts.length, full: cursor === null, dropped: 0 };
+  return { applied: accounts.length, full: cursor === null };
 }
