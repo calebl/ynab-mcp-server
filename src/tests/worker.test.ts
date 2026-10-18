@@ -66,6 +66,18 @@ describe("worker MCP handler", () => {
     await bothServer.close();
   });
 
+  it("mirrors the typical-payees opt-in and clears it when the binding is absent", async () => {
+    vi.stubEnv("YNAB_AI_TYPICAL_PAYEES", "stale");
+
+    const optedIn = createServer({ ...env, YNAB_AI_TYPICAL_PAYEES: "true" });
+    expect(process.env.YNAB_AI_TYPICAL_PAYEES).toBe("true");
+    await optedIn.close();
+
+    const optedOut = createServer(env);
+    expect(process.env.YNAB_AI_TYPICAL_PAYEES).toBeUndefined();
+    await optedOut.close();
+  });
+
   it("responds to initialize over HTTP", async () => {
     const response = await call(initialize);
     expect(response.status).toBe(200);

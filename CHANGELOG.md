@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `ynab_suggest_categories` learns a personal prior from the plan's own categorized outflows on each request. This is a naive-Bayes classifier over payee and bank-import name tokens, the account, and an amount bucket. When training history spans at least two categories, a pick at probability 0.9 or higher is returned as `suggested` with `source: "personal_prior"` and no model call. Name tokens never seen in training are ignored. Lower picks only rank, under each model row's new `personal_prior.ranking`. The response reports the prior's training size under `personal_prior`.
+- Optional `YNAB_AI_TYPICAL_PAYEES=true` setting (stdio and Worker) that adds each eligible category's most frequent payee names to the model request as `typical_payees`, reported by the new `typical_payees_sent` response field. It is off by default because it discloses aggregated payee history to TypeSafe.
+- [Evaluating categorization and local decision models](docs/local-decision-model.md): how to build a labeled set from your own history, measure baselines, and evaluate a local decision model that speaks the same request shape.
+
+### Changed
+- `ynab_suggest_categories` now routes rows to exact-payee history, then the personal prior, then the model.
+- The exact-payee history rule suggests from a single prior row when every exact-payee row agrees (it needed three).
+- Disagreeing exact-payee history no longer goes to the model. The row is `needs_review` with source `history_rule`, proposing the most recently used category, with the others as `top_alternatives` carrying `history_count` and `probability: null`.
+- History summaries add `reference_category_id`: the last-used category for exact-payee history, or the plurality for similar-name history. Agreement and `conflict` are now judged against it; `dominant_category_id` is still reported.
+- Model answers are never `suggested`. Every answer naming a category is `needs_review`; only an explicit model abstention is `left_uncategorized`. Review thresholds are stored per pinned model and the current model's is 0, matching that behavior. The response's `thresholds.suggested_at_or_above` is now `null`, and new fields report the model, history-rule floor and personal-prior settings.
+
 ## [0.4.2] - 2026-10-14
 
 ### Security

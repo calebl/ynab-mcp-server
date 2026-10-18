@@ -4,9 +4,10 @@ import * as ynab from "ynab";
 
 import { getErrorMessage } from "./errorUtils.js";
 import { DEFAULT_DECIMAL_DIGITS, getDecimalDigits, toDollars } from "./money.js";
+import { type PriorRanking, trainPersonalPrior } from "./personalPrior.js";
 
 export const name = "ynab_suggest_categories";
-export const description = "Previews category suggestions for unapproved, uncategorized ordinary outflows. Approved, reconciled, transfer, split, inflow, categorized, and YNAB balance-adjustment rows are ineligible for history-rule suggestions or TypeSafe Jev processing. Exact-payee history can determine a suggestion or require review; similar-name history only informs Jev. Never writes to YNAB.";
+export const description = "Previews category suggestions for unapproved, uncategorized ordinary outflows. Approved, reconciled, transfer, split, inflow, categorized, and YNAB balance-adjustment rows are ineligible. Rows are routed in order: exact-payee history, then a personal prior learned from the plan's own categorized outflows, then TypeSafe Jev for what is left. Only history and the personal prior mark rows suggested; model answers are a ranked shortlist for review. Similar-name history only informs Jev. Never writes to YNAB.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
@@ -23,8 +24,21 @@ interface SuggestCategoriesInput {
 
 export const PINNED_MODEL = "jev-1.13.0";
 export const PUBLISHED_INPUT_PRICE_PER_MILLION_USD = 0.042;
-export const PROVISIONAL_SUGGEST_CONFIDENCE = 0.80;
-export const PROVISIONAL_REVIEW_CONFIDENCE = 0.50;
+
+export interface ModelThresholds {
+  /** Retained per pinned model for calibration and evaluation. */
+  needsReviewAtOrAbove: number;
+}
+
+// Confidence scales differ between models, so thresholds belong to a pinned model
+// and must be refitted on labeled data before another model is pinned.
+export const MODEL_THRESHOLDS: Record<string, ModelThresholds> = {
+  [PINNED_MODEL]: { needsReviewAtOrAbove: 0 },
+};
+// One prior exact-payee row is as reliable as three when every such row agrees.
+export const HISTORY_RULE_MIN_ROWS = 1;
+export const PERSONAL_PRIOR_SUGGEST_PROBABILITY = 0.90;
+export const TYPICAL_PAYEES_PER_CATEGORY = 8;
 export const DEFAULT_LIMIT = 20;
 export const MAX_LIMIT = 100;
 export const DEFAULT_BATCH_SIZE = 10;
@@ -141,6 +155,11 @@ interface Preflight {
 
 export function isCategorySuggestionEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return env.YNAB_AI_CATEGORIZATION === "true" && Boolean(env.TYPESAFE_API_KEY);
+}
+
+/** Opt-in: send each category's most frequent payee names to the model, which discloses aggregated history. */
+export function isTypicalPayeesEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env.YNAB_AI_TYPICAL_PAYEES === "true";
 }
 
 function normalizeSystemName(value: string): string {
@@ -411,7 +430,7 @@ function buildHistorySummary(
       return { categoryId, groupName: category.groupName, categoryName: category.name, count };
     })
     .sort((a, b) => b.count - a.count || a.categoryName.localeCompare(b.categoryName));
-  const unanimousCategoryId = rows.length >= 3 && counts.length === 1 ? counts[0].categoryId : null;
+  const unanimousCategoryId = rows.length >= HISTORY_RULE_MIN_ROWS && counts.length === 1 ? counts[0].categoryId : null;
   const dominantCategoryId = counts.length > 0 && (counts.length === 1 || counts[0].count > counts[1].count)
     ? counts[0].categoryId
     : null;
@@ -427,9 +446,19 @@ function buildHistorySummary(
   };
 }
 
+/**
+ * The history category a suggestion is compared with. Exact-payee history breaks
+ * ties by the most recently used category, which predicts the next one better
+ * than the plurality; similar-name history keeps the plurality.
+ */
+function historyReferenceCategoryId(summary: HistorySummary): string | null {
+  return summary.match === "payee" ? summary.lastUsedCategoryId : summary.dominantCategoryId;
+}
+
 function historyForOutput(summary: HistorySummary, suggestedCategoryId: string | null | undefined) {
-  const agrees = summary.dominantCategoryId && suggestedCategoryId !== undefined
-    ? summary.dominantCategoryId === suggestedCategoryId
+  const referenceCategoryId = historyReferenceCategoryId(summary);
+  const agrees = referenceCategoryId && suggestedCategoryId !== undefined
+    ? referenceCategoryId === suggestedCategoryId
     : null;
   return {
     match: summary.match,
@@ -443,10 +472,45 @@ function historyForOutput(summary: HistorySummary, suggestedCategoryId: string |
     })),
     last_used_category_id: summary.lastUsedCategoryId,
     dominant_category_id: summary.dominantCategoryId,
+    reference_category_id: referenceCategoryId,
     agrees_with_suggestion: agrees,
     agreement: suggestedCategoryId === undefined ? "not_applicable" : agrees === null ? "insufficient" : agrees ? "agrees" : "conflicts",
     conflict: agrees === false,
   };
+}
+
+/** Categorized ordinary outflows the personal prior learns from and typical payees are counted over. */
+function trainingRows(
+  history: ynab.TransactionDetail[],
+  payeesById: Map<string, ynab.Payee>,
+  categoriesById: Map<string, EligibleCategory>,
+): ynab.TransactionDetail[] {
+  return history.filter((row) =>
+    !row.deleted &&
+    row.amount < 0 &&
+    categoriesById.has(row.category_id ?? "") &&
+    !(row.payee_name && BALANCE_ADJUSTMENT_PAYEE_NAMES.has(row.payee_name)) &&
+    !isTransfer(row, payeesById) &&
+    activeSubtransactions(row).length === 0
+  );
+}
+
+/** Each category's most frequent payee names, most frequent first. */
+export function typicalPayeesByCategory(rows: ynab.TransactionDetail[], perCategory = TYPICAL_PAYEES_PER_CATEGORY): Map<string, string[]> {
+  const counts = new Map<string, Map<string, number>>();
+  for (const row of rows) {
+    if (!row.payee_name) continue;
+    const categoryCounts = counts.get(row.category_id as string) ?? new Map<string, number>();
+    counts.set(row.category_id as string, categoryCounts);
+    categoryCounts.set(row.payee_name, (categoryCounts.get(row.payee_name) ?? 0) + 1);
+  }
+  return new Map([...counts.entries()].map(([categoryId, payeeCounts]) => [
+    categoryId,
+    [...payeeCounts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, perCategory)
+      .map(([payeeName]) => payeeName),
+  ]));
 }
 
 function modelState(
@@ -455,6 +519,7 @@ function modelState(
   categories: EligibleCategory[],
   historyByTransactionId: Map<string, HistorySummary>,
   decimalDigits: number,
+  typicalPayees: Map<string, string[]> | null,
 ) {
   const categoriesById = new Map(categories.map((category) => [category.id, category]));
   return {
@@ -462,6 +527,7 @@ function modelState(
       key: category.key,
       group: category.groupName,
       name: category.name,
+      ...(typicalPayees ? { typical_payees: typicalPayees.get(category.id) ?? [] } : {}),
     })),
     transactions: transactions.map((transaction) => {
       const account = accountsById.get(transaction.account_id);
@@ -502,6 +568,7 @@ function buildTypeSafeRequest(
   categories: EligibleCategory[],
   historyByTransactionId: Map<string, HistorySummary>,
   decimalDigits: number,
+  typicalPayees: Map<string, string[]> | null,
 ) {
   const criteria: Record<string, string | null> = Object.fromEntries([
     ...categories.map((category) => [category.key, null]),
@@ -524,7 +591,7 @@ function buildTypeSafeRequest(
       criteria,
     },
   ]));
-  return { state: modelState(transactions, accountsById, categories, historyByTransactionId, decimalDigits), model: PINNED_MODEL, questions };
+  return { state: modelState(transactions, accountsById, categories, historyByTransactionId, decimalDigits, typicalPayees), model: PINNED_MODEL, questions };
 }
 
 /** A conservative UTF-8 byte bound; TypeSafe returns authoritative usage after the call. */
@@ -625,6 +692,7 @@ function failedRow(
   fingerprint?: string,
   history?: HistorySummary,
   decimalDigits?: number,
+  personalPrior: ReturnType<typeof priorForOutput> = null,
 ) {
   return {
     transaction_id: transactionId,
@@ -636,7 +704,19 @@ function failedRow(
     winning_probability: null,
     top_alternatives: [],
     history: historyForOutput(history ?? emptyHistorySummary(), undefined),
+    personal_prior: personalPrior,
     error,
+  };
+}
+
+/** The prior's top three categories; its probabilities are the classifier's own, not model confidence. */
+function priorForOutput(ranking: PriorRanking[] | null, categoriesById: Map<string, EligibleCategory>) {
+  if (!ranking) return null;
+  return {
+    ranking: ranking.slice(0, 3).map((entry) => ({
+      category: categoryOutput(categoriesById.get(entry.categoryId) ?? null),
+      probability: entry.probability,
+    })),
   };
 }
 
@@ -658,6 +738,8 @@ interface ToolResponseOptions {
   estimatedCostUsd?: number;
   inputTokens?: number;
   outputTokens?: number;
+  prior?: { trainingRows: number; trained: boolean };
+  typicalPayeesSent?: boolean;
 }
 
 function toolResponse(options: ToolResponseOptions) {
@@ -687,9 +769,18 @@ function toolResponse(options: ToolResponseOptions) {
         provider_calls: options.providerCalls ?? 0,
         thresholds: {
           provisional: true,
-          suggested_at_or_above: PROVISIONAL_SUGGEST_CONFIDENCE,
-          needs_review_at_or_above: PROVISIONAL_REVIEW_CONFIDENCE,
+          model: PINNED_MODEL,
+          // Model answers are never `suggested`; only history and the personal prior suggest.
+          suggested_at_or_above: null,
+          needs_review_at_or_above: MODEL_THRESHOLDS[PINNED_MODEL].needsReviewAtOrAbove,
+          history_rule_min_rows: HISTORY_RULE_MIN_ROWS,
+          personal_prior_suggested_at_or_above: PERSONAL_PRIOR_SUGGEST_PROBABILITY,
         },
+        personal_prior: options.prior === undefined ? null : {
+          training_rows: options.prior.trainingRows,
+          trained: options.prior.trained,
+        },
+        typical_payees_sent: options.typicalPayeesSent ?? false,
         usage: {
           estimated_input_tokens_before_calls: options.estimatedInputTokens ?? 0,
           estimated_cost_usd_before_calls: Number((options.estimatedCostUsd ?? 0).toFixed(12)),
@@ -767,6 +858,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
         winning_probability: null,
         top_alternatives: [],
         history: historyForOutput(history, undefined),
+        personal_prior: null,
       });
     }
 
@@ -798,9 +890,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
 
     const categoryRefusal = categories.length === 0
       ? "No visible writable categories are available in this budget."
-      : categories.length + 1 > MAX_CHOICE_OPTIONS
-        ? `TypeSafe Choice supports at most ${MAX_CHOICE_OPTIONS} options; this budget has ${categories.length} eligible categories plus leave_uncategorized. No categories were truncated.`
-        : null;
+      : null;
     if (categoryRefusal) {
       outputRows.push(...remainingTransactions.map((transaction) =>
         failedRow(transaction.id, categoryRefusal, transaction, fingerprints.get(transaction.id), undefined, decimalDigits)
@@ -825,6 +915,11 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
       : "YNAB account context is unavailable for this transaction";
     const modelTransactions: ynab.TransactionDetail[] = [];
     const historyByTransactionId = new Map<string, HistorySummary>();
+    const priorByTransactionId = new Map<string, PriorRanking[]>();
+    const learnableRows = trainingRows(historyResponse!.data.transactions, payeesById, categoriesById);
+    const trainedPrior = trainPersonalPrior(learnableRows);
+    const prior = trainedPrior.categoryCount >= 2 ? trainedPrior : null;
+    const typicalPayees = isTypicalPayeesEnabled() ? typicalPayeesByCategory(learnableRows) : null;
 
     for (const transaction of remainingTransactions) {
       const fingerprint = fingerprints.get(transaction.id) as string;
@@ -835,19 +930,53 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
         categoriesById,
       );
       historyByTransactionId.set(transaction.id, history);
-      if (history.match === "payee" && history.unanimousCategoryId) {
-        const category = categoriesById.get(history.unanimousCategoryId) as EligibleCategory;
+      const ranking = history.match === "payee" || !prior ? null : prior.rank(transaction);
+      if (ranking) priorByTransactionId.set(transaction.id, ranking);
+      if (history.match === "payee") {
+        // Unanimous exact-payee history suggests; disagreeing history is a review
+        // case that proposes the most recently used category.
+        const categoryId = (history.unanimousCategoryId ?? history.lastUsedCategoryId) as string;
+        const category = categoriesById.get(categoryId) as EligibleCategory;
+        outputRows.push({
+          transaction_id: transaction.id,
+          transaction: displayFields(transaction, decimalDigits),
+          content_fingerprint: fingerprint,
+          status: history.unanimousCategoryId ? "suggested" : "needs_review",
+          source: "history_rule",
+          proposed_category: categoryOutput(category),
+          model_confidence: null,
+          winning_probability: null,
+          top_alternatives: history.counts
+            .filter((count) => count.categoryId !== categoryId)
+            .slice(0, 3)
+            .map((count) => ({
+              category: categoryOutput(categoriesById.get(count.categoryId) as EligibleCategory),
+              probability: null,
+              history_count: count.count,
+            })),
+          history: historyForOutput(history, category.id),
+          personal_prior: null,
+        });
+      } else if (
+        ranking &&
+        ranking[0].probability >= PERSONAL_PRIOR_SUGGEST_PROBABILITY
+      ) {
+        const category = categoriesById.get(ranking[0].categoryId) as EligibleCategory;
         outputRows.push({
           transaction_id: transaction.id,
           transaction: displayFields(transaction, decimalDigits),
           content_fingerprint: fingerprint,
           status: "suggested",
-          source: "history_rule",
+          source: "personal_prior",
           proposed_category: categoryOutput(category),
           model_confidence: null,
           winning_probability: null,
-          top_alternatives: [],
+          top_alternatives: ranking.slice(1, 4).map((entry) => ({
+            category: categoryOutput(categoriesById.get(entry.categoryId) as EligibleCategory),
+            probability: entry.probability,
+          })),
           history: historyForOutput(history, category.id),
+          personal_prior: priorForOutput(ranking, categoriesById),
         });
       } else if (!accountsById.has(transaction.account_id)) {
         outputRows.push(failedRow(
@@ -857,10 +986,32 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
           fingerprint,
           history,
           decimalDigits,
+          priorForOutput(ranking, categoriesById),
         ));
       } else {
         modelTransactions.push(transaction);
       }
+    }
+
+    if (categories.length + 1 > MAX_CHOICE_OPTIONS) {
+      const error = `TypeSafe Choice supports at most ${MAX_CHOICE_OPTIONS} options; this budget has ${categories.length} eligible categories plus leave_uncategorized. No categories were truncated.`;
+      outputRows.push(...modelTransactions.map((transaction) => failedRow(
+        transaction.id,
+        error,
+        transaction,
+        fingerprints.get(transaction.id),
+        historyByTransactionId.get(transaction.id),
+        decimalDigits,
+        priorForOutput(priorByTransactionId.get(transaction.id) ?? null, categoriesById),
+      )));
+      return toolResponse({
+        success: true,
+        transactions: outputRows,
+        transactionOrder,
+        ...selectionMetadata,
+        eligibleCategoryCount: categories.length,
+        prior: { trainingRows: trainedPrior.trainingRows, trained: Boolean(prior) },
+      });
     }
 
     let providerCalls = 0;
@@ -873,7 +1024,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
 
     for (let start = 0; start < modelTransactions.length; start += DEFAULT_BATCH_SIZE) {
       const batch = modelTransactions.slice(start, start + DEFAULT_BATCH_SIZE);
-      const body = buildTypeSafeRequest(batch, accountsById, categories, historyByTransactionId, decimalDigits);
+      const body = buildTypeSafeRequest(batch, accountsById, categories, historyByTransactionId, decimalDigits, typicalPayees);
       const preflight = preflightTypeSafeRequest(body);
       estimatedInputTokens += preflight.estimatedInputTokens;
       estimatedCostUsd += preflight.projectedCostUsd;
@@ -886,6 +1037,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
             fingerprints.get(transaction.id),
             historyByTransactionId.get(transaction.id),
             decimalDigits,
+            priorForOutput(priorByTransactionId.get(transaction.id) ?? null, categoriesById),
           ));
         }
         continue;
@@ -905,6 +1057,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
             fingerprints.get(transaction.id),
             historyByTransactionId.get(transaction.id),
             decimalDigits,
+            priorForOutput(priorByTransactionId.get(transaction.id) ?? null, categoriesById),
           ));
         }
         continue;
@@ -923,35 +1076,15 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
             fingerprints.get(transaction.id),
             historyByTransactionId.get(transaction.id),
             decimalDigits,
+            priorForOutput(priorByTransactionId.get(transaction.id) ?? null, categoriesById),
           ));
           return;
         }
         const history = historyByTransactionId.get(transaction.id) as HistorySummary;
         const selectedCategory = answer.choice === "leave_uncategorized"
           ? null
-          : categoriesByKey.get(answer.choice) ?? null;
-        if (answer.choice !== "leave_uncategorized" && !selectedCategory) {
-          outputRows.push(failedRow(
-            transaction.id,
-            "TypeSafe returned an unknown category key",
-            transaction,
-            fingerprints.get(transaction.id),
-            historyByTransactionId.get(transaction.id),
-            decimalDigits,
-          ));
-          return;
-        }
-        const conflict = Boolean(
-          history.match === "payee" &&
-          history.dominantCategoryId &&
-          history.dominantCategoryId !== selectedCategory?.id
-        );
-        let status: string;
-        if (conflict) status = "needs_review";
-        else if (answer.choice === "leave_uncategorized") status = "left_uncategorized";
-        else if (answer.confidence >= PROVISIONAL_SUGGEST_CONFIDENCE) status = "suggested";
-        else if (answer.confidence >= PROVISIONAL_REVIEW_CONFIDENCE) status = "needs_review";
-        else status = "uncertain";
+          : categoriesByKey.get(answer.choice) as EligibleCategory;
+        const status = answer.choice === "leave_uncategorized" ? "left_uncategorized" : "needs_review";
 
         const alternatives = Object.entries(answer.probabilities)
           .filter(([key]) => key !== "leave_uncategorized" && key !== answer.choice && categoriesByKey.has(key))
@@ -972,6 +1105,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
           winning_probability: answer.probabilities[answer.choice],
           top_alternatives: alternatives,
           history: historyForOutput(history, selectedCategory?.id ?? null),
+          personal_prior: priorForOutput(priorByTransactionId.get(transaction.id) ?? null, categoriesById),
         });
       });
     }
@@ -988,6 +1122,8 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
       estimatedCostUsd,
       inputTokens,
       outputTokens,
+      prior: { trainingRows: trainedPrior.trainingRows, trained: Boolean(prior) },
+      typicalPayeesSent: Boolean(typicalPayees) && providerCalls > 0,
     });
   } catch (error) {
     return toolResponse({ success: false, error: getErrorMessage(error) });

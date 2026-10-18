@@ -17,6 +17,7 @@ function applyEnv(env: WorkerEnv) {
     ["YNAB_BUDGET_ID", env.YNAB_BUDGET_ID],
     ["TYPESAFE_API_KEY", env.TYPESAFE_API_KEY],
     ["YNAB_AI_CATEGORIZATION", env.YNAB_AI_CATEGORIZATION],
+    ["YNAB_AI_TYPICAL_PAYEES", env.YNAB_AI_TYPICAL_PAYEES],
   ];
   for (const [name, value] of optionalBindings) {
     if (value === undefined) delete process.env[name];

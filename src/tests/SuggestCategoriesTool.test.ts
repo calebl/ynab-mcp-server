@@ -113,6 +113,22 @@ function answer(choice: string, confidence: number, probabilities: Record<string
   return { type: "choice", choice, confidence, probabilities };
 }
 
+/**
+ * Categorized outflows from many one-off payees, so none gives the candidate
+ * exact-payee history: half "Lumen Pantry" dining, half "Zephyr Depot" groceries.
+ */
+function priorHistory(perCategory: number) {
+  return Array.from({ length: perCategory * 2 }, (_value, index) => {
+    const dining = index % 2 === 0;
+    return history(`prior-${index}`, dining ? "cat-dining" : "cat-grocery", {
+      payee_id: `payee-prior-${index}`,
+      payee_name: dining ? `Lumen Pantry ${index}` : `Zephyr Depot ${index}`,
+      import_payee_name: dining ? `LUMEN PANTRY ${index}` : `ZEPHYR DEPOT ${index}`,
+      import_payee_name_original: null,
+    });
+  });
+}
+
 async function result(input: any, api: any) {
   const response = await Tool.execute(input, api as ynab.API);
   return JSON.parse(response.content[0].text);
@@ -130,6 +146,7 @@ describe("SuggestCategoriesTool", () => {
     vi.restoreAllMocks();
     delete process.env.YNAB_AI_CATEGORIZATION;
     delete process.env.TYPESAFE_API_KEY;
+    delete process.env.YNAB_AI_TYPICAL_PAYEES;
   });
 
   it("is disabled unless both the explicit flag and API key are present", async () => {
@@ -193,7 +210,8 @@ describe("SuggestCategoriesTool", () => {
     ];
     const api = makeApi({
       candidates,
-      history: [history("old-grocery", "cat-grocery")],
+      // A different payee keeps the eligible row off the exact-payee history rule.
+      history: [history("old-grocery", "cat-grocery", { payee_id: "payee-earlier-market" })],
       payees: [
         { id: "payee-uuid", name: "Market", transfer_account_id: null, deleted: false },
         { id: "transfer-payee", name: "Transfer", transfer_account_id: "account-2", deleted: false },
@@ -215,7 +233,7 @@ describe("SuggestCategoriesTool", () => {
       ["split", "skipped_split"],
       ["categorized", "skipped_already_categorized"],
       ["inflow", "skipped_inflow"],
-      ["eligible", "suggested"],
+      ["eligible", "needs_review"],
     ]);
     expect(output.transactions.find((row: any) => row.transaction_id === "row-transfer").history).toMatchObject({
       sample_size: 1,
@@ -281,7 +299,7 @@ describe("SuggestCategoriesTool", () => {
     });
     expect(output.transactions[0]).toMatchObject({
       transaction_id: "txn-1",
-      status: "suggested",
+      status: "needs_review",
       source: "jev",
       proposed_category: { id: "cat-grocery", name: "Groceries" },
       history: {
@@ -371,10 +389,16 @@ describe("SuggestCategoriesTool", () => {
     const output = await result({}, api);
 
     expect(output.transactions[0]).toMatchObject({
-      status: "suggested",
+      status: "needs_review",
       source: "jev",
       proposed_category: { id: "cat-dining" },
-      history: { match: "similar_payee_name", sample_size: 2, dominant_category_id: "cat-grocery", conflict: true },
+      history: {
+        match: "similar_payee_name",
+        sample_size: 2,
+        dominant_category_id: "cat-grocery",
+        reference_category_id: "cat-grocery",
+        conflict: true,
+      },
     });
   });
 
@@ -462,6 +486,9 @@ describe("SuggestCategoriesTool", () => {
         history("old-1", "cat-grocery"),
         history("old-2", "cat-grocery", { date: "2026-07-01" }),
         history("old-3", "cat-grocery", { date: "2026-06-01" }),
+        history("old-dining-1", "cat-dining", { payee_id: "dining-payee-1", payee_name: "Lumen Cafe" }),
+        history("old-dining-2", "cat-dining", { payee_id: "dining-payee-2", payee_name: "Nimbus Cafe" }),
+        history("old-dining-3", "cat-dining", { payee_id: "dining-payee-3", payee_name: "Velvet Cafe" }),
       ],
     });
     api.accounts.getAccounts.mockRejectedValue(new Error("accounts unavailable"));
@@ -480,6 +507,7 @@ describe("SuggestCategoriesTool", () => {
       {
         transaction_id: "model-bound",
         status: "failed",
+        personal_prior: { ranking: expect.any(Array) },
         error: expect.stringContaining("accounts unavailable"),
       },
     ]);
@@ -487,27 +515,204 @@ describe("SuggestCategoriesTool", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("forces review when mixed exact-payee history disagrees with Jev", async () => {
+  it("suggests from a single exact-payee history row without a model call", async () => {
+    const api = makeApi({ history: [history("old-1", "cat-dining")] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(output.thresholds.history_rule_min_rows).toBe(1);
+    expect(output.transactions[0]).toMatchObject({
+      status: "suggested",
+      source: "history_rule",
+      proposed_category: { id: "cat-dining" },
+      history: { match: "payee", sample_size: 1, agrees_with_suggestion: true },
+    });
+  });
+
+  it("proposes the most recently used category for review when exact-payee history disagrees", async () => {
     const api = makeApi({ history: [
-      history("old-1", "cat-grocery"),
+      history("old-1", "cat-dining", { date: "2026-08-01" }),
       history("old-2", "cat-grocery", { date: "2026-07-01" }),
-      history("old-3", "cat-dining", { date: "2026-06-01" }),
+      history("old-3", "cat-grocery", { date: "2026-06-01" }),
+    ] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(output.transactions[0]).toMatchObject({
+      status: "needs_review",
+      source: "history_rule",
+      proposed_category: { id: "cat-dining" },
+      model_confidence: null,
+      top_alternatives: [{ category: { id: "cat-grocery" }, probability: null, history_count: 2 }],
+      history: {
+        dominant_category_id: "cat-grocery",
+        last_used_category_id: "cat-dining",
+        reference_category_id: "cat-dining",
+        agrees_with_suggestion: true,
+        conflict: false,
+      },
+    });
+  });
+
+  it("suggests from the personal prior at or above its probability threshold without a model call", async () => {
+    const api = makeApi({
+      candidates: [transaction("txn-1", {
+        payee_id: "payee-new",
+        payee_name: "Lumen Pantry Uptown",
+        import_payee_name: "LUMEN PANTRY UPTOWN",
+        import_payee_name_original: null,
+      })],
+      history: priorHistory(30),
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(output.personal_prior).toEqual({ training_rows: 60, trained: true });
+    const row = output.transactions[0];
+    expect(row).toMatchObject({
+      status: "suggested",
+      source: "personal_prior",
+      proposed_category: { id: "cat-dining" },
+      model_confidence: null,
+      winning_probability: null,
+      top_alternatives: [{ category: { id: "cat-grocery" } }],
+      personal_prior: { ranking: [{ category: { id: "cat-dining" } }, { category: { id: "cat-grocery" } }] },
+    });
+    expect(row.personal_prior.ranking[0].probability).toBeGreaterThanOrEqual(Tool.PERSONAL_PRIOR_SUGGEST_PROBABILITY);
+  });
+
+  it("trains the personal prior from fewer than 50 rows when history spans two categories", async () => {
+    const api = makeApi({
+      candidates: [transaction("txn-1", { payee_id: "payee-new", payee_name: "Lumen Pantry Uptown", import_payee_name: null, import_payee_name_original: null })],
+      history: priorHistory(10),
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(output.personal_prior).toEqual({ training_rows: 20, trained: true });
+    expect(output.transactions[0]).toMatchObject({ status: "suggested", source: "personal_prior" });
+  });
+
+  it("does not let unseen name tokens invert an uneven personal prior", async () => {
+    const uneven = [
+      ...Array.from({ length: 100 }, (_value, index) => history(`large-${index}`, "cat-grocery", {
+        payee_id: `payee-large-${index}`, payee_name: "Zephyr Depot", import_payee_name: null, import_payee_name_original: null,
+      })),
+      ...Array.from({ length: 5 }, (_value, index) => history(`small-${index}`, "cat-dining", {
+        payee_id: `payee-small-${index}`, payee_name: "Lumen Pantry", import_payee_name: null, import_payee_name_original: null,
+      })),
+    ];
+    const api = makeApi({
+      candidates: [transaction("txn-1", { payee_id: "payee-unrelated", payee_name: "Unrelated Sportsgear", import_payee_name: null, import_payee_name_original: null })],
+      history: uneven,
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(output.transactions[0]).toMatchObject({
+      status: "suggested",
+      source: "personal_prior",
+      proposed_category: { id: "cat-grocery" },
+    });
+    expect(output.transactions[0].personal_prior.ranking[0].category.id).toBe("cat-grocery");
+    expect(output.transactions[0].personal_prior.ranking[0].category.id).not.toBe("cat-dining");
+    expect(output.transactions[0].personal_prior.ranking[0].probability).toBeGreaterThanOrEqual(
+      Tool.PERSONAL_PRIOR_SUGGEST_PROBABILITY,
+    );
+  });
+
+  it("ranks with the personal prior below its threshold and marks every model answer for review", async () => {
+    const api = makeApi({
+      candidates: [transaction("txn-1", {
+        payee_id: "payee-unseen",
+        payee_name: "Velvet Ledger",
+        import_payee_name: null,
+        import_payee_name_original: null,
+      })],
+      history: priorHistory(30),
+    });
+    const fetchMock = vi.fn().mockResolvedValue(choiceResponse({
+      t00: answer("c001", 0.99, { c000: 0.005, c001: 0.99, leave_uncategorized: 0.005 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const output = await result({}, api);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const row = output.transactions[0];
+    expect(row).toMatchObject({
+      status: "needs_review",
+      source: "jev",
+      proposed_category: { id: "cat-grocery" },
+      model_confidence: 0.99,
+    });
+    expect(row.personal_prior.ranking).toHaveLength(2);
+    expect(row.personal_prior.ranking[0].probability).toBeLessThan(Tool.PERSONAL_PRIOR_SUGGEST_PROBABILITY);
+  });
+
+  it("reports the pinned threshold that marks every category answer for review", async () => {
+    expect(Tool.MODEL_THRESHOLDS[Tool.PINNED_MODEL]).toEqual({ needsReviewAtOrAbove: 0 });
+    const api = makeApi({ candidates: [
+      transaction("low", { payee_id: "payee-a", payee_name: "Nimbus Stationery" }),
+      transaction("high", { payee_id: "payee-b", payee_name: "Nimbus Stationery Annex" }),
     ] });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(choiceResponse({
-      t00: answer("c000", 0.98, { c000: 0.98, c001: 0.01, leave_uncategorized: 0.01 }),
+      t00: answer("c000", 0.49, { c000: 0.5, c001: 0.45, leave_uncategorized: 0.05 }),
+      t01: answer("c000", 1, { c000: 1, c001: 0, leave_uncategorized: 0 }),
     })));
 
     const output = await result({}, api);
 
-    // Alphabetical category keys make Dining Out c000 and Groceries c001.
-    expect(output.transactions[0]).toMatchObject({
-      status: "needs_review",
-      source: "jev",
-      proposed_category: { id: "cat-dining" },
-      model_confidence: 0.98,
-      winning_probability: 0.98,
-      history: { dominant_category_id: "cat-grocery", agrees_with_suggestion: false, conflict: true },
-    });
+    expect(output.transactions.map((row: any) => [row.transaction_id, row.status])).toEqual([
+      ["low", "needs_review"],
+      ["high", "needs_review"],
+    ]);
+  });
+
+  it("sends each category's most frequent payees to the model only when the setting is on", async () => {
+    const candidate = transaction("txn-1", { payee_id: "payee-unseen", payee_name: "Velvet Ledger", import_payee_name: null, import_payee_name_original: null });
+    const historyRows = [
+      history("h-1", "cat-dining", { payee_id: "payee-p1", payee_name: "Lumen Pantry" }),
+      history("h-2", "cat-dining", { payee_id: "payee-p1", payee_name: "Lumen Pantry" }),
+      history("h-3", "cat-dining", { payee_id: "payee-p2", payee_name: "Nimbus Cafe" }),
+      history("h-4", "cat-grocery", { payee_id: "payee-p3", payee_name: "Zephyr Depot" }),
+      history("h-5", "cat-grocery", { payee_id: "payee-p4", payee_name: "Refund Desk", amount: 4000 }),
+    ];
+    const reply = () => choiceResponse({ t00: answer("c000", 0.9, { c000: 0.9, c001: 0.05, leave_uncategorized: 0.05 }) });
+
+    const offFetch = vi.fn().mockImplementation(async () => reply());
+    vi.stubGlobal("fetch", offFetch);
+    const off = await result({}, makeApi({ candidates: [candidate], history: historyRows }));
+    const offCategories = JSON.parse(offFetch.mock.calls[0][1].body).state.eligible_categories;
+    expect(offCategories.every((entry: any) => !("typical_payees" in entry))).toBe(true);
+    expect(off.typical_payees_sent).toBe(false);
+
+    process.env.YNAB_AI_TYPICAL_PAYEES = "true";
+    const onFetch = vi.fn().mockImplementation(async () => reply());
+    vi.stubGlobal("fetch", onFetch);
+    const on = await result({}, makeApi({ candidates: [candidate], history: historyRows }));
+    // Alphabetical category keys make Dining Out c000 and Groceries c001; inflows are not counted.
+    expect(JSON.parse(onFetch.mock.calls[0][1].body).state.eligible_categories).toEqual([
+      { key: "c000", group: "Everyday", name: "Dining Out", typical_payees: ["Lumen Pantry", "Nimbus Cafe"] },
+      { key: "c001", group: "Everyday", name: "Groceries", typical_payees: ["Zephyr Depot"] },
+    ]);
+    expect(on.typical_payees_sent).toBe(true);
+    expect(Tool.isTypicalPayeesEnabled({ YNAB_AI_TYPICAL_PAYEES: "false" })).toBe(false);
   });
 
   it("returns a dry-run proposal, three alternatives, fingerprint, model, usage, and cost without leaking YNAB IDs to Jev", async () => {
@@ -539,7 +744,14 @@ describe("SuggestCategoriesTool", () => {
       requested_model: "jev-1.13.0",
       model: "jev-1.13.0",
       provider_calls: 1,
-      thresholds: { provisional: true, suggested_at_or_above: 0.8, needs_review_at_or_above: 0.5 },
+      thresholds: {
+        provisional: true,
+        model: "jev-1.13.0",
+        suggested_at_or_above: null,
+        needs_review_at_or_above: 0,
+        personal_prior_suggested_at_or_above: 0.9,
+      },
+      typical_payees_sent: false,
       usage: { input_tokens: 1234, output_tokens: 56, projected_cost_usd: 0.000051828 },
     });
     expect(output.usage).not.toHaveProperty("input_cost_usd");
@@ -592,8 +804,14 @@ describe("SuggestCategoriesTool", () => {
     ]);
   });
 
-  it("turns a provider failure into failed rows without throwing or writing to YNAB", async () => {
-    const api = makeApi({ candidates: [transaction("txn-1"), transaction("txn-2", { payee_id: "other-payee" })] });
+  it("turns a provider failure into failed rows while preserving prior rankings", async () => {
+    const api = makeApi({
+      candidates: [
+        transaction("txn-1", { payee_id: "new-payee-1", payee_name: "Velvet Ledger" }),
+        transaction("txn-2", { payee_id: "new-payee-2", payee_name: "Nimbus Stationery" }),
+      ],
+      history: priorHistory(10),
+    });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("overloaded", { status: 529 })));
 
     const output = await result({}, api);
@@ -601,6 +819,7 @@ describe("SuggestCategoriesTool", () => {
     expect(output.success).toBe(true);
     expect(output.transactions).toHaveLength(2);
     expect(output.transactions.every((row: any) => row.status === "failed")).toBe(true);
+    expect(output.transactions.every((row: any) => row.personal_prior?.ranking.length === 2)).toBe(true);
     expect(output.transactions[0].error).toBe("TypeSafe request failed with HTTP 529");
     expect(output.provider_calls).toBe(1);
     expect(api.transactions).not.toHaveProperty("updateTransaction");
@@ -706,13 +925,15 @@ describe("SuggestCategoriesTool", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("summarizes skipped rows when refusing more than 255 Choice options", async () => {
+  it("applies the 255-option refusal only after local routing", async () => {
     const categories = Array.from({ length: 255 }, (_, index) => category(`cat-${index}`, `Category ${index}`));
     const api = makeApi({
       candidates: [
         transaction("transfer", { transfer_account_id: "other-account" }),
-        transaction("eligible"),
+        transaction("history-answer"),
+        transaction("model-bound", { payee_id: "new-payee", payee_name: "Velvet Ledger" }),
       ],
+      history: [history("old-history", "cat-0")],
       groups: [group("large", "Large", categories)],
     });
     const fetchMock = vi.fn();
@@ -721,12 +942,20 @@ describe("SuggestCategoriesTool", () => {
     const output = await result({}, api);
 
     expect(output.success).toBe(true);
-    expect(output.transactions).toMatchObject([{
-      transaction_id: "eligible",
-      status: "failed",
-      error: expect.stringContaining("255 eligible categories plus leave_uncategorized"),
-    }]);
-    expect(output.transactions[0].error).toContain("No categories were truncated");
+    expect(output.transactions).toMatchObject([
+      {
+        transaction_id: "history-answer",
+        status: "suggested",
+        source: "history_rule",
+        proposed_category: { id: "cat-0" },
+      },
+      {
+        transaction_id: "model-bound",
+        status: "failed",
+        error: expect.stringContaining("255 eligible categories plus leave_uncategorized"),
+      },
+    ]);
+    expect(output.transactions[1].error).toContain("No categories were truncated");
     expect(output.skipped).toMatchObject({
       total_count: 1,
       skipped_transfer: { count: 1, transaction_ids: ["transfer"] },

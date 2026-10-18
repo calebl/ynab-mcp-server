@@ -83,6 +83,11 @@ Category suggestions remain off unless you also add
 settings are required to expose `ynab_suggest_categories`; the key never
 belongs in `wrangler.jsonc` or a tool argument.
 
+Optionally, add `"YNAB_AI_TYPICAL_PAYEES": "true"` under `vars` to send each
+category's most frequent payee names to the model. It improves accuracy on your
+own filing habits but discloses aggregated payee history to TypeSafe, so it is
+off unless set.
+
 ### 6. Deploy
 
 ```bash
@@ -216,8 +221,9 @@ npm run deploy
 ## TypeSafe category preview (optional)
 
 When enabled as described above, `ynab_suggest_categories` proposes categories
-for eligible uncategorized outflows. It is a preview only and never writes to
-YNAB. Applying a proposal requires a separate explicit write; see
+for eligible uncategorized outflows. It answers from exact-payee history and a
+personal prior trained on the plan's own history first, and calls the model
+only for what is left. It is a preview only and never writes to YNAB. Applying a proposal requires a separate explicit write; see
 [Category suggestions](./README.md#category-suggestions-optional) for the apply
 tool and its safeguards.
 
