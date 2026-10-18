@@ -26,7 +26,7 @@ export const PINNED_MODEL = "jev-1.13.0";
 export const PUBLISHED_INPUT_PRICE_PER_MILLION_USD = 0.042;
 
 export interface ModelThresholds {
-  /** Model answers never become `suggested`; at or above this they are `needs_review`, below it `uncertain`. */
+  /** Retained per pinned model for calibration and evaluation. */
   needsReviewAtOrAbove: number;
 }
 
@@ -38,8 +38,6 @@ export const MODEL_THRESHOLDS: Record<string, ModelThresholds> = {
 // One prior exact-payee row is as reliable as three when every such row agrees.
 export const HISTORY_RULE_MIN_ROWS = 1;
 export const PERSONAL_PRIOR_SUGGEST_PROBABILITY = 0.90;
-// Too few rows lets a single dominant category look certain.
-export const PERSONAL_PRIOR_MIN_TRAINING_ROWS = 50;
 export const TYPICAL_PAYEES_PER_CATEGORY = 8;
 export const DEFAULT_LIMIT = 20;
 export const MAX_LIMIT = 100;
@@ -694,6 +692,7 @@ function failedRow(
   fingerprint?: string,
   history?: HistorySummary,
   decimalDigits?: number,
+  personalPrior: ReturnType<typeof priorForOutput> = null,
 ) {
   return {
     transaction_id: transactionId,
@@ -705,7 +704,7 @@ function failedRow(
     winning_probability: null,
     top_alternatives: [],
     history: historyForOutput(history ?? emptyHistorySummary(), undefined),
-    personal_prior: null,
+    personal_prior: personalPrior,
     error,
   };
 }
@@ -776,7 +775,6 @@ function toolResponse(options: ToolResponseOptions) {
           needs_review_at_or_above: MODEL_THRESHOLDS[PINNED_MODEL].needsReviewAtOrAbove,
           history_rule_min_rows: HISTORY_RULE_MIN_ROWS,
           personal_prior_suggested_at_or_above: PERSONAL_PRIOR_SUGGEST_PROBABILITY,
-          personal_prior_min_training_rows: PERSONAL_PRIOR_MIN_TRAINING_ROWS,
         },
         personal_prior: options.prior === undefined ? null : {
           training_rows: options.prior.trainingRows,
@@ -892,9 +890,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
 
     const categoryRefusal = categories.length === 0
       ? "No visible writable categories are available in this budget."
-      : categories.length + 1 > MAX_CHOICE_OPTIONS
-        ? `TypeSafe Choice supports at most ${MAX_CHOICE_OPTIONS} options; this budget has ${categories.length} eligible categories plus leave_uncategorized. No categories were truncated.`
-        : null;
+      : null;
     if (categoryRefusal) {
       outputRows.push(...remainingTransactions.map((transaction) =>
         failedRow(transaction.id, categoryRefusal, transaction, fingerprints.get(transaction.id), undefined, decimalDigits)
@@ -922,9 +918,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
     const priorByTransactionId = new Map<string, PriorRanking[]>();
     const learnableRows = trainingRows(historyResponse!.data.transactions, payeesById, categoriesById);
     const trainedPrior = trainPersonalPrior(learnableRows);
-    const prior = trainedPrior.trainingRows >= PERSONAL_PRIOR_MIN_TRAINING_ROWS && trainedPrior.categoryCount >= 2
-      ? trainedPrior
-      : null;
+    const prior = trainedPrior.categoryCount >= 2 ? trainedPrior : null;
     const typicalPayees = isTypicalPayeesEnabled() ? typicalPayeesByCategory(learnableRows) : null;
 
     for (const transaction of remainingTransactions) {
@@ -989,10 +983,32 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
           fingerprint,
           history,
           decimalDigits,
+          priorForOutput(ranking, categoriesById),
         ));
       } else {
         modelTransactions.push(transaction);
       }
+    }
+
+    if (categories.length + 1 > MAX_CHOICE_OPTIONS) {
+      const error = `TypeSafe Choice supports at most ${MAX_CHOICE_OPTIONS} options; this budget has ${categories.length} eligible categories plus leave_uncategorized. No categories were truncated.`;
+      outputRows.push(...modelTransactions.map((transaction) => failedRow(
+        transaction.id,
+        error,
+        transaction,
+        fingerprints.get(transaction.id),
+        historyByTransactionId.get(transaction.id),
+        decimalDigits,
+        priorForOutput(priorByTransactionId.get(transaction.id) ?? null, categoriesById),
+      )));
+      return toolResponse({
+        success: true,
+        transactions: outputRows,
+        transactionOrder,
+        ...selectionMetadata,
+        eligibleCategoryCount: categories.length,
+        prior: { trainingRows: trainedPrior.trainingRows, trained: Boolean(prior) },
+      });
     }
 
     let providerCalls = 0;
@@ -1018,6 +1034,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
             fingerprints.get(transaction.id),
             historyByTransactionId.get(transaction.id),
             decimalDigits,
+            priorForOutput(priorByTransactionId.get(transaction.id) ?? null, categoriesById),
           ));
         }
         continue;
@@ -1037,6 +1054,7 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
             fingerprints.get(transaction.id),
             historyByTransactionId.get(transaction.id),
             decimalDigits,
+            priorForOutput(priorByTransactionId.get(transaction.id) ?? null, categoriesById),
           ));
         }
         continue;
@@ -1055,29 +1073,15 @@ export async function execute(input: SuggestCategoriesInput, api: ynab.API) {
             fingerprints.get(transaction.id),
             historyByTransactionId.get(transaction.id),
             decimalDigits,
+            priorForOutput(priorByTransactionId.get(transaction.id) ?? null, categoriesById),
           ));
           return;
         }
         const history = historyByTransactionId.get(transaction.id) as HistorySummary;
         const selectedCategory = answer.choice === "leave_uncategorized"
           ? null
-          : categoriesByKey.get(answer.choice) ?? null;
-        if (answer.choice !== "leave_uncategorized" && !selectedCategory) {
-          outputRows.push(failedRow(
-            transaction.id,
-            "TypeSafe returned an unknown category key",
-            transaction,
-            fingerprints.get(transaction.id),
-            historyByTransactionId.get(transaction.id),
-            decimalDigits,
-          ));
-          return;
-        }
-        // A model answer is a ranked shortlist for review, never a suggestion.
-        let status: string;
-        if (answer.choice === "leave_uncategorized") status = "left_uncategorized";
-        else if (answer.confidence >= MODEL_THRESHOLDS[PINNED_MODEL].needsReviewAtOrAbove) status = "needs_review";
-        else status = "uncertain";
+          : categoriesByKey.get(answer.choice) as EligibleCategory;
+        const status = answer.choice === "leave_uncategorized" ? "left_uncategorized" : "needs_review";
 
         const alternatives = Object.entries(answer.probabilities)
           .filter(([key]) => key !== "leave_uncategorized" && key !== answer.choice && categoriesByKey.has(key))

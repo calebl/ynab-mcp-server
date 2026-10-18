@@ -52,7 +52,8 @@ imported. So the rows still uncategorized when you open the tool are mostly
 payees with little or no history. Report results separately for:
 
 - **all held-out rows**;
-- **rows the tool would send to a model**: no unanimous exact-payee history;
+- **rows the tool would send to a model**: no exact-payee history and no
+  personal-prior answer at or above 0.9;
 - **cold rows**: no exact-payee history at all. This is closest to the real
   workload.
 

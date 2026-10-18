@@ -486,6 +486,9 @@ describe("SuggestCategoriesTool", () => {
         history("old-1", "cat-grocery"),
         history("old-2", "cat-grocery", { date: "2026-07-01" }),
         history("old-3", "cat-grocery", { date: "2026-06-01" }),
+        history("old-dining-1", "cat-dining", { payee_id: "dining-payee-1", payee_name: "Lumen Cafe" }),
+        history("old-dining-2", "cat-dining", { payee_id: "dining-payee-2", payee_name: "Nimbus Cafe" }),
+        history("old-dining-3", "cat-dining", { payee_id: "dining-payee-3", payee_name: "Velvet Cafe" }),
       ],
     });
     api.accounts.getAccounts.mockRejectedValue(new Error("accounts unavailable"));
@@ -504,6 +507,7 @@ describe("SuggestCategoriesTool", () => {
       {
         transaction_id: "model-bound",
         status: "failed",
+        personal_prior: { ranking: expect.any(Array) },
         error: expect.stringContaining("accounts unavailable"),
       },
     ]);
@@ -586,21 +590,19 @@ describe("SuggestCategoriesTool", () => {
     expect(row.personal_prior.ranking[0].probability).toBeGreaterThanOrEqual(Tool.PERSONAL_PRIOR_SUGGEST_PROBABILITY);
   });
 
-  it("does not train the personal prior below its minimum history", async () => {
+  it("trains the personal prior from fewer than 50 rows when history spans two categories", async () => {
     const api = makeApi({
       candidates: [transaction("txn-1", { payee_id: "payee-new", payee_name: "Lumen Pantry Uptown", import_payee_name: null, import_payee_name_original: null })],
       history: priorHistory(10),
     });
-    const fetchMock = vi.fn().mockResolvedValue(choiceResponse({
-      t00: answer("c000", 0.9, { c000: 0.9, c001: 0.05, leave_uncategorized: 0.05 }),
-    }));
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     const output = await result({}, api);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(output.personal_prior).toEqual({ training_rows: 20, trained: false });
-    expect(output.transactions[0]).toMatchObject({ source: "jev", personal_prior: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(output.personal_prior).toEqual({ training_rows: 20, trained: true });
+    expect(output.transactions[0]).toMatchObject({ status: "suggested", source: "personal_prior" });
   });
 
   it("ranks with the personal prior below its threshold and marks every model answer for review", async () => {
@@ -632,7 +634,7 @@ describe("SuggestCategoriesTool", () => {
     expect(row.personal_prior.ranking[0].probability).toBeLessThan(Tool.PERSONAL_PRIOR_SUGGEST_PROBABILITY);
   });
 
-  it("applies the pinned model's review threshold and never suggests from a model answer", async () => {
+  it("keeps the pinned model's calibration threshold while marking every category answer for review", async () => {
     expect(Tool.MODEL_THRESHOLDS[Tool.PINNED_MODEL]).toEqual({ needsReviewAtOrAbove: 0.5 });
     const api = makeApi({ candidates: [
       transaction("low", { payee_id: "payee-a", payee_name: "Nimbus Stationery" }),
@@ -646,7 +648,7 @@ describe("SuggestCategoriesTool", () => {
     const output = await result({}, api);
 
     expect(output.transactions.map((row: any) => [row.transaction_id, row.status])).toEqual([
-      ["low", "uncertain"],
+      ["low", "needs_review"],
       ["high", "needs_review"],
     ]);
   });
@@ -771,8 +773,14 @@ describe("SuggestCategoriesTool", () => {
     ]);
   });
 
-  it("turns a provider failure into failed rows without throwing or writing to YNAB", async () => {
-    const api = makeApi({ candidates: [transaction("txn-1"), transaction("txn-2", { payee_id: "other-payee" })] });
+  it("turns a provider failure into failed rows while preserving prior rankings", async () => {
+    const api = makeApi({
+      candidates: [
+        transaction("txn-1", { payee_id: "new-payee-1", payee_name: "Velvet Ledger" }),
+        transaction("txn-2", { payee_id: "new-payee-2", payee_name: "Nimbus Stationery" }),
+      ],
+      history: priorHistory(10),
+    });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("overloaded", { status: 529 })));
 
     const output = await result({}, api);
@@ -780,6 +788,7 @@ describe("SuggestCategoriesTool", () => {
     expect(output.success).toBe(true);
     expect(output.transactions).toHaveLength(2);
     expect(output.transactions.every((row: any) => row.status === "failed")).toBe(true);
+    expect(output.transactions.every((row: any) => row.personal_prior?.ranking.length === 2)).toBe(true);
     expect(output.transactions[0].error).toBe("TypeSafe request failed with HTTP 529");
     expect(output.provider_calls).toBe(1);
     expect(api.transactions).not.toHaveProperty("updateTransaction");
@@ -885,13 +894,15 @@ describe("SuggestCategoriesTool", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("summarizes skipped rows when refusing more than 255 Choice options", async () => {
+  it("applies the 255-option refusal only after local routing", async () => {
     const categories = Array.from({ length: 255 }, (_, index) => category(`cat-${index}`, `Category ${index}`));
     const api = makeApi({
       candidates: [
         transaction("transfer", { transfer_account_id: "other-account" }),
-        transaction("eligible"),
+        transaction("history-answer"),
+        transaction("model-bound", { payee_id: "new-payee", payee_name: "Velvet Ledger" }),
       ],
+      history: [history("old-history", "cat-0")],
       groups: [group("large", "Large", categories)],
     });
     const fetchMock = vi.fn();
@@ -900,12 +911,20 @@ describe("SuggestCategoriesTool", () => {
     const output = await result({}, api);
 
     expect(output.success).toBe(true);
-    expect(output.transactions).toMatchObject([{
-      transaction_id: "eligible",
-      status: "failed",
-      error: expect.stringContaining("255 eligible categories plus leave_uncategorized"),
-    }]);
-    expect(output.transactions[0].error).toContain("No categories were truncated");
+    expect(output.transactions).toMatchObject([
+      {
+        transaction_id: "history-answer",
+        status: "suggested",
+        source: "history_rule",
+        proposed_category: { id: "cat-0" },
+      },
+      {
+        transaction_id: "model-bound",
+        status: "failed",
+        error: expect.stringContaining("255 eligible categories plus leave_uncategorized"),
+      },
+    ]);
+    expect(output.transactions[1].error).toContain("No categories were truncated");
     expect(output.skipped).toMatchObject({
       total_count: 1,
       skipped_transfer: { count: 1, transaction_ids: ["transfer"] },

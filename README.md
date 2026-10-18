@@ -207,17 +207,18 @@ that answered:
 2. **Personal prior (`personal_prior`).** A naive-Bayes classifier is trained
    for each request on the plan's own categorized ordinary outflows from the
    same 12-month history, using payee and bank-import name tokens, the account,
-   and a coarse amount bucket. It needs at least 50 such rows across two or
-   more categories. When its top category reaches probability 0.9, the row is
+   and a coarse amount bucket. It is used when history contains categorized
+   rows across at least two categories; a single-category prior cannot rank
+   alternatives. When its top category reaches probability 0.9, the row is
    `suggested` without a model call. The probability is reported under
    `personal_prior.ranking`, never as `model_confidence`. Below 0.9 the prior
    only ranks: its top three appear on the model's row for comparison.
 3. **Model (`jev`).** Every remaining row goes to TypeSafe's pinned
    `jev-1.13.0` System One model in batches of ten. A model answer is a ranked
-   shortlist, never a suggestion: it is `needs_review` at or above the pinned
-   model's review threshold (0.5 for `jev-1.13.0`), `uncertain` below it, and
-   `left_uncategorized` when the model chooses not to pick. Thresholds are
-   stored per pinned model because confidence scales differ between models.
+   shortlist, never a suggestion: every answer that names a category is
+   `needs_review`, while an explicit model abstention is `left_uncategorized`.
+   Calibration thresholds are stored per pinned model because confidence
+   scales differ between models.
 
 Similar-name history always goes to the model as suggestive evidence and is
 never a rule. The history summary's `reference_category_id` is the category a
