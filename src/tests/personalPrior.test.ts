@@ -53,6 +53,22 @@ describe("personalPrior", () => {
     expect(prior.rank(row({ payee_name: "Lumen Pantry West" }))).toEqual(ranking);
   });
 
+  it("ignores unseen name tokens instead of penalizing categories with more history", () => {
+    const training = [
+      ...Array.from({ length: 100 }, (_value, index) => row({ id: `z${index}`, payee_name: "Zephyr Depot", category_id: "cat-large" })),
+      ...Array.from({ length: 5 }, (_value, index) => row({ id: `l${index}`, payee_name: "Lumen Pantry", category_id: "cat-small" })),
+    ];
+    const prior = trainPersonalPrior(training);
+    const unrelated = row({ payee_name: "Unrelated Sportsgear" });
+
+    const ranking = prior.rank(unrelated);
+
+    // Only shared account and amount features remain, so the base rate decides.
+    expect(ranking[0].categoryId).toBe("cat-large");
+    expect(prior.knownNameTokens(unrelated)).toBe(0);
+    expect(prior.knownNameTokens(row({ payee_name: "Lumen Pantry West" }))).toBe(2);
+  });
+
   it("ranks nothing without training rows", () => {
     expect(trainPersonalPrior([]).rank(row({ payee_name: "Lumen Pantry" }))).toEqual([]);
   });

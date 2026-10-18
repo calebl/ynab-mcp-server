@@ -209,8 +209,11 @@ that answered:
    same 12-month history, using payee and bank-import name tokens, the account,
    and a coarse amount bucket. It is used when history contains categorized
    rows across at least two categories; a single-category prior cannot rank
-   alternatives. When its top category reaches probability 0.9, the row is
-   `suggested` without a model call. The probability is reported under
+   alternatives. Name tokens never seen in training are ignored rather than
+   scored. When its top category reaches probability 0.9 and the transaction
+   shares at least one name token with the training rows, the row is
+   `suggested` without a model call. A pick resting only on the account,
+   amount and how common a category is never suggests. The probability is reported under
    `personal_prior.ranking`, never as `model_confidence`. Below 0.9 the prior
    only ranks: its top three appear on the model's row for comparison.
 3. **Model (`jev`).** Every remaining row goes to TypeSafe's pinned

@@ -27,6 +27,8 @@ export interface PersonalPrior {
   trainingRows: number;
   categoryCount: number;
   rank(transaction: ynab.TransactionDetail): PriorRanking[];
+  /** How many of the transaction's name tokens appear in training; zero means no name evidence. */
+  knownNameTokens(transaction: ynab.TransactionDetail): number;
 }
 
 function nameTokens(value: string | null | undefined): string[] {
@@ -79,11 +81,12 @@ export function trainPersonalPrior(rows: ynab.TransactionDetail[]): PersonalPrio
     categoryCount: labelCounts.size,
     rank(transaction) {
       if (total === 0) return [];
-      const features = priorFeatures(transaction);
+      // A feature never seen in training says nothing about any category, but
+      // scoring it would penalize categories with more history.
+      const features = priorFeatures(transaction).filter((feature) => vocabulary.has(feature));
       const scores = [...labelCounts.entries()].map(([label, count]) => {
         const counts = featureCounts.get(label) as Map<string, number>;
-        // Laplace smoothing with one extra slot for features never seen in training.
-        const denominator = (featureTotals.get(label) ?? 0) + vocabulary.size + 1;
+        const denominator = (featureTotals.get(label) ?? 0) + vocabulary.size;
         let score = Math.log(count / total);
         for (const feature of features) {
           score += Math.log(((counts.get(feature) ?? 0) + 1) / denominator);
@@ -95,6 +98,9 @@ export function trainPersonalPrior(rows: ynab.TransactionDetail[]): PersonalPrio
       return scores
         .map((entry) => ({ categoryId: entry.categoryId, probability: Math.exp(entry.score - best) / normalizer }))
         .sort((a, b) => b.probability - a.probability || a.categoryId.localeCompare(b.categoryId));
+    },
+    knownNameTokens(transaction) {
+      return priorFeatures(transaction).filter((feature) => feature.startsWith("name:") && vocabulary.has(feature)).length;
     },
   };
 }
