@@ -23,12 +23,16 @@ anyone who finds the URL rewrite those plans.
 ### 1. Create your local Wrangler config and log in
 
 The repository provides a template; the real config is git-ignored because it
-contains your account-specific KV namespace ID.
+contains your account-specific Cloudflare resource IDs.
 
 ```bash
 cp wrangler.example.jsonc wrangler.jsonc
 npx wrangler login
 ```
+
+The template includes an optional `AUTOBUDGET_DB` block with a placeholder D1
+ID. Remove that block before your first deploy unless you are setting up the
+auto-budget service below.
 
 ### 2. Create the KV namespace for OAuth state and grants
 
@@ -234,11 +238,11 @@ caveats.
 ## Auto-budget service (optional)
 
 The Worker can run an auto-budget service on its hourly cron trigger. Each run
-asks YNAB only for what changed since the last run (delta requests), works out
-what it would do, and alerts you about spending:
+delta-syncs transactions and accounts from YNAB, works out what it would do,
+and alerts you about spending:
 
-- **Categorize** an unapproved outflow when every one of its payee's last
-  12 months of transactions (at least three) used the same category.
+- **Categorize** an unapproved outflow when at least three categorized
+  transactions for its payee in the last 12 months all used the same category.
 - **Approve** a categorized transaction from a payee you have approved at least
   three times before. Transfers, splits, matched pairs, possible duplicates
   and anything over the per-transaction cap are left for you.
@@ -255,10 +259,10 @@ what it would do, and alerts you about spending:
   do. Split purchases and scheduled transactions count in each subtransaction's
   category.
 
-**This version never writes to YNAB.** It runs in shadow mode: every decision is
-recorded in an audit log in D1, and the digest reports it, but nothing in your
-plan changes. Its YNAB client can only send GET requests. Later versions will
-add write stages that you switch on one at a time.
+**This version never writes to YNAB.** It runs in shadow mode: new or changed
+decisions are recorded in an audit log in D1, and the digest reports the current
+plan, but nothing in your YNAB plan changes. Its YNAB client can only send GET
+requests. Later versions will add write stages that you switch on one at a time.
 
 The caps the write stages will enforce already shape the shadow decisions, so
 the log shows what a later write stage would do: at most $250 per transaction,
@@ -332,10 +336,10 @@ can see, and Pushover alerts you once.
   never more than 20. YNAB allows 200 an hour per token, shared with every
   other client of that token, so a separate token for the Worker keeps the
   budgets apart.
-- **The first run reads 12 months of transactions.** Later runs read only
-  changes. On the Workers Free plan, a large first read can exceed the 10 ms
-  CPU limit for cron triggers; the Workers Paid plan raises it. Steady-state
-  runs are small.
+- **The first run reads 12 months of transactions.** Later transaction and
+  account syncs read only changes. On the Workers Free plan, a large first read
+  can exceed the 10 ms CPU limit for cron triggers; the Workers Paid plan raises
+  it. Steady-state runs are small.
 - **One run at a time.** A lease in D1 stops an overlapping run or dry run
   from interleaving with a scheduled one.
 - **The audit log shows changes, not repeats.** A decision is recorded again
@@ -356,9 +360,9 @@ client. They are not part of the npm package, which has no D1 database.
 
 ## Read-only mode
 
-To expose only the tools that read data and none that change it, set
-`YNAB_READ_ONLY` to `"true"` in `wrangler.jsonc` and redeploy. The write tools
-disappear from `tools/list` entirely rather than failing when called. The
+To expose no tools that write to YNAB, set `YNAB_READ_ONLY` to `"true"` in
+`wrangler.jsonc` and redeploy. The YNAB write tools disappear from `tools/list`
+entirely rather than failing when called. The
 TypeSafe preview is registered as read-only and remains available in this mode
 only when both its feature flag and secret are configured. The auto-budget
 service stays in shadow mode, and its tools stay available.

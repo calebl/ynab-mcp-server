@@ -59,7 +59,7 @@ Environment variables:
 | `TYPESAFE_API_KEY` | no | Operator-owned TypeSafe credential. Required, but not sufficient, to enable category suggestions. |
 | `YNAB_AI_CATEGORIZATION` | no | Set to `"true"` together with `TYPESAFE_API_KEY` to expose the opt-in suggestion tool. |
 | `YNAB_AI_TYPICAL_PAYEES` | no | Set to `"true"` to send each category's most frequent payee names from the last 12 months with each model request. Off by default because it discloses aggregated payee history to TypeSafe. |
-| `YNAB_READ_ONLY` | no | Set to `"true"` (case-insensitive; surrounding whitespace is ignored) to register only the tools that read data, in both the stdio server and the Worker. |
+| `YNAB_READ_ONLY` | no | Set to `"true"` (case-insensitive; surrounding whitespace is ignored) to remove tools that write to YNAB, in both the stdio server and the Worker. |
 
 ### Local: Claude Desktop / Claude Code
 
@@ -85,7 +85,9 @@ claude.ai or the Claude mobile app, deploy `src/worker/` to Cloudflare Workers
 and add it as a custom connector. [DEPLOY.md](./DEPLOY.md) has the full walk
 through; the shape of it:
 
-1. Copy `wrangler.example.jsonc` to the git-ignored `wrangler.jsonc`, run
+1. Copy `wrangler.example.jsonc` to the git-ignored `wrangler.jsonc`, remove
+   the optional placeholder `AUTOBUDGET_DB` block unless you are configuring
+   the [auto-budget service](./DEPLOY.md#auto-budget-service-optional), run
    `npx wrangler login`, then create the `OAUTH_KV` namespace
 2. `npm run deploy` once to learn your `*.workers.dev` hostname
 3. Create a GitHub OAuth app whose callback is `https://<host>/callback`
@@ -131,8 +133,8 @@ YNAB recommends a Personal Access Token for an individual accessing their own
 account
 ([Personal Access Tokens](https://api.ynab.com/#personal-access-tokens)).
 
-Setting `YNAB_READ_ONLY` to `"true"` drops every write tool from the tool list,
-which is worth considering for a connector you will mostly use on a phone.
+Setting `YNAB_READ_ONLY` to `"true"` drops every YNAB write tool from the tool
+list, which is worth considering for a connector you will mostly use on a phone.
 
 ## Tools
 

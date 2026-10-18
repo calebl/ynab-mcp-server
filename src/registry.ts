@@ -113,7 +113,7 @@ export function isReadOnly(value: string | undefined): boolean {
 }
 
 export interface RegisterOptions {
-  /** Register only the read-only tools. */
+  /** Omit tools that write to YNAB. */
   readOnly?: boolean;
 }
 
@@ -219,7 +219,7 @@ async function executeTool(module: ToolModule, input: unknown, api: ynab.API) {
   }
 }
 
-/** Register every tool (or only the read-only ones) against a server instance. */
+/** Register every tool, optionally omitting YNAB write tools, against a server instance. */
 export function registerAll(server: ToolRegistrar, api: ynab.API, options: RegisterOptions = {}) {
   const selected = tools.filter((tool) =>
     !tool.requiresAiCategorization || SuggestCategoriesTool.isCategorySuggestionEnabled()
