@@ -52,7 +52,7 @@ export function historyStart(today: string): string {
 export interface SyncResult {
   /** Rows durably applied to the mirror. */
   applied: number;
-  /** True when there was no cursor yet and the whole retained mirror window was read. */
+  /** True when this sync invocation started without a transaction cursor. */
   full: boolean;
   /** Rows of this sync still to apply; a later run continues with them. */
   remaining: number;

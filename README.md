@@ -341,10 +341,10 @@ text content, so a failed write is never mistaken for a successful one.
 #### Tool annotations
 
 Every tool advertises MCP annotations (`readOnlyHint`, `destructiveHint`,
-`idempotentHint`, `openWorldHint`) alongside its schema. Reading tools are
-`readOnlyHint: true`; among the writing tools, only `ynab_delete_transaction`
-sets `destructiveHint: true`. A client may use these hints to decide which
-calls need a confirmation prompt.
+`idempotentHint`, `openWorldHint`) alongside its schema. Tools that change
+neither YNAB nor the Worker's service state are `readOnlyHint: true`; among the
+YNAB writing tools, only `ynab_delete_transaction` sets `destructiveHint: true`.
+A client may use these hints to decide which calls need a confirmation prompt.
 
 #### `cleared` and `flagColor`
 

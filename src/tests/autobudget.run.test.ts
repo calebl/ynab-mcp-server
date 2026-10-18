@@ -876,7 +876,10 @@ describe("guarded syncs", () => {
     expect(JSON.parse(summary.summary)).toMatchObject({ full_sync: false });
     expect(decisionRows(db).some((row) => row.subject_id === "aa-pending")).toBe(false);
     expect(await store.getCursor("transactions")).toBe(101);
-    expect(ynabRequests(apis.requests).slice(-2).map((request) => new URL(request.url).search)).toEqual([
+    expect(ynabRequests(apis.requests)
+      .filter((request) => new URL(request.url).pathname.endsWith("/transactions"))
+      .slice(-2)
+      .map((request) => new URL(request.url).search)).toEqual([
       "?last_knowledge_of_server=50",
       "?last_knowledge_of_server=100",
     ]);
