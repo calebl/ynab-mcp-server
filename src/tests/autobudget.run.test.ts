@@ -813,7 +813,7 @@ describe("guarded syncs", () => {
     expect(db.sqlite.prepare("SELECT COUNT(*) AS n FROM txn").get()).toEqual({ n: total });
   });
 
-  it("does not evaluate stale mirror data while a later sync batch contains its update", async () => {
+  it("catches up a continued delta before evaluating already-applied rows", async () => {
     const db = createTestD1();
     const store = new Store(db, PLAN_ID);
     const history = [1, 2, 3].map((day) => txn({
@@ -823,23 +823,23 @@ describe("guarded syncs", () => {
       approved: true,
     }));
     const stale = txn({
-      id: "zz-pending",
+      id: "aa-pending",
       date: "2026-10-12",
       category_id: "c-dining",
       approved: false,
     });
+    const approved = txn({ ...stale, approved: true });
     await store.upsertTransactions([...history, stale].map(toStoredTransaction));
     await store.setCursor("transactions", 50, NIGHT);
 
-    const delta = Array.from({ length: MAX_ROWS_PER_RUN }, (_, index) => txn({
+    const bulk = Array.from({ length: MAX_ROWS_PER_RUN }, (_, index) => txn({
       id: `bulk-${String(index).padStart(5, "0")}`,
       date: "2026-10-01",
       category_id: "c-dining",
       approved: true,
     }));
-    delta.push(txn({ ...stale, approved: true }));
     const apis = fakeApis({
-      delta,
+      delta: [stale, ...bulk],
       serverKnowledge: 100,
       categoryGroups: groups([dining, overspent]),
       month: month({ categories: [dining, overspent] }),
@@ -856,21 +856,28 @@ describe("guarded syncs", () => {
     expect(decisionRows(db)).toEqual([]);
     expect(pushes(apis.requests)).toEqual([]);
     expect(await store.getState("last_digest")).toBeNull();
-    expect(ynabRequests(apis.requests).map((request) => new URL(request.url).pathname)).toEqual([
-      `/v1/plans/${PLAN_ID}/transactions`,
-    ]);
     expect(await status(makeEnv(db), DIGEST_TIME)).toMatchObject({
       syncInProgress: { rowsRemaining: 1 },
       decisionsLast24h: [],
     });
 
+    apis.state.delta = [approved, ...bulk];
+    apis.state.serverKnowledge = 101;
+    apis.state.deltasByKnowledge = {
+      "100": { transactions: [approved], serverKnowledge: 101 },
+    };
     const completed = await runAutobudget(makeEnv(db), {
       fetch: apis.fetch,
       now: new Date(DIGEST_TIME.getTime() + 3_600_000),
     });
-    expect(completed).toMatchObject({ ran: true, outcome: "ok", synced: 1 });
-    expect(decisionRows(db).some((row) => row.subject_id === "zz-pending")).toBe(false);
-    expect(await store.getCursor("transactions")).toBe(100);
+
+    expect(completed).toMatchObject({ ran: true, outcome: "ok", synced: 2 });
+    expect(decisionRows(db).some((row) => row.subject_id === "aa-pending")).toBe(false);
+    expect(await store.getCursor("transactions")).toBe(101);
+    expect(ynabRequests(apis.requests).slice(-2).map((request) => new URL(request.url).search)).toEqual([
+      "?last_knowledge_of_server=50",
+      "?last_knowledge_of_server=100",
+    ]);
   });
 
   it("catches up an initial multi-request snapshot before evaluating it", async () => {
@@ -908,6 +915,10 @@ describe("guarded syncs", () => {
       if (url.pathname.endsWith("/transactions") && url.searchParams.has("since_date")) {
         apis.state.transactions = [...history, approved];
         apis.state.delta = delta;
+        apis.state.deltasByKnowledge = {
+          "100": { transactions: delta, serverKnowledge: 101 },
+          "101": { transactions: [], serverKnowledge: 101 },
+        };
         apis.state.serverKnowledge = 101;
       }
       return response;

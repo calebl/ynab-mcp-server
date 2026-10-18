@@ -102,6 +102,7 @@ export interface FakeYnabState {
   transactions: ynab.TransactionDetail[];
   /** Served for a delta (last_knowledge_of_server) read. */
   delta: ynab.TransactionDetail[];
+  deltasByKnowledge: Record<string, { transactions: ynab.TransactionDetail[]; serverKnowledge: number }>;
   serverKnowledge: number;
   accounts: ynab.Account[];
   categoryGroups: ynab.CategoryGroupWithCategories[];
@@ -126,6 +127,7 @@ export function fakeApis(overrides: Partial<FakeYnabState> = {}) {
     plans: [{ id: PLAN_ID, name: "Household" }],
     transactions: [],
     delta: [],
+    deltasByKnowledge: {},
     serverKnowledge: 100,
     accounts: [account()],
     categoryGroups: groups([]),
@@ -166,11 +168,13 @@ export function fakeApis(overrides: Partial<FakeYnabState> = {}) {
     const rest = path.slice(prefix.length);
 
     if (rest === "/transactions") {
-      const delta = url.searchParams.has("last_knowledge_of_server");
+      const cursor = url.searchParams.get("last_knowledge_of_server");
       const sinceDate = url.searchParams.get("since_date");
       const type = url.searchParams.get("type");
+      const delta = cursor === null ? null : state.deltasByKnowledge[cursor];
       let transactions = state.transactions;
-      if (delta) transactions = state.delta;
+      if (delta) return json({ transactions: delta.transactions, server_knowledge: delta.serverKnowledge });
+      if (cursor !== null) transactions = state.delta;
       else if (sinceDate) transactions = transactions.filter((transaction) => transaction.date >= sinceDate);
       if (type === "unapproved") transactions = transactions.filter((transaction) => !transaction.approved);
       if (type === "uncategorized") transactions = transactions.filter((transaction) => !transaction.category_id);

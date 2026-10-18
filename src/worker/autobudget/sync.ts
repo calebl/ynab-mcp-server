@@ -178,7 +178,7 @@ export async function syncTransactions(
     now,
     limit,
   );
-  if (first.remaining > 0 || cursor !== null) {
+  if (first.remaining > 0 || (cursor !== null && progress === null)) {
     return { applied: first.applied, full: cursor === null, remaining: first.remaining };
   }
 

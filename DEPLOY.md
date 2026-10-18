@@ -345,12 +345,13 @@ can see, and Pushover alerts you once.
   limit for cron triggers; the Workers Paid plan raises it. Steady-state runs are
   small.
 - **A large sync spreads over several runs.** Each run applies at most 10,000
-  transactions, so it stays inside D1's per-run query limit. The sync cursor
-  advances only once every row of the sync is applied. Until then, scheduled
-  runs do not evaluate decisions, send alerts, or send or consume the daily
-  digest, and the status and plan tools report sync progress and rows remaining
-  instead of recommendations. If saving fails, the old cursor is kept and the
-  next run retries.
+  transactions, so it stays inside D1's per-run query limit. After any continued
+  response finishes, the service applies one complete delta from its saved
+  cursor before treating the mirror as current. Until then, scheduled runs do
+  not evaluate decisions, send alerts, or send or consume the daily digest, and
+  the status and plan tools report sync progress and rows remaining instead of
+  recommendations. If saving fails, the old cursor is kept and the next run
+  retries.
 - **One run at a time.** A lease in D1 stops an overlapping run or dry run
   from interleaving with a scheduled one.
 - **The audit log shows changes, not repeats.** A decision is recorded again
