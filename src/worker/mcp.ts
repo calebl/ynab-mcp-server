@@ -31,7 +31,7 @@ export function createServer(env: WorkerEnv) {
 
   const server = new McpServer({
     name: "ynab-mcp-server",
-    version: "0.4.2",
+    version: "0.5.0",
   });
 
   const api = new ynab.API(env.YNAB_API_TOKEN);
