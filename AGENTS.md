@@ -44,9 +44,6 @@ Each tool in `src/tools/` exports:
 
 Tools are listed in `src/registry.ts`; `registerAll` passes the shared YNAB `api` instance to each handler.
 
-### Before adding a tool
-Check whether the behavior fits as an option on an existing tool (a new filter, date bound, or output mode) before creating a new one. Add a new tool only when no existing tool covers the same data and intent, and say in the PR which existing tools were considered and why they didn't fit. Overlapping tools make the model more likely to pick the wrong one.
-
 ### Environment Variables
 
 The user-facing configuration is owned by the environment-variable table in

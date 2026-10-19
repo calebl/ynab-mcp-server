@@ -5,6 +5,9 @@ description: Use when adding or changing a YNAB MCP tool, YNAB API/SDK integrati
 
 ## Adding New Tools
 
+### Before adding a tool
+Check whether the behavior fits as an option on an existing tool (a new filter, date bound, or output mode) before creating a new one. Add a new tool only when no existing tool covers the same data and intent, and say in the PR which existing tools were considered and why they didn't fit. Overlapping tools make the model more likely to pick the wrong one.
+
 1. Create `src/tools/MyTool.ts`:
 ```typescript
 import { z } from "zod";
