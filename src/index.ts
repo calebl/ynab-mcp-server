@@ -7,7 +7,7 @@ import { isReadOnly, registerAll } from "./registry.js";
 
 const server = new McpServer({
   name: "ynab-mcp-server",
-  version: "0.4.2",
+  version: "0.5.0",
 });
 
 // Initialize YNAB API

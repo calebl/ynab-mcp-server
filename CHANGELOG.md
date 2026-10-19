@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-10-18
+
+### Security
+- Updated `@modelcontextprotocol/sdk` from 1.30.0 to 1.32.1, which fixes a high-severity advisory in which the SDK's OAuth client could send credentials to an authorization server chosen by the MCP server (fixed upstream in 1.31.0). The lockfile also resolves the development-only dependencies `sharp` to 0.35.5 (librsvg CVE-2026-96889) and `shell-quote` to 1.12.0 (`quote()` command injection), neither of which ships in the npm package.
 
 ### Added
 - `ynab_suggest_categories` learns a personal prior from the plan's own categorized outflows on each request. This is a naive-Bayes classifier over payee and bank-import name tokens, the account, and an amount bucket. When training history spans at least two categories, a pick at probability 0.9 or higher is returned as `suggested` with `source: "personal_prior"` and no model call. Name tokens never seen in training are ignored. Lower picks only rank, under each model row's new `personal_prior.ranking`. The response reports the prior's training size under `personal_prior`.
