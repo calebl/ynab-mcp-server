@@ -27,6 +27,9 @@ jobs:
     
     - name: Run tests
       run: npm test
+
+    - name: Typecheck
+      run: npm run typecheck
     
     - name: Upload coverage reports
       if: matrix.node-version == '22.x'

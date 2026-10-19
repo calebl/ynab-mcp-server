@@ -387,12 +387,20 @@ Useful references:
 
 ## Contributing
 
-Pull requests targeting `main` must be raised through
-[`no-mistakes`](https://github.com/kunchenguid/no-mistakes).
-Install it, run `no-mistakes init`, commit your changes, and push with
-`git push no-mistakes` so the review/test pipeline can open a compliant PR.
-See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/start-here/quick-start/)
-for setup.
+Pull requests are welcome. For a new tool or a larger change, please open an
+issue first so we can agree on the scope.
+
+1. Fork the repository and create a branch from `main`.
+2. Make your change and add or update tests in `src/tests/`. New tools follow
+   the pattern in [Adding a tool](#adding-a-tool).
+3. Run `npm run test:run` and `npm run typecheck`.
+4. Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+   for commit messages and the pull request title.
+5. Open a pull request against `main`.
+
+Every pull request runs the test suite on Node.js 22, 24 and 26 and receives an
+automated code review. Both checks must pass and review conversations must be
+resolved before the pull request can be merged.
 
 ## Compatibility
 
