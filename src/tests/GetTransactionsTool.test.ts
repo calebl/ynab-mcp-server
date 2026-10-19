@@ -440,3 +440,176 @@ describe('GetTransactionsTool', () => {
     });
   });
 });
+
+describe('GetTransactionsTool search', () => {
+  const txn = (over: Record<string, unknown>) => ({
+    id: 't',
+    date: '2026-03-01',
+    amount: -10000,
+    memo: null,
+    approved: true,
+    cleared: 'cleared',
+    account_name: 'Checking',
+    payee_name: 'Shop',
+    category_name: 'Groceries',
+    flag_color: null,
+    transfer_account_id: null,
+    deleted: false,
+    ...over,
+  });
+
+  const rows = [
+    txn({ id: 'give-1', date: '2026-01-15', amount: -100000, payee_name: 'Red Cross', category_name: 'Giving' }),
+    txn({ id: 'pay', date: '2026-02-01', amount: 300000, payee_name: 'Employer', category_name: 'Inflow: Ready to Assign' }),
+    txn({
+      id: 'split',
+      date: '2026-03-10',
+      amount: -60000,
+      payee_name: 'Costco',
+      category_name: 'Split',
+      memo: 'big run',
+      subtransactions: [
+        { id: 's1', amount: -45000, memo: null, payee_name: null, category_name: 'Groceries', deleted: false },
+        { id: 's2', amount: -15000, memo: 'school supplies', payee_name: null, category_name: 'Kids', deleted: false },
+      ],
+    }),
+    txn({ id: 'gone', date: '2026-04-01', amount: -99999000, payee_name: 'Red Cross', deleted: true }),
+    txn({ id: 'give-2', date: '2026-06-01', amount: -25500, payee_name: 'red cross', memo: 'Disaster fund', category_name: 'Giving' }),
+  ];
+
+  let mockApi: {
+    transactions: {
+      getTransactions: Mock;
+      getTransactionsByAccount: Mock;
+      getTransactionsByCategory: Mock;
+      getTransactionsByPayee: Mock;
+    };
+    plans: { getPlanSettingsById: Mock };
+  };
+
+  const run = async (input: Record<string, unknown>) => {
+    const result = await GetTransactionsTool.execute({ budgetId: 'test-budget-id', ...input }, mockApi as any);
+    return JSON.parse(result.content[0].text);
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const listing = () => vi.fn().mockResolvedValue({ data: { transactions: rows } });
+    mockApi = {
+      transactions: {
+        getTransactions: listing(),
+        getTransactionsByAccount: listing(),
+        getTransactionsByCategory: listing(),
+        getTransactionsByPayee: listing(),
+      },
+      plans: {
+        getPlanSettingsById: vi.fn().mockResolvedValue({ data: { settings: { currency_format: { decimal_digits: 2 } } } }),
+      },
+    };
+  });
+
+  it('should leave the response unchanged when no search option is given', async () => {
+    const response = await run({});
+    expect(Object.keys(response)).toEqual(['transactions', 'transaction_count', 'total_available']);
+    expect(response.transactions.map((t: any) => t.id)).toEqual(['give-1', 'pay', 'split', 'give-2']);
+    expect(response.total_available).toBe(4);
+  });
+
+  it('should send untilDate to YNAB and enforce it if later rows come back', async () => {
+    const response = await run({ sinceDate: '2026-01-01', untilDate: '2026-03-31' });
+    expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith('test-budget-id', '2026-01-01', '2026-03-31', undefined);
+    expect(response.transactions.map((t: any) => t.id)).toEqual(['give-1', 'pay', 'split']);
+    expect(response.totals).toEqual({ count: 3, inflow: 300, outflow: 160, net: 140 });
+  });
+
+  it('should pass untilDate to the account, category and payee listings', async () => {
+    await run({ accountId: 'acct', untilDate: '2026-12-31' });
+    await run({ categoryId: 'cat', untilDate: '2026-12-31' });
+    await run({ payeeId: 'payee', untilDate: '2026-12-31' });
+    expect(mockApi.transactions.getTransactionsByAccount).toHaveBeenCalledWith('test-budget-id', 'acct', undefined, '2026-12-31', undefined);
+    expect(mockApi.transactions.getTransactionsByCategory).toHaveBeenCalledWith('test-budget-id', 'cat', undefined, '2026-12-31', undefined);
+    expect(mockApi.transactions.getTransactionsByPayee).toHaveBeenCalledWith('test-budget-id', 'payee', undefined, '2026-12-31', undefined);
+  });
+
+  it('should match payee text case-insensitively', async () => {
+    const response = await run({ payeeContains: 'RED CROSS' });
+    expect(response.transactions.map((t: any) => t.id)).toEqual(['give-1', 'give-2']);
+    expect(response.totals).toEqual({ count: 2, inflow: 0, outflow: 125.5, net: -125.5 });
+  });
+
+  it('should return only the totals with totalsOnly', async () => {
+    const response = await run({ payeeContains: 'red cross', sinceDate: '2026-01-01', untilDate: '2026-12-31', totalsOnly: true });
+    expect(response).toEqual({ totals: { count: 2, inflow: 0, outflow: 125.5, net: -125.5 } });
+  });
+
+  it('should match a split leg by leg and total only the matching legs', async () => {
+    const byMemo = await run({ memoContains: 'school' });
+    expect(byMemo.transactions.map((t: any) => t.id)).toEqual(['split']);
+    expect(byMemo.transactions[0].subtransactions).toHaveLength(2); // the whole split is shown
+    expect(byMemo.totals.outflow).toBe(15);
+
+    // Legs without a payee take the payee of the whole split.
+    const byPayee = await run({ payeeContains: 'costco', minAmount: 20 });
+    expect(byPayee.totals.outflow).toBe(45);
+
+    // Legs without a memo take the memo of the whole split.
+    const byParentMemo = await run({ memoContains: 'big run' });
+    expect(byParentMemo.totals.outflow).toBe(45);
+  });
+
+  it('should treat hybrid subtransaction rows as single legs and keep their parent id', async () => {
+    // The category and payee listings return a split's legs as rows of their own, without children.
+    mockApi.transactions.getTransactionsByCategory.mockResolvedValue({
+      data: {
+        transactions: [
+          txn({ id: 's2', type: 'subtransaction', parent_transaction_id: 'split', amount: -15000, category_name: 'Kids' }),
+          txn({ id: 'whole', type: 'transaction', parent_transaction_id: null, amount: -5000, category_name: 'Kids' }),
+        ],
+      },
+    });
+    const response = await run({ categoryId: 'cat-kids', direction: 'outflow' });
+    expect(response.transactions[0]).toMatchObject({ id: 's2', parent_transaction_id: 'split', amount: -15 });
+    expect(response.transactions[1]).not.toHaveProperty('parent_transaction_id');
+    expect(response.totals).toEqual({ count: 2, inflow: 0, outflow: 20, net: -20 });
+  });
+
+  it('should apply direction and amount bounds to the absolute amount', async () => {
+    const inflow = await run({ direction: 'inflow' });
+    expect(inflow.transactions.map((t: any) => t.id)).toEqual(['pay']);
+
+    const response = await run({ direction: 'outflow', minAmount: 25.5, maxAmount: 100 });
+    expect(response.transactions.map((t: any) => t.id)).toEqual(['give-1', 'split', 'give-2']);
+    expect(response.totals.outflow).toBe(170.5);
+  });
+
+  it('should trim rows to the limit but total every match', async () => {
+    const response = await run({ direction: 'outflow', limit: 1 });
+    expect(response.transaction_count).toBe(1);
+    expect(response.total_available).toBe(3);
+    expect(response.totals).toEqual({ count: 3, inflow: 0, outflow: 185.5, net: -185.5 });
+  });
+
+  it('should total in the plan currency precision', async () => {
+    mockApi.plans.getPlanSettingsById.mockResolvedValue({ data: { settings: { currency_format: { decimal_digits: 3 } } } });
+    mockApi.transactions.getTransactions.mockResolvedValue({ data: { transactions: [txn({ amount: -1234 })] } });
+    const response = await run({ direction: 'outflow' });
+    expect(response.transactions[0].amount).toBe(-1.234);
+    expect(response.totals.outflow).toBe(1.234);
+  });
+
+  it('should refuse contradictory bounds before any request', async () => {
+    for (const input of [{ minAmount: 10, maxAmount: 5 }, { sinceDate: '2026-02-01', untilDate: '2026-01-01' }]) {
+      const response = await run(input);
+      expect(response.success).toBe(false);
+    }
+    expect(mockApi.transactions.getTransactions).not.toHaveBeenCalled();
+  });
+
+  it('should validate the new inputs', () => {
+    const schema = GetTransactionsTool.inputSchema;
+    expect((schema.untilDate as z.ZodType).safeParse('12/31/2026').success).toBe(false);
+    expect((schema.minAmount as z.ZodType).safeParse(-1).success).toBe(false);
+    expect((schema.payeeContains as z.ZodType).safeParse('').success).toBe(false);
+    expect((schema.direction as z.ZodType).safeParse('sideways').success).toBe(false);
+  });
+});
