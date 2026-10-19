@@ -152,9 +152,9 @@ happens in `src/tools/money.ts`.
 | `ynab_list_accounts` | Accounts with balances. `includeClosedAccounts` to see closed ones. |
 | `ynab_list_categories` | Categories grouped by category group, with goal info. |
 | `ynab_list_payees` | Payees, for resolving payee IDs. |
-| `ynab_list_months` | Every plan month with its summary numbers. |
+| `ynab_list_months` | Every plan month since the plan began, with raw income, budgeted, activity, Ready to Assign, age-of-money and note fields. For recent income versus spending, use `ynab_cash_flow`. |
 | `ynab_list_scheduled_transactions` | Scheduled/recurring transactions. |
-| `ynab_get_transactions` | Transactions filtered by `sinceDate`, `accountId`, `categoryId`, `payeeId`, `type` (`all`/`uncategorized`/`unapproved`) and `limit` (default 100). |
+| `ynab_get_transactions` | Transactions optionally filtered from `sinceDate` onward (no end-date filter), by `type` (`all`/`uncategorized`/`unapproved`), and by at most one of `accountId`, `categoryId` or `payeeId` (the first in that order wins). `limit` defaults to 100. |
 | `ynab_get_unapproved_transactions` | Unapproved transactions, optionally from `sinceDate` onward. |
 | `ynab_suggest_categories` | Opt-in, read-only category previews for unapproved, uncategorized ordinary outflows. Deleted and categorized rows are dropped in default mode; approved, reconciled, balance-adjustment, transfer, split, and inflow rows are skipped as applicable. |
 
@@ -295,7 +295,7 @@ accounts are excluded, so these report spending rather than money movement.
 | `ynab_approve_transaction` | Approves (or un-approves) one transaction. |
 | `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call. |
 | `ynab_apply_category_suggestions` | Applies up to 25 explicit category suggestions with refetch and stale-data checks, dry-run support, and a pre-write undo manifest. Never auto-applies or approves transactions. |
-| `ynab_update_category_budget` | Sets the total budgeted amount for a category in a month. Not an increment. |
+| `ynab_update_category_budget` | Sets the total budgeted amount for one category in a month. Not an increment; use `ynab_move_money` to move money between categories. |
 | `ynab_import_transactions` | Triggers an import from linked institutions, the same as hitting Import in the YNAB app. |
 | `ynab_move_money` | Moves budgeted money between two categories in a month, for covering overspending. |
 | `ynab_auto_assign` | Spreads Ready to Assign over categories with unmet monthly goals, largest shortfall first. `dryRun` to preview, `maxTotal` to cap it. |

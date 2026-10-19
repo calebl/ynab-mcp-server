@@ -373,7 +373,7 @@ client. They are not part of the npm package, which has no D1 database.
 | Tool | What it does |
 | --- | --- |
 | `ynab_autobudget_status` | Mode and why, pause state, sync progress, last run, decisions recorded in the last 24 hours, and the caps |
-| `ynab_autobudget_plan` | Dry run: syncs its D1 mirror and shows what the service would do right now, including immediate, pace and uncovered-bill alerts. While a continued sync is incomplete, it reports progress instead. Records decisions and sends notifications only during scheduled runs. |
+| `ynab_autobudget_plan` | Dry run: syncs its D1 mirror and shows what the scheduled service would do under its own caps, category exclusions and next-month spillover rules, including immediate, pace and uncovered-bill alerts. Its assignments can therefore differ from `ynab_auto_assign`; use that tool with `dryRun` to preview an on-demand Ready to Assign allocation. While a continued sync is incomplete, this tool reports progress instead. It never writes to YNAB, records decisions or sends notifications. |
 | `ynab_autobudget_pause` | Pauses the service, or resumes it with `paused: false` |
 
 ## Read-only mode
