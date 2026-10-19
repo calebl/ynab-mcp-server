@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ynab_bulk_approve_transactions` accepts `approved` (default `true`); `false` un-approves the listed transactions.
 - `ynab_get_transactions` rows also include `transfer_transaction_id`, `matched_transaction_id` and `import_id`.
 - `ynab_get_unapproved_transactions` is now an alias of `ynab_get_transactions` with `type: "unapproved"` and no row limit. Its rows now also carry `cleared` and `flag_color`, and the response adds `total_available`.
-- `ynab_approve_transaction` is now an alias of `ynab_bulk_approve_transactions` for a single transaction. It no longer reads the transaction before updating it, and returns the bulk response (`approved_count` and a `transactions` list) instead of a top-level `transactionId`.
+- `ynab_approve_transaction` is now an alias of `ynab_bulk_approve_transactions` for a single transaction. It no longer reads the transaction before updating it, and returns the bulk response (`approved_count` when approving or `unapproved_count` when un-approving, plus a `transactions` list) instead of a top-level `transactionId`.
 
 ### Deprecated
 - The tool aliases `ynab_list_budgets`, `ynab_budget_summary`, `ynab_get_unapproved_transactions` and `ynab_approve_transaction` are deprecated and their descriptions now say "Deprecated alias of <tool>; use that instead." They will be removed in the release after this one. Use `ynab_list_plans`, `ynab_plan_summary`, `ynab_get_transactions` and `ynab_bulk_approve_transactions`.
