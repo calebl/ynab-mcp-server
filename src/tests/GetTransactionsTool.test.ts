@@ -573,6 +573,37 @@ describe('GetTransactionsTool search', () => {
     expect(response.totals).toEqual({ count: 2, inflow: 0, outflow: 20, net: -20 });
   });
 
+  describe('when the payee listing returns a split and its legs', () => {
+    // Seen against the live API: a payee listing returns the split's parent row with its full
+    // amount, plus a row for each leg that carries its own payee. Legs without one are absent.
+    const payeeRows = [
+      txn({ id: 'parent', type: 'transaction', parent_transaction_id: null, amount: -281170, payee_name: 'Costco', category_name: 'Split', memo: 'weekly' }),
+      txn({ id: 'leg-1', type: 'subtransaction', parent_transaction_id: 'parent', amount: -47920, payee_name: 'Costco', category_name: 'Household', memo: 'printer ink' }),
+      txn({ id: 'other', type: 'transaction', parent_transaction_id: null, amount: -10000, payee_name: 'Costco', category_name: 'Groceries' }),
+    ];
+
+    beforeEach(() => {
+      mockApi.transactions.getTransactionsByPayee.mockResolvedValue({ data: { transactions: payeeRows } });
+    });
+
+    it('should count the split once, through its parent row', async () => {
+      const response = await run({ payeeId: 'payee-costco', direction: 'outflow' });
+      expect(response.transactions.map((t: any) => t.id)).toEqual(['parent', 'other']);
+      expect(response.totals).toEqual({ count: 2, inflow: 0, outflow: 291.17, net: -291.17 });
+    });
+
+    it('should keep a leg row when only the leg matches', async () => {
+      const response = await run({ payeeId: 'payee-costco', memoContains: 'ink' });
+      expect(response.transactions.map((t: any) => t.id)).toEqual(['leg-1']);
+      expect(response.totals.outflow).toBe(47.92);
+    });
+
+    it('should still list every row when no search option is given', async () => {
+      const response = await run({ payeeId: 'payee-costco' });
+      expect(response.transactions.map((t: any) => t.id)).toEqual(['parent', 'leg-1', 'other']);
+    });
+  });
+
   it('should apply direction and amount bounds to the absolute amount', async () => {
     const inflow = await run({ direction: 'inflow' });
     expect(inflow.transactions.map((t: any) => t.id)).toEqual(['pay']);

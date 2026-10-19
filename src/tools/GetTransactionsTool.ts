@@ -200,16 +200,24 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
         maxMilliunits: input.maxAmount === undefined ? undefined : toMilliunits(input.maxAmount),
         direction: input.direction ?? "any",
       };
+      const matched = matches
+        .map((txn) => ({ txn, amounts: matchingLegAmounts(txn, filters) }))
+        .filter(({ amounts }) => amounts.length > 0);
+      // The payee listing returns a split's parent row and also, as rows of their own, any of
+      // its legs that carry a payee. The parent's amount already includes those legs.
+      const matchedIds = new Set(matched.map(({ txn }) => txn.id));
+      const counted = matched.filter(({ txn }) =>
+        !(txn.type === "subtransaction" && txn.parent_transaction_id && matchedIds.has(txn.parent_transaction_id))
+      );
       let inflow = 0;
       let outflow = 0;
-      matches = matches.filter((txn) => {
-        const amounts = matchingLegAmounts(txn, filters);
+      for (const { amounts } of counted) {
         for (const amount of amounts) {
           if (amount > 0) inflow += amount;
           else outflow -= amount;
         }
-        return amounts.length > 0;
-      });
+      }
+      matches = counted.map(({ txn }) => txn);
       totals = {
         count: matches.length,
         inflow: toDollars(inflow, decimalDigits),

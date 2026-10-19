@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `ynab_get_transactions` can search: `untilDate`, `payeeContains`, `memoContains`, `minAmount`, `maxAmount` and `direction` filter the rows, and any of them (or `totalsOnly`) adds a `totals` block with `count`, `inflow`, `outflow` and `net` over every match, unaffected by `limit`. `totalsOnly` returns just the totals. Split transactions are matched leg by leg, and the totals count only the matching legs. Without them, no rows are filtered out and no totals are returned.
+- `ynab_get_transactions` can search: `untilDate`, `payeeContains`, `memoContains`, `minAmount`, `maxAmount` and `direction` filter the rows, and any of them (or `totalsOnly`) adds a `totals` block with `count`, `inflow`, `outflow` and `net` over every match, unaffected by `limit`. `totalsOnly` returns just the totals. Split transactions are matched leg by leg, and the totals count only the matching legs. When the `payeeId` listing returns both a split and some of its legs, a matching split is counted once, through its parent row. Without these options, no rows are filtered out and no totals are returned.
 - `ynab_get_transactions` rows that are split legs listed on their own (from the `categoryId` and `payeeId` listings) carry `parent_transaction_id`.
 
 ### Changed
