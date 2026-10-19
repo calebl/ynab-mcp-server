@@ -205,7 +205,7 @@ describe('ListMonthsTool', () => {
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       expect(ListMonthsTool.name).toBe('ynab_list_months');
-      expect(ListMonthsTool.description).toContain('plan months');
+      expect(ListMonthsTool.description).toContain('Lists every plan month');
     });
 
     it('should have optional budgetId in input schema', () => {

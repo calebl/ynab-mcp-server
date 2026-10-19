@@ -6,7 +6,7 @@ import { getDecimalDigits, toDollars } from "./money.js";
 import { mapSubtransactions } from "./splits.js";
 
 export const name = "ynab_get_transactions";
-export const description = "Gets transactions from a plan with optional filters. Can filter by date range, account, category, payee, or approval status.";
+export const description = "Gets transactions from a plan, optionally on or after a start date (there is no end-date filter) and by type (all, uncategorized or unapproved). Filter by at most one of account, category or payee: they cannot be combined, and if several are given only the first in that order is applied.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),

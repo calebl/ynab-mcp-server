@@ -37,7 +37,7 @@ export function autobudgetTools(env: WorkerEnv, options: RunOptions = {}): ToolE
 
   const planTool = {
     name: "ynab_autobudget_plan",
-    description: "Dry run of the auto-budget service: syncs its D1 mirror from YNAB and shows what it would do right now - categorize by payee history, approve, assign Ready to Assign to targets (this month first, then next month) - plus the alerts it would raise. Records no decisions, sends no notifications, and never writes to YNAB. Amounts are in plain currency.",
+    description: "Dry run of the auto-budget service: syncs its D1 mirror from YNAB and shows what it would do right now - categorize by payee history, approve, assign Ready to Assign to targets (this month first, then next month) - plus the alerts it would raise. Records no decisions, sends no notifications, and never writes to YNAB. Amounts are in plain currency. Its assign preview applies the service's own rules (a daily cap, a per-run category cap, skipping snoozed and internal categories, spilling into next month), so it previews what the scheduled service would do and its numbers can differ from ynab_auto_assign; to see or make an on-demand assignment of Ready to Assign, use ynab_auto_assign (with dryRun to preview).",
     inputSchema: {
       limit: z.number().int().min(1).max(200).optional()
         .describe(`Most transaction decisions to list (default ${DEFAULT_LIST_LIMIT}); the summary counts every decision`),
