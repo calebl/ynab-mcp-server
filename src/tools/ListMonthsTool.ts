@@ -5,7 +5,7 @@ import { getErrorMessage } from "./errorUtils.js";
 import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_list_months";
-export const description = "Lists all plan months. Each month contains summary information about budgeting status.";
+export const description = "Lists every plan month since the plan began, with raw summary fields: income, budgeted, activity, Ready to Assign, age of money and the month note. For income-versus-spending questions over recent months, use ynab_cash_flow instead.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),

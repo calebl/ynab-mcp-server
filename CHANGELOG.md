@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Clarified the descriptions of `ynab_update_category_budget` (points to `ynab_move_money` for moving money), `ynab_get_transactions` (no end-date filter; account, category and payee filters are mutually exclusive), `ynab_list_months` (raw month list; points to `ynab_cash_flow`) and `ynab_autobudget_plan` (how it differs from `ynab_auto_assign` with `dryRun`).
+
 ## [0.5.0] - 2026-10-18
 
 ### Security

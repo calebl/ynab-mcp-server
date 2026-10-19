@@ -5,7 +5,7 @@ import { getErrorMessage } from "./errorUtils.js";
 import { formatAmount, getDecimalDigits, toDollars, toMilliunits } from "./money.js";
 
 export const name = "ynab_update_category_budget";
-export const description = "Updates the budgeted amount for a category in a specific month. Use this to allocate funds to categories or move money between categories.";
+export const description = "Sets the total budgeted amount for one category in a specific month (not an increment). To move money between categories, use ynab_move_money instead.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
