@@ -5,17 +5,19 @@ import { getErrorMessage } from "./errorUtils.js";
 import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_bulk_approve_transactions";
-export const description = "Approves multiple transactions at once. Provide an array of transaction IDs to approve them all in a single API call.";
+export const description = "Approves (or, with approved: false, un-approves) one or more transactions in a single API call.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   transactionIds: z.array(z.string()).min(1).max(500).describe("Array of transaction IDs to approve"),
+  approved: z.boolean().optional().default(true).describe("Whether the transactions should be marked as approved (default true); false un-approves them"),
 };
 
 interface BulkApproveTransactionsInput {
   planId?: string;
   budgetId?: string;
   transactionIds: string[];
+  approved?: boolean;
 }
 
 
@@ -27,10 +29,10 @@ export async function execute(input: BulkApproveTransactionsInput, api: ynab.API
       throw new Error("No transaction IDs provided");
     }
 
-    // Build the update transactions array
+    const approved = input.approved ?? true;
     const transactions: ynab.SaveTransactionWithIdOrImportId[] = input.transactionIds.map((id) => ({
       id,
-      approved: true,
+      approved,
     }));
 
     const [response, decimalDigits] = await Promise.all([
@@ -57,7 +59,7 @@ export async function execute(input: BulkApproveTransactionsInput, api: ynab.API
           success: true,
           approved_count: updatedTransactions.length,
           transactions: updatedTransactions,
-          message: `Successfully approved ${updatedTransactions.length} transaction(s)`,
+          message: `Successfully ${approved ? "approved" : "un-approved"} ${updatedTransactions.length} transaction(s)`,
         }, null, 2),
       }],
     };

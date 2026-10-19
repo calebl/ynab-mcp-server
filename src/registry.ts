@@ -3,10 +3,8 @@ import { z } from "zod";
 
 // Import all tools
 import * as ListPlansTool from "./tools/ListPlansTool.js";
-import * as GetUnapprovedTransactionsTool from "./tools/GetUnapprovedTransactionsTool.js";
 import * as PlanSummaryTool from "./tools/PlanSummaryTool.js";
 import * as CreateTransactionTool from "./tools/CreateTransactionTool.js";
-import * as ApproveTransactionTool from "./tools/ApproveTransactionTool.js";
 import * as UpdateCategoryBudgetTool from "./tools/UpdateCategoryBudgetTool.js";
 import * as UpdateTransactionTool from "./tools/UpdateTransactionTool.js";
 import * as BulkApproveTransactionsTool from "./tools/BulkApproveTransactionsTool.js";
@@ -67,17 +65,45 @@ const refineCreateTransaction = (schema: z.ZodObject<z.ZodRawShape>) =>
       path: ["payeeId"],
     });
 
-const listBudgetsAlias = { ...ListPlansTool, name: "ynab_list_budgets", description: "Former name of ynab_list_plans." };
-const budgetSummaryAlias = { ...PlanSummaryTool, name: "ynab_budget_summary", description: "Former name of ynab_plan_summary." };
+const deprecatedAliasOf = (target: string) => `Deprecated alias of ${target}; use that instead.`;
+
+const listBudgetsAlias = { ...ListPlansTool, name: "ynab_list_budgets", description: deprecatedAliasOf(ListPlansTool.name) };
+const budgetSummaryAlias = { ...PlanSummaryTool, name: "ynab_budget_summary", description: deprecatedAliasOf(PlanSummaryTool.name) };
+
+// Former single-purpose tools whose inputs are mapped onto the tool that replaced them.
+const getUnapprovedTransactionsAlias: ToolModule = {
+  name: "ynab_get_unapproved_transactions",
+  description: deprecatedAliasOf(GetTransactionsTool.name),
+  inputSchema: {
+    planId: GetTransactionsTool.inputSchema.planId,
+    budgetId: GetTransactionsTool.inputSchema.budgetId,
+    sinceDate: GetTransactionsTool.inputSchema.sinceDate,
+  },
+  // The former tool returned every unapproved transaction, so the alias lifts the row limit.
+  execute: (input: { planId?: string; budgetId?: string; sinceDate?: string }, api) =>
+    GetTransactionsTool.execute({ ...input, type: "unapproved", limit: Number.POSITIVE_INFINITY }, api),
+};
+const approveTransactionAlias: ToolModule = {
+  name: "ynab_approve_transaction",
+  description: deprecatedAliasOf(BulkApproveTransactionsTool.name),
+  inputSchema: {
+    planId: BulkApproveTransactionsTool.inputSchema.planId,
+    budgetId: BulkApproveTransactionsTool.inputSchema.budgetId,
+    transactionId: z.string().describe("The id of the transaction to approve"),
+    approved: BulkApproveTransactionsTool.inputSchema.approved,
+  },
+  execute: ({ transactionId, ...input }: { planId?: string; budgetId?: string; transactionId: string; approved?: boolean }, api) =>
+    BulkApproveTransactionsTool.execute({ ...input, transactionIds: [transactionId] }, api),
+};
 
 export const tools: ToolEntry[] = [
   { title: "List Plans", module: ListPlansTool, writes: false },
   { title: "List Budgets (legacy)", module: listBudgetsAlias, writes: false },
-  { title: "Get Unapproved Transactions", module: GetUnapprovedTransactionsTool, writes: false },
+  { title: "Get Unapproved Transactions (legacy)", module: getUnapprovedTransactionsAlias, writes: false },
   { title: "Plan Summary", module: PlanSummaryTool, writes: false },
   { title: "Budget Summary (legacy)", module: budgetSummaryAlias, writes: false },
   { title: "Create Transaction", module: CreateTransactionTool, writes: true, refine: refineCreateTransaction },
-  { title: "Approve Transaction", module: ApproveTransactionTool, writes: true, idempotent: true },
+  { title: "Approve Transaction (legacy)", module: approveTransactionAlias, writes: true, idempotent: true },
   { title: "Update Category Budget", module: UpdateCategoryBudgetTool, writes: true, idempotent: true },
   { title: "Update Transaction", module: UpdateTransactionTool, writes: true, idempotent: true },
   { title: "Bulk Approve Transactions", module: BulkApproveTransactionsTool, writes: true, idempotent: true },

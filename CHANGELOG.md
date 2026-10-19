@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Clarified the descriptions of `ynab_update_category_budget` (points to `ynab_move_money` for moving money), `ynab_get_transactions` (no end-date filter; account, category and payee filters are mutually exclusive), `ynab_list_months` (raw month list; points to `ynab_cash_flow`) and `ynab_autobudget_plan` (how it differs from `ynab_auto_assign` with `dryRun`).
+- `ynab_bulk_approve_transactions` accepts `approved` (default `true`); `false` un-approves the listed transactions.
+- `ynab_get_transactions` rows also include `transfer_transaction_id`, `matched_transaction_id` and `import_id`.
+- `ynab_get_unapproved_transactions` is now an alias of `ynab_get_transactions` with `type: "unapproved"` and no row limit. Its rows now also carry `cleared` and `flag_color`, and the response adds `total_available`.
+- `ynab_approve_transaction` is now an alias of `ynab_bulk_approve_transactions` for a single transaction. It no longer reads the transaction before updating it, and returns the bulk response (`approved_count` and a `transactions` list) instead of a top-level `transactionId`.
+
+### Deprecated
+- The tool aliases `ynab_list_budgets`, `ynab_budget_summary`, `ynab_get_unapproved_transactions` and `ynab_approve_transaction` are deprecated and their descriptions now say "Deprecated alias of <tool>; use that instead." They will be removed in the release after this one. Use `ynab_list_plans`, `ynab_plan_summary`, `ynab_get_transactions` and `ynab_bulk_approve_transactions`.
 
 ## [0.5.0] - 2026-10-18
 
