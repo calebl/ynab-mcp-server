@@ -65,7 +65,7 @@ const refineCreateTransaction = (schema: z.ZodObject<z.ZodRawShape>) =>
       path: ["payeeId"],
     });
 
-const deprecatedAliasOf = (target: string) => `Deprecated alias of ${target}; use that instead.`;
+const deprecatedAliasOf = (target: string) => `Deprecated alias of ${target}; use that instead`;
 
 const listBudgetsAlias = { ...ListPlansTool, name: "ynab_list_budgets", description: deprecatedAliasOf(ListPlansTool.name) };
 const budgetSummaryAlias = { ...PlanSummaryTool, name: "ynab_budget_summary", description: deprecatedAliasOf(PlanSummaryTool.name) };

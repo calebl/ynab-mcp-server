@@ -125,6 +125,8 @@ describe('BulkApproveTransactionsTool', () => {
       });
       const response = JSON.parse(result.content[0].text);
       expect(response.success).toBe(true);
+      expect(response.unapproved_count).toBe(1);
+      expect(response).not.toHaveProperty('approved_count');
       expect(response.transactions[0].approved).toBe(false);
       expect(response.message).toBe('Successfully un-approved 1 transaction(s)');
     });

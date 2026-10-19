@@ -57,7 +57,9 @@ export async function execute(input: BulkApproveTransactionsInput, api: ynab.API
         type: "text" as const,
         text: JSON.stringify({
           success: true,
-          approved_count: updatedTransactions.length,
+          ...(approved
+            ? { approved_count: updatedTransactions.length }
+            : { unapproved_count: updatedTransactions.length }),
           transactions: updatedTransactions,
           message: `Successfully ${approved ? "approved" : "un-approved"} ${updatedTransactions.length} transaction(s)`,
         }, null, 2),

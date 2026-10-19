@@ -512,7 +512,7 @@ describe("deprecated aliases", () => {
     ["ynab_approve_transaction", "ynab_bulk_approve_transactions"],
   ])("describes %s as a deprecated alias of %s", (alias, target) => {
     const registered = register();
-    expect(registered.get(alias)?.config.description).toBe(`Deprecated alias of ${target}; use that instead.`);
+    expect(registered.get(alias)?.config.description).toBe(`Deprecated alias of ${target}; use that instead`);
     expect(registered.get(alias)?.config.annotations.readOnlyHint)
       .toBe(registered.get(target)?.config.annotations.readOnlyHint);
   });
@@ -585,6 +585,10 @@ describe("deprecated aliases", () => {
     expect(api.transactions.updateTransactions).toHaveBeenCalledWith("plan-1", {
       transactions: [{ id: "txn-1", approved }],
     });
-    expect(JSON.parse(result.content[0].text)).toMatchObject({ success: true, transactions: [{ id: "txn-1", approved }] });
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      success: true,
+      ...(approved ? { approved_count: 1 } : { unapproved_count: 1 }),
+      transactions: [{ id: "txn-1", approved }],
+    });
   });
 });
