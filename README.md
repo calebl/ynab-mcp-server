@@ -155,7 +155,6 @@ happens in `src/tools/money.ts`.
 | `ynab_list_months` | Every plan month since the plan began, with raw income, budgeted, activity, Ready to Assign, age-of-money and note fields. For recent income versus spending, use `ynab_cash_flow`. |
 | `ynab_list_scheduled_transactions` | Scheduled/recurring transactions. |
 | `ynab_get_transactions` | Transactions optionally filtered from `sinceDate` onward (no end-date filter), by `type` (`all`/`uncategorized`/`unapproved`), and by at most one of `accountId`, `categoryId` or `payeeId` (the first in that order wins). `limit` defaults to 100. |
-| `ynab_get_unapproved_transactions` | Unapproved transactions, optionally from `sinceDate` onward. |
 | `ynab_suggest_categories` | Opt-in, read-only category previews for unapproved, uncategorized ordinary outflows. Deleted and categorized rows are dropped in default mode; approved, reconciled, balance-adjustment, transfer, split, and inflow rows are skipped as applicable. |
 
 ### Category suggestions (optional)
@@ -292,8 +291,7 @@ accounts are excluded, so these report spending rather than money movement.
 | `ynab_create_transaction` | Creates a transaction. Needs `date`, `amount`, an account (`accountId` or `accountName`) and a payee (`payeeId` or `payeeName`); category optional as `categoryId` or `categoryName`, or `subtransactions` to split it. |
 | `ynab_update_transaction` | Updates any subset of an existing transaction's fields, or splits an unsplit one with `subtransactions`. |
 | `ynab_delete_transaction` | Deletes a transaction. Not undoable. |
-| `ynab_approve_transaction` | Approves (or un-approves) one transaction. |
-| `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call. |
+| `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call, or un-approves them with `approved: false`. |
 | `ynab_apply_category_suggestions` | Applies up to 25 explicit category suggestions with refetch and stale-data checks, dry-run support, and a pre-write undo manifest. Never auto-applies or approves transactions. |
 | `ynab_update_category_budget` | Sets the total budgeted amount for one category in a month. Not an increment; use `ynab_move_money` to move money between categories. |
 | `ynab_import_transactions` | Triggers an import from linked institutions, the same as hitting Import in the YNAB app. |
@@ -404,8 +402,18 @@ resolved before the pull request can be merged.
 
 ## Compatibility
 
-`ynab_list_budgets` and `ynab_budget_summary` remain accepted aliases for the
-plan-named tools. `budgetId` and `YNAB_BUDGET_ID` are deprecated but still
+These tool names are deprecated aliases. They still work for now, but are
+announced as deprecated in the next release and removed in the release after
+that:
+
+| Alias | Use instead |
+| --- | --- |
+| `ynab_list_budgets` | `ynab_list_plans` |
+| `ynab_budget_summary` | `ynab_plan_summary` |
+| `ynab_get_unapproved_transactions` | `ynab_get_transactions` with `type: "unapproved"` |
+| `ynab_approve_transaction` | `ynab_bulk_approve_transactions` with a one-element `transactionIds` |
+
+`budgetId` and `YNAB_BUDGET_ID` are deprecated but still
 accepted; there is no removal date. Use `planId` and `YNAB_PLAN_ID` for new
 integrations.
 

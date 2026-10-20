@@ -53,6 +53,9 @@ interface TransactionData {
   category_name?: string | null;
   flag_color?: string | null;
   transfer_account_id?: string | null;
+  transfer_transaction_id?: string | null;
+  matched_transaction_id?: string | null;
+  import_id?: string | null;
   subtransactions?: ynab.SubTransaction[];
   deleted: boolean;
 }
@@ -121,6 +124,9 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
         category_name: txn.category_name,
         flag_color: txn.flag_color,
         transfer_account_id: txn.transfer_account_id,
+        transfer_transaction_id: txn.transfer_transaction_id,
+        matched_transaction_id: txn.matched_transaction_id,
+        import_id: txn.import_id,
         // Present only on splits, whose parent row is categorised "Split".
         subtransactions: mapSubtransactions(txn.subtransactions, decimalDigits),
       }));

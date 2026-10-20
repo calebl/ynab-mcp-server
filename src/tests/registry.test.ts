@@ -503,3 +503,92 @@ describe("a configured plan the token cannot see", () => {
     expect(api.plans.getPlans).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("deprecated aliases", () => {
+  it.each([
+    ["ynab_list_budgets", "ynab_list_plans"],
+    ["ynab_budget_summary", "ynab_plan_summary"],
+    ["ynab_get_unapproved_transactions", "ynab_get_transactions"],
+    ["ynab_approve_transaction", "ynab_bulk_approve_transactions"],
+  ])("describes %s as a deprecated alias of %s", (alias, target) => {
+    const registered = register();
+    expect(registered.get(alias)?.config.description).toBe(`Deprecated alias of ${target}; use that instead`);
+    expect(registered.get(alias)?.config.annotations.readOnlyHint)
+      .toBe(registered.get(target)?.config.annotations.readOnlyHint);
+  });
+
+  it("keeps each alias in the read-only set exactly when its target is", () => {
+    const registered = new Map<string, unknown>();
+    registerAll({ registerTool: (name) => { registered.set(name, true); } }, {} as ynab.API, { readOnly: true });
+
+    expect(registered.has("ynab_get_unapproved_transactions")).toBe(true);
+    expect(registered.has("ynab_get_transactions")).toBe(true);
+    expect(registered.has("ynab_approve_transaction")).toBe(false);
+    expect(registered.has("ynab_bulk_approve_transactions")).toBe(false);
+  });
+
+  it("maps a ynab_get_unapproved_transactions call onto an unlimited unapproved listing", async () => {
+    vi.stubEnv("YNAB_API_TOKEN", "test-token");
+    const rows = Array.from({ length: 150 }, (_, i) => ({
+      id: `txn-${i}`,
+      date: "2024-01-01",
+      amount: -1000,
+      approved: false,
+      cleared: "uncleared",
+      deleted: false,
+      transfer_account_id: null,
+      transfer_transaction_id: null,
+      matched_transaction_id: `match-${i}`,
+      import_id: `import-${i}`,
+    }));
+    const api = {
+      transactions: { getTransactions: vi.fn().mockResolvedValue({ data: { transactions: rows } }) },
+      plans: { getPlanSettingsById: vi.fn().mockRejectedValue(new Error("no settings")) },
+    };
+    const registered = register(api as unknown as ynab.API);
+
+    const result = await registered.get("ynab_get_unapproved_transactions")!.callback({ planId: "plan-1", sinceDate: "2024-01-01" });
+
+    expect(result.isError).toBeUndefined();
+    expect(api.transactions.getTransactions).toHaveBeenCalledWith("plan-1", "2024-01-01", undefined, "unapproved");
+    const body = JSON.parse(result.content[0].text);
+    expect(body.transaction_count).toBe(150);
+    expect(body.transactions[0]).toMatchObject({
+      id: "txn-0",
+      amount: -1,
+      transfer_transaction_id: null,
+      matched_transaction_id: "match-0",
+      import_id: "import-0",
+    });
+  });
+
+  it.each([
+    [{}, true],
+    [{ approved: false }, false],
+  ])("maps a ynab_approve_transaction call with %j onto a one-row bulk update", async (extra, approved) => {
+    vi.stubEnv("YNAB_API_TOKEN", "test-token");
+    const api = {
+      transactions: {
+        updateTransactions: vi.fn().mockResolvedValue({
+          data: { transactions: [{ id: "txn-1", date: "2024-01-01", amount: -1000, payee_name: "Shop", approved }] },
+        }),
+      },
+      plans: { getPlanSettingsById: vi.fn().mockRejectedValue(new Error("no settings")) },
+    };
+    const registered = register(api as unknown as ynab.API);
+    const callback = registered.get("ynab_approve_transaction")!;
+    const input = (callback.config.inputSchema as z.ZodTypeAny).parse({ budgetId: "plan-1", transactionId: "txn-1", ...extra });
+
+    const result = await callback.callback(input);
+
+    expect(result.isError).toBeUndefined();
+    expect(api.transactions.updateTransactions).toHaveBeenCalledWith("plan-1", {
+      transactions: [{ id: "txn-1", approved }],
+    });
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      success: true,
+      ...(approved ? { approved_count: 1 } : { unapproved_count: 1 }),
+      transactions: [{ id: "txn-1", approved }],
+    });
+  });
+});

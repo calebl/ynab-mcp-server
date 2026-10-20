@@ -104,6 +104,33 @@ describe('BulkApproveTransactionsTool', () => {
       expect(response.approved_count).toBe(1);
     });
 
+    it('should un-approve transactions when approved is false', async () => {
+      mockApi.transactions.updateTransactions.mockResolvedValue({
+        data: {
+          transactions: [{ ...mockTransactionsResponse.data.transactions[0], approved: false }],
+        },
+      });
+
+      const result = await BulkApproveTransactionsTool.execute(
+        {
+          budgetId: 'test-budget-id',
+          transactionIds: ['txn-1'],
+          approved: false,
+        },
+        mockApi as any
+      );
+
+      expect(mockApi.transactions.updateTransactions).toHaveBeenCalledWith('test-budget-id', {
+        transactions: [{ id: 'txn-1', approved: false }],
+      });
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(true);
+      expect(response.unapproved_count).toBe(1);
+      expect(response).not.toHaveProperty('approved_count');
+      expect(response.transactions[0].approved).toBe(false);
+      expect(response.message).toBe('Successfully un-approved 1 transaction(s)');
+    });
+
     it('should use YNAB_BUDGET_ID from env when budgetId not provided', async () => {
       mockApi.transactions.updateTransactions.mockResolvedValue(mockTransactionsResponse);
 
@@ -205,7 +232,7 @@ describe('BulkApproveTransactionsTool', () => {
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       expect(BulkApproveTransactionsTool.name).toBe('ynab_bulk_approve_transactions');
-      expect(BulkApproveTransactionsTool.description).toContain('multiple transactions');
+      expect(BulkApproveTransactionsTool.description).toContain('un-approves');
     });
 
     it('should have required input schema fields', () => {
