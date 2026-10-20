@@ -8,7 +8,7 @@ import { mapSubtransactions } from "./splits.js";
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 export const name = "ynab_get_transactions";
-export const description = "Gets transactions from a plan, optionally between a start and end date and by type (all, uncategorized or unapproved). Filter by at most one of account, category or payee: they cannot be combined, and if several are given only the first in that order is applied. To search, add payee or memo text, an amount range or a direction. Any search option (or untilDate) adds inflow, outflow and net totals over every match, and totalsOnly returns just the totals, e.g. a year of charitable giving. Split transactions are matched leg by leg, and the totals count only the matching legs.";
+export const description = "Gets transactions from a plan, optionally between a start and end date and by type (all, uncategorized or unapproved). Filter by at most one of account, category or payee: they cannot be combined, and if several are given only the first in that order is applied. To search, add payee or memo text, an amount range or a direction. Any search option (or untilDate) adds inflow, outflow and net totals over every match; the totals include transfers between accounts, such as credit card payments. totalsOnly returns just the totals (e.g. categoryId with a year's dates and totalsOnly). Without categoryId or payeeId, split transactions are matched leg by leg and the totals count only the matching legs. With categoryId or payeeId, rows are matched as YNAB returns them, so a split's parent row in the payee listing counts at its full amount.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
@@ -95,8 +95,16 @@ interface SearchFilters {
   direction: "outflow" | "inflow" | "any";
 }
 
-/** Search options; giving any of them adds the totals block. */
-const SEARCH_OPTIONS = ["untilDate", "payeeContains", "memoContains", "minAmount", "maxAmount", "direction", "totalsOnly"] as const;
+/** True when any search option is given, which adds the totals block. An explicit default (direction "any", totalsOnly false) is not one. */
+function isSearch(input: GetTransactionsInput): boolean {
+  return input.untilDate !== undefined
+    || input.payeeContains !== undefined
+    || input.memoContains !== undefined
+    || input.minAmount !== undefined
+    || input.maxAmount !== undefined
+    || (input.direction !== undefined && input.direction !== "any")
+    || input.totalsOnly === true;
+}
 
 function contains(text: string | null | undefined, needle: string | undefined): boolean {
   return needle === undefined || (text ?? "").toLowerCase().includes(needle.toLowerCase());
@@ -116,9 +124,10 @@ function legMatches(leg: Leg, filters: SearchFilters): boolean {
  *
  * A split's own amount duplicates its children, so a split is matched through
  * its children, each taking the parent's payee and memo when it has none of
- * its own. The category and payee listings instead return a split's legs as
- * rows of their own (type "subtransaction", without children), so each such
- * row is matched as the single leg it is.
+ * its own. The category and payee listings return rows without children: a
+ * split's parent row (payee listing) is matched at its full amount, and a leg
+ * listed as its own row (type "subtransaction") is matched on its own fields
+ * only, without the parent's payee or memo.
  */
 function matchingLegAmounts(txn: TransactionData, filters: SearchFilters): number[] {
   if (filters.untilDate && txn.date > filters.untilDate) return [];
@@ -190,7 +199,7 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
     let matches = rawTransactions.filter((txn) => !txn.deleted);
     let totals: { count: number; inflow: number; outflow: number; net: number } | undefined;
 
-    if (SEARCH_OPTIONS.some((option) => input[option] !== undefined)) {
+    if (isSearch(input)) {
       const filters: SearchFilters = {
         // The API applies untilDate too; checking it here keeps the range exact if it does not.
         untilDate: input.untilDate,

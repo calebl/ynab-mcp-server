@@ -515,6 +515,12 @@ describe('GetTransactionsTool search', () => {
     expect(response.total_available).toBe(4);
   });
 
+  it('should not treat explicit defaults as a search', async () => {
+    const response = await run({ direction: 'any', totalsOnly: false });
+    expect(Object.keys(response)).toEqual(['transactions', 'transaction_count', 'total_available']);
+    expect(response.total_available).toBe(4);
+  });
+
   it('should send untilDate to YNAB and enforce it if later rows come back', async () => {
     const response = await run({ sinceDate: '2026-01-01', untilDate: '2026-03-31' });
     expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith('test-budget-id', '2026-01-01', '2026-03-31', undefined);
@@ -596,6 +602,27 @@ describe('GetTransactionsTool search', () => {
       const response = await run({ payeeId: 'payee-costco', memoContains: 'ink' });
       expect(response.transactions.map((t: any) => t.id)).toEqual(['leg-1']);
       expect(response.totals.outflow).toBe(47.92);
+    });
+
+    it('should match the parent row as YNAB returns it, at its full amount', async () => {
+      // The parent row has no children here, so its memo and amount stand for the whole split,
+      // although leg-1 has a memo of its own.
+      const byMemo = await run({ payeeId: 'payee-costco', memoContains: 'weekly' });
+      expect(byMemo.transactions.map((t: any) => t.id)).toEqual(['parent']);
+      expect(byMemo.totals.outflow).toBe(281.17);
+
+      // Too large as a whole, so only the leg row and the ordinary row are small enough.
+      const small = await run({ payeeId: 'payee-costco', maxAmount: 50 });
+      expect(small.transactions.map((t: any) => t.id)).toEqual(['leg-1', 'other']);
+      expect(small.totals.outflow).toBe(57.92);
+    });
+
+    it('should match a category leg row on its own memo only', async () => {
+      mockApi.transactions.getTransactionsByCategory.mockResolvedValue({
+        data: { transactions: [txn({ id: 'leg-2', type: 'subtransaction', parent_transaction_id: 'parent', amount: -233250, memo: null })] },
+      });
+      const response = await run({ categoryId: 'cat-groceries', memoContains: 'weekly' });
+      expect(response.totals).toEqual({ count: 0, inflow: 0, outflow: 0, net: 0 });
     });
 
     it('should still list every row when no search option is given', async () => {
