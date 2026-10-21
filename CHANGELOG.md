@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `ynab_get_transactions` can search: `untilDate`, `payeeContains`, `memoContains`, `minAmount`, `maxAmount` and `direction` filter the rows, and any of them (or `totalsOnly: true`) adds a `totals` block with `count`, `inflow`, `outflow` and `net` over every match, unaffected by `limit`; transfers between accounts count. `totalsOnly` returns just the totals. Without `categoryId` or `payeeId`, split transactions are matched leg by leg, and the totals count only the matching legs. With `categoryId` or `payeeId`, rows are matched as YNAB returns them, so a split's parent row in the payee listing counts at its full amount. When the `payeeId` listing returns both a split and some of its legs, a matching split is counted once, through its parent row. Without these options (or with only `direction: "any"` or `totalsOnly: false`), no rows are filtered out and no totals are returned.
 - `ynab_get_transactions` rows that are split legs listed on their own (from the `categoryId` and `payeeId` listings) carry `parent_transaction_id`.
+- The Worker logs a warning with GitHub's `error` and `error_description` when the GitHub OAuth token exchange fails, adding the HTTP status for non-2xx responses and logging the status with `unknown` for malformed responses. The code, state and secrets are never logged.
+
+### Fixed
+- Non-JSON or invalid-shape responses from GitHub's token endpoint now show the sign-in failure page instead of raising an unhandled Worker exception.
 
 ### Changed
 - Clarified the descriptions of `ynab_update_category_budget` (points to `ynab_move_money` for moving money), `ynab_get_transactions` (account, category and payee filters are mutually exclusive), `ynab_list_months` (raw month list; points to `ynab_cash_flow`) and `ynab_autobudget_plan` (how it differs from `ynab_auto_assign` with `dryRun`).

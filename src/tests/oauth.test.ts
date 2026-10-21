@@ -204,6 +204,7 @@ describe("Worker OAuth flow", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -267,6 +268,68 @@ describe("Worker OAuth flow", () => {
       expect((await callback(env, state, `__Host-ynab_mcp_session=${"b".repeat(43)}`)).status).toBe(400);
       expect(githubCalls).toEqual([]);
       expect(grants(env)).toEqual([]);
+    });
+  });
+
+  describe("failed GitHub token exchange", () => {
+    function githubAnswers(tokenResponse: () => Response) {
+      vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        githubCalls.push(url);
+        if (url === "https://github.com/login/oauth/access_token") return tokenResponse();
+        throw new Error(`unexpected fetch ${url}`);
+      });
+    }
+
+    async function failedSignIn(tokenResponse: () => Response) {
+      githubAnswers(tokenResponse);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const env = makeEnv();
+      const { cookie, state } = await approveUpToGitHub(env, CLAUDE_CB);
+      const response = await callback(env, state, cookie);
+      const logged = warn.mock.calls.map((args) => [...args]);
+      warn.mockRestore();
+      expect(response.status).toBe(401);
+      expect(await response.text()).toContain("Sign-in failed");
+      expect(grants(env)).toHaveLength(0);
+      for (const args of logged) {
+        for (const arg of args) {
+          expect(String(arg)).not.toContain("gh-code");
+          expect(String(arg)).not.toContain(state);
+        }
+      }
+      return logged;
+    }
+
+    it("logs GitHub's error and error_description", async () => {
+      const logged = await failedSignIn(() =>
+        Response.json({ error: "bad_verification_code", error_description: "The code passed is incorrect or expired." }),
+      );
+      expect(logged).toEqual([
+        ["github token exchange failed:", "bad_verification_code", "The code passed is incorrect or expired."],
+      ]);
+    });
+
+    it("logs GitHub's error fields and HTTP status for a non-2xx response", async () => {
+      const logged = await failedSignIn(() =>
+        Response.json(
+          { error: "bad_verification_code", error_description: "The code passed is incorrect or expired." },
+          { status: 400 },
+        ),
+      );
+      expect(logged).toEqual([
+        ["github token exchange failed:", "bad_verification_code", "The code passed is incorrect or expired.", "HTTP", 400],
+      ]);
+    });
+
+    it.each([
+      ["non-2xx non-JSON", () => new Response("<html>Bad gateway</html>", { status: 502 }), 502],
+      ["non-2xx JSON without an error", () => Response.json({ message: "upstream detail" }, { status: 502 }), 502],
+      ["2xx non-JSON", () => new Response("<html>oops</html>"), 200],
+      ["2xx JSON without an error", () => Response.json({ message: "upstream detail" }), 200],
+    ])("logs unknown and the HTTP status for a %s response", async (_case, tokenResponse, status) => {
+      const logged = await failedSignIn(tokenResponse);
+      expect(logged).toEqual([["github token exchange failed:", "unknown", "HTTP", status]]);
     });
   });
 
