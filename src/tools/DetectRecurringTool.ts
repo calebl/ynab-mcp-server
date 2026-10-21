@@ -12,8 +12,16 @@ export const inputSchema = {
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   sinceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Start of the history to scan, inclusive (ISO format: 2025-01-01). Defaults to 365 days ago."),
   minOccurrences: z.number().int().min(2).optional().describe("How many charges of a similar amount from one payee make a pattern (default: 3)"),
-  amountTolerancePct: z.number().min(0).max(100).optional().describe("How far above the smallest charge in a group another charge may be and still count, in percent (default: 10)"),
+  amountTolerancePct: z.number().min(0).max(100)
+    .refine((pct) => Number.isInteger(thousandths(pct)), "At most 3 decimal places")
+    .optional()
+    .describe("How far above the smallest charge in a group another charge may be and still count, in percent with up to 3 decimal places (default: 10)"),
 };
+
+/** `value` × 1000, shifted in decimal so 33.3 gives exactly 33300. */
+function thousandths(value: number): number {
+  return Number(`${value}e3`);
+}
 
 interface DetectRecurringInput {
   planId?: string;
@@ -79,14 +87,14 @@ function mostCommon(values: string[]): string {
 
 /** Splits one payee's charges into groups of similar amounts, smallest first. */
 function amountGroups(entries: SpendingEntry[], tolerancePct: number): SpendingEntry[][] {
-  // Integer arithmetic in thousandths of a percent keeps a charge exactly at the tolerance in
-  // its group; in floating point 100000 * 1.13 is 112999.99999999999.
-  const toleranceMilliPct = Math.round(tolerancePct * 1000);
+  // Whole numbers throughout, so a charge exactly at the tolerance stays in its group
+  // (in floating point 100000 * 1.13 is 112999.99999999999).
+  const toleranceThousandths = thousandths(tolerancePct);
   const groups: SpendingEntry[][] = [];
   for (const entry of [...entries].sort((a, b) => a.amountMilliunits - b.amountMilliunits)) {
     const current = groups.at(-1);
     const smallest = current?.[0].amountMilliunits ?? 0;
-    if (current && (entry.amountMilliunits - smallest) * 100_000 <= smallest * toleranceMilliPct) current.push(entry);
+    if (current && (entry.amountMilliunits - smallest) * 100_000 <= smallest * toleranceThousandths) current.push(entry);
     else groups.push([entry]);
   }
   return groups;

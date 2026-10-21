@@ -104,6 +104,15 @@ describe('DetectRecurringTool', () => {
     expect((await detect({ amountTolerancePct: 12.999 })).recurring).toEqual([]);
   });
 
+  it('keeps a decimal tolerance exact, and rejects more than 3 decimal places', async () => {
+    // 100000 * 33.3 is 3329999.9999999995 in floating point.
+    given(series('Gym', ['2026-03-01', '2026-04-01', '2026-05-01', '2026-06-01'], [-100000, -100000, -133300, -133300]));
+
+    expect((await detect({ amountTolerancePct: 33.3 })).recurring.map((r: any) => r.occurrences)).toEqual([4]);
+    expect(DetectRecurringTool.inputSchema.amountTolerancePct.safeParse(33.3).success).toBe(true);
+    expect(DetectRecurringTool.inputSchema.amountTolerancePct.safeParse(12.9999).success).toBe(false);
+  });
+
   it('separates two subscriptions from one payee by amount', async () => {
     const dates = ['2026-03-10', '2026-04-10', '2026-05-10', '2026-06-10'];
     given([...series('Apple', dates, -990), ...series('Apple', dates, -9990)]);
