@@ -430,19 +430,32 @@ describe('PlanSummaryTool', () => {
       });
     });
 
-    it('leaves out internal categories such as Ready to Assign, whose activity is the month income', async () => {
+    it('skips Ready to Assign, whose activity is the month income, and keeps other internal categories with activity', async () => {
       // YNAB's month endpoint returns "Inflow: Ready to Assign" among the categories,
       // with the month's income as its activity and a balance that accumulates across months.
       const result = await run({ budgetVsActuals: true }, [
         category('c-rta', 'Inflow: Ready to Assign', INTERNAL, 0, 900000, 2428718370, { internal: true }),
-        // Matched by group name too, for a category that does not carry the internal flag.
-        category('c-other', 'Other Internal', INTERNAL, 0, -5000, 0, { internal: undefined }),
+        category('c-uncat', 'Uncategorized', INTERNAL, 0, -40000, -40000, { internal: true }),
+        category('c-quiet', 'Quiet Internal', INTERNAL, 0, 0, 0, { internal: true }),
         category('c-rent', 'Rent', BILLS, 1500000, -1500000, 0),
       ]);
 
       const { groups, totals } = result.budget_vs_actuals;
-      expect(groups.map((g: any) => g.category_group_name)).toEqual(['Bills']);
-      expect(totals).toEqual({ budgeted: 1500, activity: -1500, balance: 0, variance: 0, percent_used: 100 });
+      expect(groups.map((g: any) => g.category_group_name)).toEqual(['Internal Master Category', 'Bills']);
+      expect(groups[0].categories).toEqual([
+        { id: 'c-uncat', name: 'Uncategorized', budgeted: 0, activity: -40, balance: -40, variance: -40, percent_used: null },
+      ]);
+      expect(totals).toEqual({ budgeted: 1500, activity: -1540, balance: -40, variance: -40, percent_used: 102.7 });
+    });
+
+    it('recognises Ready to Assign by its group when the internal flag is missing', async () => {
+      const result = await run({ budgetVsActuals: true }, [
+        category('c-rta', 'Inflow: Ready to Assign', INTERNAL, 0, 900000, 2428718370, { internal: undefined }),
+        category('c-rent', 'Rent', BILLS, 1500000, -1500000, 0),
+      ]);
+
+      expect(result.budget_vs_actuals.groups.map((g: any) => g.category_group_name)).toEqual(['Bills']);
+      expect(result.budget_vs_actuals.totals.activity).toBe(-1500);
     });
 
     it('reports percent used as null when nothing was assigned, and below zero after net refunds', async () => {
@@ -461,7 +474,7 @@ describe('PlanSummaryTool', () => {
       expect(fun.percent_used).toBe(13.3);
     });
 
-    it('counts Credit Card Payments categories in the totals', async () => {
+    it('lists Credit Card Payments as its own group and leaves it out of the totals', async () => {
       // A $90 card purchase in Dining Out moves $90 into the card's payment category.
       const result = await run({ budgetVsActuals: true }, [
         category('c-dining', 'Dining Out', FUN, 200000, -90000, 110000),
@@ -470,8 +483,20 @@ describe('PlanSummaryTool', () => {
 
       const { groups, totals } = result.budget_vs_actuals;
       expect(groups.map((g: any) => g.category_group_name)).toEqual(['Fun', 'Credit Card Payments']);
-      expect(totals.activity).toBe(0);
-      expect(totals.variance).toBe(200);
+      expect(groups[1]).toMatchObject({ activity: 90, categories: [{ name: 'Visa', activity: 90 }] });
+      expect(totals).toEqual({ budgeted: 200, activity: -90, balance: 110, variance: 110, percent_used: 45 });
+    });
+
+    it('does not count a card payment made in the month as spending', async () => {
+      // Last month's $300 bill is paid this month: the payment category's activity is +90 - 300.
+      const result = await run({ budgetVsActuals: true }, [
+        category('c-dining', 'Dining Out', FUN, 200000, -90000, 110000),
+        category('c-visa', 'Visa', CARDS, 0, -210000, 0),
+      ]);
+
+      const { groups, totals } = result.budget_vs_actuals;
+      expect(groups[1].activity).toBe(-210);
+      expect(totals).toEqual({ budgeted: 200, activity: -90, balance: 110, variance: 110, percent_used: 45 });
     });
 
     it('uses the plan currency precision', async () => {

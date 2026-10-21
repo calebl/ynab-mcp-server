@@ -2,10 +2,10 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { getDecimalDigits, roundAmount, toDollars } from "./money.js";
+import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_plan_summary";
-export const description = "Get a summary of the plan for a specific month highlighting overspent categories that need attention and categories with a positive balance that are doing well. Set budgetVsActuals to also compare assigned with actual spending that month: budgeted, activity, balance, variance (budgeted plus activity; below zero means more was spent than assigned) and percent used for every visible category, with subtotals per category group and overall totals. The totals add up every listed category, Credit Card Payments included, whose activity offsets purchases made on the card. YNAB's internal categories (group Internal Master Category) are left out: one of them, Inflow: Ready to Assign, has the month's income as its activity.";
+export const description = "Get a summary of the plan for a specific month highlighting overspent categories that need attention and categories with a positive balance that are doing well. Set budgetVsActuals to also compare assigned with actual spending that month: budgeted, activity, balance, variance (budgeted plus activity; below zero means more was spent than assigned) and percent used for every visible category, with subtotals per category group and overall totals, which leave out Credit Card Payments.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
@@ -40,7 +40,7 @@ interface Amounts {
 
 /** Spent as a percentage of budgeted, or null when nothing (or less than nothing) was assigned. */
 function percentUsed({ budgeted, activity }: Amounts): number | null {
-  return budgeted > 0 ? roundAmount((-activity / budgeted) * 100, 1) : null;
+  return budgeted > 0 ? Math.round((-activity / budgeted) * 1000) / 10 : null;
 }
 
 function compareAmounts(amounts: Amounts, decimalDigits: number) {
@@ -64,27 +64,43 @@ function sumAmounts(categories: Amounts[]): Amounts {
   );
 }
 
-/**
- * The month's categories include YNAB's internal ones. "Inflow: Ready to Assign"
- * (group "Internal Master Category") has the month's income as its activity and
- * a balance that accumulates across months, so it would swamp the totals.
- */
 function isInternal(category: ynab.Category): boolean {
   return category.internal === true || category.category_group_name === "Internal Master Category";
 }
 
+/**
+ * The month's categories include YNAB's internal ones. "Inflow: Ready to Assign"
+ * has the month's income as its activity and a balance that accumulates across
+ * months, so it is skipped. Other internal categories, such as Uncategorized,
+ * are kept when they have activity, so that spending is not lost. The API has no
+ * flag for Ready to Assign, so it is matched by its "Inflow:" name.
+ */
+function isListed(category: ynab.Category): boolean {
+  if (!isInternal(category)) return true;
+  return !category.name.startsWith("Inflow:") && category.activity !== 0;
+}
+
+/**
+ * A card payment category's activity is card spending moving in minus payments
+ * going out, so adding it to the totals would cancel purchases and count
+ * payments as spending. YNAB has no flag for the group, so it is matched by name.
+ */
+function isCreditCardPayment(category: ynab.Category): boolean {
+  return category.category_group_name === "Credit Card Payments";
+}
+
 /** Budgeted against actual per category, grouped in the order YNAB lists them. */
 function budgetVsActuals(categories: ynab.Category[], decimalDigits: number) {
+  const listed = categories.filter(isListed);
   const groups = new Map<string, ynab.Category[]>();
-  for (const category of categories.filter((category) => !isInternal(category))) {
+  for (const category of listed) {
     const group = groups.get(category.category_group_id);
     if (group) group.push(category);
     else groups.set(category.category_group_id, [category]);
   }
-  const listed = [...groups.values()];
   return {
-    totals: compareAmounts(sumAmounts(listed.flat()), decimalDigits),
-    groups: listed.map((group) => ({
+    totals: compareAmounts(sumAmounts(listed.filter((category) => !isCreditCardPayment(category))), decimalDigits),
+    groups: [...groups.values()].map((group) => ({
       category_group_id: group[0].category_group_id,
       category_group_name: group[0].category_group_name ?? null,
       ...compareAmounts(sumAmounts(group), decimalDigits),
