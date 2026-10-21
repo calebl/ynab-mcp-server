@@ -309,16 +309,26 @@ describe("Worker OAuth flow", () => {
       ]);
     });
 
-    it("logs the HTTP status of a non-2xx response", async () => {
-      const logged = await failedSignIn(
-        () => new Response("<html>Bad gateway</html>", { status: 502, headers: { "content-type": "text/html" } }),
+    it("logs GitHub's error fields and HTTP status for a non-2xx response", async () => {
+      const logged = await failedSignIn(() =>
+        Response.json(
+          { error: "bad_verification_code", error_description: "The code passed is incorrect or expired." },
+          { status: 400 },
+        ),
       );
-      expect(logged).toEqual([["github token exchange failed: HTTP", 502]]);
+      expect(logged).toEqual([
+        ["github token exchange failed:", "bad_verification_code", "The code passed is incorrect or expired.", "HTTP", 400],
+      ]);
     });
 
-    it("logs a non-JSON response", async () => {
-      const logged = await failedSignIn(() => new Response("<html>oops</html>", { status: 200 }));
-      expect(logged).toEqual([["github token exchange failed: non-JSON response, HTTP", 200]]);
+    it.each([
+      ["non-2xx non-JSON", () => new Response("<html>Bad gateway</html>", { status: 502 }), 502],
+      ["non-2xx JSON without an error", () => Response.json({ message: "upstream detail" }, { status: 502 }), 502],
+      ["2xx non-JSON", () => new Response("<html>oops</html>"), 200],
+      ["2xx JSON without an error", () => Response.json({ message: "upstream detail" }), 200],
+    ])("logs unknown and the HTTP status for a %s response", async (_case, tokenResponse, status) => {
+      const logged = await failedSignIn(tokenResponse);
+      expect(logged).toEqual([["github token exchange failed:", "unknown", "HTTP", status]]);
     });
   });
 

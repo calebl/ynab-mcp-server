@@ -230,27 +230,35 @@ export const GitHubHandler = {
           redirect_uri: new URL("/callback", request.url).href,
         }),
       });
-      if (!tokenResponse.ok) {
-        console.warn("github token exchange failed: HTTP", tokenResponse.status);
-        return html("<h1>Sign-in failed</h1><p>GitHub rejected the code (unknown).</p>", 401);
-      }
-      let tokenBody: { access_token?: string; error?: string; error_description?: string };
+      let tokenBody: unknown;
       try {
         tokenBody = await tokenResponse.json();
       } catch {
-        console.warn("github token exchange failed: non-JSON response, HTTP", tokenResponse.status);
-        return html("<h1>Sign-in failed</h1><p>GitHub rejected the code (unknown).</p>", 401);
+        tokenBody = undefined;
       }
-      if (!tokenBody.access_token) {
+      const tokenFields =
+        tokenBody && typeof tokenBody === "object"
+          ? (tokenBody as { access_token?: unknown; error?: unknown; error_description?: unknown })
+          : {};
+      const accessToken = typeof tokenFields.access_token === "string" ? tokenFields.access_token : undefined;
+      const error = typeof tokenFields.error === "string" ? tokenFields.error : undefined;
+      const errorDescription =
+        typeof tokenFields.error_description === "string" ? tokenFields.error_description : undefined;
+      if (!tokenResponse.ok || !accessToken) {
         // Log only GitHub's error fields: never the code, state, or response body.
-        console.warn("github token exchange failed:", tokenBody.error ?? "unknown", tokenBody.error_description ?? "");
-        return html(`<h1>Sign-in failed</h1><p>GitHub rejected the code (${tokenBody.error ?? "unknown"}).</p>`, 401);
+        if (error) {
+          if (tokenResponse.ok) console.warn("github token exchange failed:", error, errorDescription ?? "");
+          else console.warn("github token exchange failed:", error, errorDescription ?? "", "HTTP", tokenResponse.status);
+        } else {
+          console.warn("github token exchange failed:", "unknown", "HTTP", tokenResponse.status);
+        }
+        return html(`<h1>Sign-in failed</h1><p>GitHub rejected the code (${error ?? "unknown"}).</p>`, 401);
       }
 
       const userResponse = await fetch(GITHUB_USER_URL, {
         headers: {
           accept: "application/vnd.github+json",
-          authorization: `Bearer ${tokenBody.access_token}`,
+          authorization: `Bearer ${accessToken}`,
           "user-agent": "ynab-mcp-server",
         },
       });
