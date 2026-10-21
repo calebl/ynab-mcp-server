@@ -5,6 +5,11 @@ import { isReadOnly, registerAll, registerTools } from "../registry.js";
 import { autobudgetTools } from "./autobudget/tools.js";
 import type { WorkerEnv } from "./env.js";
 
+// Bound nested tool arguments before schema validation can exhaust resources.
+const MAX_TOOL_INPUT_ELEMENTS = 10_000;
+// Keep authenticated MCP request bodies within the Worker's practical needs.
+const MAX_REQUEST_BODY_SIZE = 1024 * 1024;
+
 /**
  * The tool modules read configuration from `process.env` (they were written for
  * the stdio server). Workers has no ambient environment, so mirror the bindings
@@ -32,6 +37,8 @@ export function createServer(env: WorkerEnv) {
   const server = new McpServer({
     name: "ynab-mcp-server",
     version: "0.5.0",
+  }, {
+    maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS,
   });
 
   const api = new ynab.API(env.YNAB_API_TOKEN);
@@ -49,7 +56,9 @@ export function createServer(env: WorkerEnv) {
  */
 export const McpApiHandler = {
   async fetch(request: Request, env: WorkerEnv): Promise<Response> {
-    const handler = createMcpHandler(() => createServer(env));
+    const handler = createMcpHandler(() => createServer(env), {
+      maxRequestBodySize: MAX_REQUEST_BODY_SIZE,
+    });
     try {
       return await handler.fetch(request);
     } finally {

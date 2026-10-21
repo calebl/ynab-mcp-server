@@ -46,6 +46,7 @@ const initialize = {
 describe("worker MCP handler", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it("mirrors plan environment aliases without resolving them", async () => {
@@ -99,6 +100,56 @@ describe("worker MCP handler", () => {
     expect(names).toContain("ynab_budget_summary");
     expect(names).toContain("ynab_create_transaction");
     expect(names).not.toContain("ynab_suggest_categories");
+  });
+
+  it("answers concurrent requests that reuse a JSON-RPC id with their own results", async () => {
+    const listTools = { jsonrpc: "2.0", id: 0, method: "tools/list" };
+    const [full, readOnly] = await Promise.all([
+      call(listTools).then(readResult),
+      call(listTools, { YNAB_READ_ONLY: "true" }).then(readResult),
+    ]);
+
+    const names = (result: any) => result.result.tools.map((t: { name: string }) => t.name);
+    expect(names(full)).toContain("ynab_create_transaction");
+    expect(names(readOnly)).not.toContain("ynab_create_transaction");
+  });
+
+  it("rejects a request body over the configured 1 MiB limit", async () => {
+    const response = await call({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/list",
+      params: { padding: "x".repeat(1024 * 1024) },
+    });
+    expect(response.status).toBe(413);
+  });
+
+  it("rejects oversized tool arguments before calling YNAB", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const response = await call({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: {
+        name: "ynab_create_transaction",
+        arguments: {
+          planId: "plan",
+          accountId: "account",
+          date: "2026-01-01",
+          amount: 0,
+          payeeName: "Payee",
+          subtransactions: Array.from({ length: 20_000 }, () => ({ amount: 0 })),
+        },
+      },
+    });
+    const result = await readResult(response);
+
+    expect(response.status).toBe(200);
+    expect(result.result).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: expect.stringContaining("maximum of 10000 elements") }],
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("exposes category suggestions only with both opt-in settings", async () => {
