@@ -55,16 +55,37 @@ export function formatAmount(amount: number, decimalDigits: number = DEFAULT_DEC
 }
 
 /**
- * The number of decimal places in a plan's currency, from its settings.
- * Falls back to 2 when the settings cannot be read, so a failed lookup never
- * fails the tool itself.
+ * Settings lookups per API client and plan, shared by concurrent callers. Keyed
+ * by client so one token's plans never answer for another's.
+ */
+const decimalDigitsLookups = new WeakMap<ynab.API, Map<string, Promise<number>>>();
+
+/** YNAB's plan aliases, which can point at a different plan from one call to the next. */
+const PLAN_ALIASES = new Set(["last-used", "default"]);
+
+async function readDecimalDigits(api: ynab.API, planId: string): Promise<number> {
+  const response = await api.plans.getPlanSettingsById(planId);
+  const digits = response.data.settings.currency_format?.decimal_digits;
+  return typeof digits === "number" && Number.isFinite(digits) ? digits : DEFAULT_DECIMAL_DIGITS;
+}
+
+/**
+ * The number of decimal places in a plan's currency, from its settings. Read
+ * once per API client and plan; a failed read falls back to 2 without being
+ * remembered, so it never fails the tool and the next call tries again.
  */
 export async function getDecimalDigits(api: ynab.API, planId: string): Promise<number> {
+  const lookups = decimalDigitsLookups.get(api) ?? new Map<string, Promise<number>>();
+  decimalDigitsLookups.set(api, lookups);
+  let lookup = lookups.get(planId);
+  if (!lookup) {
+    lookup = readDecimalDigits(api, planId);
+    if (!PLAN_ALIASES.has(planId)) lookups.set(planId, lookup);
+  }
   try {
-    const response = await api.plans.getPlanSettingsById(planId);
-    const digits = response.data.settings.currency_format?.decimal_digits;
-    return typeof digits === "number" && Number.isFinite(digits) ? digits : DEFAULT_DECIMAL_DIGITS;
+    return await lookup;
   } catch {
+    if (lookups.get(planId) === lookup) lookups.delete(planId);
     return DEFAULT_DECIMAL_DIGITS;
   }
 }
