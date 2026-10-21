@@ -124,6 +124,13 @@ describe("tool registration", () => {
     expect(registered.get("ynab_move_money")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_auto_assign")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_import_transactions")?.config.annotations.idempotentHint).toBe(false);
+    expect(registered.get("ynab_detect_recurring")?.config.annotations).toEqual({
+      title: "Detect Recurring",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    });
   });
 
   it("rejects ynab_create_transaction input missing both accountId and accountName", () => {

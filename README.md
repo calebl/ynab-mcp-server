@@ -283,6 +283,7 @@ accounts are excluded, so these report spending rather than money movement.
 | `ynab_spending_by_category` | Total spend per category over a date range, biggest first, with share of total. Defaults to the last 30 days. |
 | `ynab_spending_by_payee` | The same, grouped by merchant. |
 | `ynab_cash_flow` | Income vs spending per month with the running net, from YNAB's own monthly totals. Defaults to the last 6 months. |
+| `ynab_detect_recurring` | Recurring outflows such as subscriptions and bills: a payee's charges of a similar amount at a regular interval (weekly to yearly), with typical amount, yearly cost, next expected date, whether it seems to have stopped and whether it is already a scheduled transaction. A heuristic; defaults to the last 365 days. |
 
 ### Writing
 

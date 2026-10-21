@@ -21,6 +21,7 @@ import * as AutoAssignTool from "./tools/AutoAssignTool.js";
 import * as SpendingByCategoryTool from "./tools/SpendingByCategoryTool.js";
 import * as SpendingByPayeeTool from "./tools/SpendingByPayeeTool.js";
 import * as CashFlowTool from "./tools/CashFlowTool.js";
+import * as DetectRecurringTool from "./tools/DetectRecurringTool.js";
 import * as SuggestCategoriesTool from "./tools/SuggestCategoriesTool.js";
 import * as ApplyCategorySuggestionsTool from "./tools/ApplyCategorySuggestionsTool.js";
 import { getErrorMessage, toolError } from "./tools/errorUtils.js";
@@ -120,6 +121,7 @@ export const tools: ToolEntry[] = [
   { title: "Spending By Category", module: SpendingByCategoryTool, writes: false },
   { title: "Spending By Payee", module: SpendingByPayeeTool, writes: false },
   { title: "Cash Flow", module: CashFlowTool, writes: false },
+  { title: "Detect Recurring", module: DetectRecurringTool, writes: false },
   { title: "Suggest Categories", module: SuggestCategoriesTool, writes: false, requiresAiCategorization: true },
   { title: "Apply Category Suggestions", module: ApplyCategorySuggestionsTool, writes: true, idempotent: true },
 ];

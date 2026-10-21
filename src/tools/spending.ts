@@ -20,7 +20,8 @@ export interface SpendingEntry {
 }
 
 const UNCATEGORIZED = "Uncategorized";
-const UNKNOWN_PAYEE = "Unknown payee";
+/** The payee name given to outflows that have no payee. */
+export const UNKNOWN_PAYEE = "Unknown payee";
 
 /**
  * Flattens transactions into individual outflows within [sinceDate, untilDate],
