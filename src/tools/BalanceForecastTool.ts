@@ -54,13 +54,15 @@ export function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+const dayOf = (date: string) => Number(date.slice(8, 10));
+
 /**
- * `date` moved `months` calendar months, keeping its day of the month where
- * the target month has it and using the month's last day where it does not
- * (Jan 31 + 1 month = Feb 28).
+ * `date` moved `months` calendar months, landing on `day` of the month where
+ * the target month has it and on the month's last day where it does not
+ * (Jan 31 + 1 month = Feb 28). `day` defaults to the day of `date`.
  */
-export function addMonthsKeepingDay(date: string, months: number): string {
-  const [year, month, day] = date.split("-").map(Number);
+export function addMonthsKeepingDay(date: string, months: number, day: number = dayOf(date)): string {
+  const [year, month] = date.split("-").map(Number);
   const target = new Date(Date.UTC(year, month - 1 + months, 1));
   const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
   target.setUTCDate(Math.min(day, lastDay));
@@ -68,15 +70,27 @@ export function addMonthsKeepingDay(date: string, months: number): string {
 }
 
 /**
+ * The day of the month a month-based schedule falls on. YNAB moves date_next
+ * to a short month's last day (Feb 28 for a schedule on the 31st), so when
+ * date_next is a month's last day and date_first has a later day, the
+ * schedule's day is date_first's.
+ */
+export function scheduledDayOfMonth(dateFirst: string, dateNext: string): number {
+  const isLastDayOfMonth = addDays(dateNext, 1).slice(8, 10) === "01";
+  return isLastDayOfMonth && dayOf(dateFirst) > dayOf(dateNext) ? dayOf(dateFirst) : dayOf(dateNext);
+}
+
+/**
  * The dates on which a schedule whose next date is `first` falls, up to and
- * including `until`. Each date is computed from `first` rather than from the
- * previous date, so a monthly schedule on the 31st comes back to the 31st
- * after a short month.
+ * including `until`. Month-based schedules fall on `dayOfMonth` (default: the
+ * day of `first`), or the month's last day when it is shorter, and each date
+ * is computed from `first` rather than from the previous date, so a monthly
+ * schedule on the 31st comes back to the 31st after a short month.
  *
  * YNAB does not say which two days a twiceAMonth schedule uses, so it is
  * approximated as `first` and 15 days later, each repeating monthly.
  */
-export function occurrences(first: string, frequency: string, until: string): string[] {
+export function occurrences(first: string, frequency: string, until: string, dayOfMonth: number = dayOf(first)): string[] {
   if (first > until) return [];
   if (frequency === "never") return [first];
   const repeat = repeatOf(frequency);
@@ -84,7 +98,7 @@ export function occurrences(first: string, frequency: string, until: string): st
 
   const dates: string[] = [];
   for (let k = 0; ; k++) {
-    const date = repeat.unit === "days" ? addDays(first, k * repeat.step) : addMonthsKeepingDay(first, k * repeat.step);
+    const date = repeat.unit === "days" ? addDays(first, k * repeat.step) : addMonthsKeepingDay(first, k * repeat.step, dayOfMonth);
     if (date > until) break;
     dates.push(date);
   }
@@ -162,7 +176,15 @@ export async function execute(input: BalanceForecastInput, api: ynab.API) {
         unsupported.push({ scheduled_transaction_id: scheduled.id, frequency: scheduled.frequency });
         continue;
       }
-      const dates = occurrences(scheduled.date_next, scheduled.frequency, untilDate);
+      // date_next is the next date YNAB has not entered yet, so an occurrence
+      // already past (today here is UTC, which can run a day ahead of the
+      // user's date) is still to come: it is counted on the forecast's first day.
+      const dates = occurrences(
+        scheduled.date_next,
+        scheduled.frequency,
+        untilDate,
+        scheduledDayOfMonth(scheduled.date_first, scheduled.date_next),
+      ).map((date) => (date < fromDate ? fromDate : date));
       const fromIncluded = includedNames.has(scheduled.account_id);
 
       for (const flow of flowsOf(scheduled)) {

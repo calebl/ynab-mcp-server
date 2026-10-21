@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
 import * as ynab from 'ynab';
 import * as BalanceForecastTool from '../tools/BalanceForecastTool';
-import { occurrences } from '../tools/BalanceForecastTool';
+import { occurrences, scheduledDayOfMonth } from '../tools/BalanceForecastTool';
 
 const TODAY = '2026-01-30';
 
@@ -53,6 +53,20 @@ describe('occurrences', () => {
     expect(occurrences('2024-01-31', 'monthly', '2024-02-29')).toEqual(['2024-01-31', '2024-02-29']);
     expect(occurrences('2024-02-29', 'yearly', '2028-03-01')).toEqual(['2024-02-29', '2025-02-28', '2026-02-28', '2027-02-28', '2028-02-29']);
     expect(occurrences('2024-02-29', 'everyOtherYear', '2028-03-01')).toEqual(['2024-02-29', '2026-02-28', '2028-02-29']);
+  });
+
+  it('lands month-based schedules on the given day of the month, not the day of a short-month next date', () => {
+    expect(occurrences('2026-02-28', 'monthly', '2026-05-31', 31)).toEqual(['2026-02-28', '2026-03-31', '2026-04-30', '2026-05-31']);
+    expect(occurrences('2026-04-30', 'everyOtherMonth', '2026-08-31', 31)).toEqual(['2026-04-30', '2026-06-30', '2026-08-31']);
+  });
+
+  it("takes the schedule's day from date_first only when date_next was moved to a short month's last day", () => {
+    expect(scheduledDayOfMonth('2026-01-31', '2026-02-28')).toBe(31);
+    expect(scheduledDayOfMonth('2024-01-30', '2024-02-29')).toBe(30);
+    expect(scheduledDayOfMonth('2026-01-31', '2026-03-31')).toBe(31);
+    // date_first from before the schedule was moved to another day keeps date_next's day.
+    expect(scheduledDayOfMonth('2025-06-10', '2026-02-15')).toBe(15);
+    expect(scheduledDayOfMonth('2025-06-10', '2026-02-28')).toBe(28);
   });
 
   it('approximates twiceAMonth as the next date and 15 days later, each monthly', () => {
@@ -229,6 +243,32 @@ describe('BalanceForecastTool', () => {
     expect(response.events).toEqual([
       { date: '2026-02-01', amount: 100, payee_name: 'Transfer : Checking', category_name: null, account_name: 'Checking', scheduled_transaction_id: 'split' },
     ]);
+  });
+
+  it("keeps a monthly schedule on the 31st after YNAB moves date_next to February's last day", async () => {
+    setScheduled([
+      scheduled('rent', '2026-02-28', 'monthly', -1000000, { date_first: '2025-10-31' }),
+    ]);
+
+    const response = await forecast({ days: 60 });
+
+    expect(response.events.map((e: any) => e.date)).toEqual(['2026-02-28', '2026-03-31']);
+  });
+
+  it('counts an occurrence that is past but not yet entered on the first day, keeping later dates aligned', async () => {
+    setScheduled([
+      scheduled('gym', '2026-01-29', 'weekly', -100000),
+      scheduled('coffee', '2026-01-28', 'daily', -5000),
+    ]);
+
+    const response = await forecast({ days: 7 });
+
+    expect(response.events.filter((e: any) => e.scheduled_transaction_id === 'gym').map((e: any) => e.date))
+      .toEqual(['2026-01-30', '2026-02-05']);
+    expect(response.events.filter((e: any) => e.scheduled_transaction_id === 'coffee').map((e: any) => e.date))
+      .toEqual(['2026-01-30', '2026-01-30', '2026-01-30', '2026-01-31', '2026-02-01', '2026-02-02', '2026-02-03', '2026-02-04', '2026-02-05', '2026-02-06']);
+    expect(response.running_balance[0]).toEqual({ date: '2026-01-30', balance: 5585 });
+    expect(response.low_point.date >= response.from_date).toBe(true);
   });
 
   it('leaves out events past the horizon, deleted schedules and accounts outside the forecast', async () => {
