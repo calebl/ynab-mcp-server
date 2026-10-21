@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `ynab_detect_recurring` finds recurring outflows (subscriptions, bills, memberships) in transaction history, whether or not they are scheduled in YNAB. It groups a payee's outflows by similar amount (`amountTolerancePct`, default 10) and reports a group of at least `minOccurrences` charges (default 3) whose spacing fits a weekly, biweekly, monthly, quarterly or yearly cadence. Each result has `payee_name`, `category_name`, `cadence`, `occurrences`, `typical_amount` (median), `latest_amount`, `annual_cost`, `first_date`, `last_date`, `next_expected_date`, `possibly_lapsed` and `already_scheduled`; the response adds `annual_cost_active` over the ones not lapsed. It reads outflows the way the spending reports do (splits through their subtransactions, transfers and inflows excluded), treats payee names that differ only in case or spacing as one payee, and defaults `sinceDate` to 365 days ago, all in one transactions request. It is a heuristic and its description says so.
 
+### Changed
+- A plan's currency settings are read from YNAB once per API client and plan instead of on every tool call that returns amounts, saving one request per call after the first. A failed read still falls back to 2 decimal places and is retried on the next call. The `last-used` and `default` plan aliases are read every time. The stdio server keeps the settings until it restarts; the Worker builds a new client for each request.
+
 ## [0.6.0] - 2026-10-21
 
 ### Security

@@ -311,4 +311,29 @@ describe('amounts in a 2-decimal currency plan', () => {
 
     expect(response.accounts[0].balance).toBe(1.23);
   });
+
+  it('reads the plan settings once across tool calls on the same client', async () => {
+    const api = {
+      plans: { getPlanSettingsById: planSettings(2) },
+      accounts: {
+        getAccounts: vi.fn().mockResolvedValue({
+          data: { accounts: [{ id: 'a1', name: 'Checking', closed: false, deleted: false, balance: 1234, cleared_balance: 1234, uncleared_balance: 0 }] },
+        }),
+      },
+      transactions: {
+        getTransactions: vi.fn().mockResolvedValue({
+          data: { transactions: [{ id: 't1', date: '2024-03-01', amount: -1005, deleted: false, subtransactions: [] }] },
+        }),
+      },
+    };
+
+    await ListAccountsTool.execute({}, api as any);
+    await ListAccountsTool.execute({}, api as any);
+    await GetTransactionsTool.execute({}, api as any);
+    await SpendingByCategoryTool.execute({ sinceDate: '2024-03-01' }, api as any);
+
+    expect(api.accounts.getAccounts).toHaveBeenCalledTimes(2);
+    expect(api.transactions.getTransactions).toHaveBeenCalledTimes(2);
+    expect(api.plans.getPlanSettingsById).toHaveBeenCalledTimes(1);
+  });
 });
