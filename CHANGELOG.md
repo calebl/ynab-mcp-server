@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `ynab_plan_summary` accepts `budgetVsActuals`. With `true`, the response adds a `budget_vs_actuals` block comparing assigned with actual spending for the month: `budgeted`, `activity`, `balance`, `variance` (budgeted plus activity; below zero means more was spent than assigned) and `percent_used` (spent as a percentage of budgeted, `null` when nothing was assigned) for each visible category, subtotalled per category group (in the order YNAB lists them) and in `totals`. The totals add up every listed category, Credit Card Payments included, whose activity offsets purchases made on the card. YNAB's internal categories (group Internal Master Category) are left out, because the month endpoint returns Inflow: Ready to Assign with the month's income as its activity. Without the option, or with `budgetVsActuals: false`, the response is unchanged.
+
 ## [0.6.0] - 2026-10-21
 
 ### Security
