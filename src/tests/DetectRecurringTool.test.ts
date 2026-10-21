@@ -94,6 +94,16 @@ describe('DetectRecurringTool', () => {
     expect(strict.recurring.map((r: any) => [r.occurrences, r.typical_amount])).toEqual([[4, 15.49]]);
   });
 
+  it('keeps a charge exactly at amountTolerancePct in the series', async () => {
+    given(series('Gym', ['2026-03-01', '2026-04-01', '2026-05-01', '2026-06-01'], [-100000, -100000, -113000, -113000]));
+
+    // 100000 * 1.13 is 112999.99999999999 in floating point.
+    const response = await detect({ amountTolerancePct: 13 });
+
+    expect(response.recurring.map((r: any) => r.occurrences)).toEqual([4]);
+    expect((await detect({ amountTolerancePct: 12.999 })).recurring).toEqual([]);
+  });
+
   it('separates two subscriptions from one payee by amount', async () => {
     const dates = ['2026-03-10', '2026-04-10', '2026-05-10', '2026-06-10'];
     given([...series('Apple', dates, -990), ...series('Apple', dates, -9990)]);
@@ -190,6 +200,12 @@ describe('DetectRecurringTool', () => {
       ['Netflix', 185.88, false],
     ]);
     expect(response.annual_cost_active).toBe(185.88);
+  });
+
+  it('reports a payee actually named "Unknown payee"', async () => {
+    given(series('Unknown payee', MONTHLY_15TH, -2500));
+
+    expect((await detect()).recurring.map((r: any) => [r.payee_name, r.occurrences])).toEqual([['Unknown payee', 6]]);
   });
 
   it('excludes inflows, transfers, payee-less rows and deleted rows', async () => {

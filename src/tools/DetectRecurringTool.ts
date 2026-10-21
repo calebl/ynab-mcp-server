@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 import { getDecimalDigits, toDollars } from "./money.js";
-import { collectSpending, daysAgo, type SpendingEntry, UNKNOWN_PAYEE } from "./spending.js";
+import { collectSpending, daysAgo, type SpendingEntry } from "./spending.js";
 
 export const name = "ynab_detect_recurring";
 export const description = "Finds recurring outflows (subscriptions, bills, memberships) in transaction history by payee, similar amount and regular spacing, whether or not they are scheduled in YNAB. Gives each one's cadence, typical amount, yearly cost, next expected date, and whether it seems to have stopped. This is a heuristic: check the results before acting on them. Splits are counted through their subtransactions, and transfers between your own accounts (including credit card payments) and inflows are excluded. Reads the whole history window in one request, so a long sinceDate on a busy plan returns a large payload. Yearly charges need a sinceDate far enough back to show minOccurrences of them.";
@@ -78,11 +78,15 @@ function mostCommon(values: string[]): string {
 }
 
 /** Splits one payee's charges into groups of similar amounts, smallest first. */
-function amountGroups(entries: SpendingEntry[], tolerance: number): SpendingEntry[][] {
+function amountGroups(entries: SpendingEntry[], tolerancePct: number): SpendingEntry[][] {
+  // Integer arithmetic in thousandths of a percent keeps a charge exactly at the tolerance in
+  // its group; in floating point 100000 * 1.13 is 112999.99999999999.
+  const toleranceMilliPct = Math.round(tolerancePct * 1000);
   const groups: SpendingEntry[][] = [];
   for (const entry of [...entries].sort((a, b) => a.amountMilliunits - b.amountMilliunits)) {
     const current = groups.at(-1);
-    if (current && entry.amountMilliunits <= current[0].amountMilliunits * (1 + tolerance)) current.push(entry);
+    const smallest = current?.[0].amountMilliunits ?? 0;
+    if (current && (entry.amountMilliunits - smallest) * 100_000 <= smallest * toleranceMilliPct) current.push(entry);
     else groups.push([entry]);
   }
   return groups;
@@ -99,7 +103,7 @@ export async function execute(input: DetectRecurringInput, api: ynab.API) {
     const budgetId = resolvePlanId(input);
     const sinceDate = input.sinceDate || daysAgo(365);
     const minOccurrences = input.minOccurrences ?? 3;
-    const tolerance = (input.amountTolerancePct ?? 10) / 100;
+    const tolerancePct = input.amountTolerancePct ?? 10;
 
     const [transactionsResponse, scheduledResponse, decimalDigits] = await Promise.all([
       api.transactions.getTransactions(budgetId, sinceDate),
@@ -113,7 +117,7 @@ export async function execute(input: DetectRecurringInput, api: ynab.API) {
 
     const byPayee = new Map<string, SpendingEntry[]>();
     for (const entry of collectSpending(transactionsResponse.data.transactions, undefined, decimalDigits)) {
-      if (entry.payeeName === UNKNOWN_PAYEE) continue;
+      if (!entry.hasPayee) continue;
       const key = payeeKey(entry.payeeName);
       const entries = byPayee.get(key) ?? [];
       entries.push(entry);
@@ -123,7 +127,7 @@ export async function execute(input: DetectRecurringInput, api: ynab.API) {
     const today = new Date().toISOString().slice(0, 10);
     const found = [];
     for (const [key, entries] of byPayee) {
-      for (const group of amountGroups(entries, tolerance)) {
+      for (const group of amountGroups(entries, tolerancePct)) {
         if (group.length < minOccurrences) continue;
         const charges = [...group].sort((a, b) => a.date.localeCompare(b.date));
         const cadence = cadenceOf(charges.map((charge) => charge.date));

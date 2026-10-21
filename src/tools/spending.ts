@@ -17,11 +17,12 @@ export interface SpendingEntry {
   categoryId: string | null;
   categoryName: string;
   payeeName: string;
+  /** False when neither the outflow nor its split has a payee, so `payeeName` is a placeholder. */
+  hasPayee: boolean;
 }
 
 const UNCATEGORIZED = "Uncategorized";
-/** The payee name given to outflows that have no payee. */
-export const UNKNOWN_PAYEE = "Unknown payee";
+const UNKNOWN_PAYEE = "Unknown payee";
 
 /**
  * Flattens transactions into individual outflows within [sinceDate, untilDate],
@@ -54,6 +55,7 @@ export function collectSpending(
           categoryId: sub.category_id ?? null,
           categoryName: sub.category_name || UNCATEGORIZED,
           payeeName: sub.payee_name || payeeName,
+          hasPayee: Boolean(sub.payee_name || transaction.payee_name),
         });
       }
       continue;
@@ -69,6 +71,7 @@ export function collectSpending(
       categoryId: transaction.category_id ?? null,
       categoryName: transaction.category_name || UNCATEGORIZED,
       payeeName,
+      hasPayee: Boolean(transaction.payee_name),
     });
   }
 
