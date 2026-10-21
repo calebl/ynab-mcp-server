@@ -404,6 +404,18 @@ describe('spending reports', () => {
       expect(giving.average_monthly).toBe(105);
     });
 
+    it('does not count the current month as full on its last day', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2024-03-31T12:00:00Z'));
+
+      const response = await run(SpendingByCategoryTool, { monthly: true, months: 3 });
+
+      expect(response.until_date).toBe('2024-03-31');
+      expect(response.months).toEqual(['2024-01-01', '2024-02-01', '2024-03-01']);
+      expect(response.last_full_month).toBe('2024-02-01');
+      expect(response.full_month_count).toBe(2);
+    });
+
     it('says when there is no earlier full month to compare with', async () => {
       const response = await run(SpendingByCategoryTool, { sinceDate: '2024-02-01', untilDate: '2024-03-15', monthly: true });
 

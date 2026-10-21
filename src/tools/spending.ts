@@ -166,9 +166,10 @@ export function monthlyWindow(input: { sinceDate?: string; untilDate?: string; m
     throw new Error(`A monthly breakdown covers at most ${MAX_MONTHS} months; ${sinceDate} to ${untilDate} spans ${months.length}.`);
   }
 
+  // A month is over once its last day is in the range and has passed: today is
+  // still running, even when it is the month's last day.
   const today = daysAgo(0);
-  const endedBy = untilDate < today ? untilDate : today;
-  const fullMonths = months.filter((month) => month >= sinceDate && lastDayOf(month) <= endedBy);
+  const fullMonths = months.filter((month) => month >= sinceDate && lastDayOf(month) <= untilDate && lastDayOf(month) < today);
   return { sinceDate, untilDate, months, fullMonths };
 }
 
