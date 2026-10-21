@@ -3,14 +3,16 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 import { getDecimalDigits, toDollars } from "./money.js";
+import { addDays, addMonthsKeepingDay, dayOfMonth, isLastDayOfMonth, todayUtc } from "./dates.js";
 
 export const name = "ynab_balance_forecast";
-export const description = "Projects the combined balance of your accounts over the next N days from scheduled transactions only: the starting balance, each scheduled event, the end-of-day running balance and the lowest point. Income or spending that is not scheduled in YNAB is not in the forecast. Transfers between two included accounts (credit card payments too) net to zero; a transfer to an account outside the forecast counts as money leaving. Split schedules are counted leg by leg. Twice-a-month schedules are approximated as the next date and 15 days later. For past income versus spending, use ynab_cash_flow; to list the schedules themselves, use ynab_list_scheduled_transactions.";
+export const description = "Projects the combined balance of your accounts over the next N days (from today in UTC) from scheduled transactions only: the starting balance, the scheduled events, the end-of-day running balance and the lowest point. Income or spending that is not scheduled in YNAB is not in the forecast. Transfers between two included accounts (credit card payments too) net to zero; a transfer to an account outside the forecast counts as money leaving, and one from an account outside it as money arriving. Split schedules are counted leg by leg. Where YNAB does not give the second date of a twice-a-month schedule, it is approximated as 15 days after the first. Events are capped by limit; the running balance, low point and ending balance always cover every day. For past income versus spending, use ynab_cash_flow; to list the schedules themselves, use ynab_list_scheduled_transactions.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   days: z.number().int().min(1).max(365).optional().describe("How many days ahead to project (default: 30, max: 365)"),
-  accountIds: z.array(z.string()).optional().describe("Accounts to include (IDs from ynab_list_accounts). Defaults to every open on-budget account."),
+  accountIds: z.array(z.string()).min(1).optional().describe("Accounts to include (IDs from ynab_list_accounts). Defaults to every open on-budget account."),
+  limit: z.number().int().min(0).max(1000).optional().describe("Maximum number of events to return, earliest first (default: 100; 0 leaves them out). event_count, the running balance, low point and ending balance always cover every event."),
 };
 
 interface BalanceForecastInput {
@@ -18,18 +20,18 @@ interface BalanceForecastInput {
   budgetId?: string;
   days?: number;
   accountIds?: string[];
+  limit?: number;
 }
 
 type Repeat = { unit: "days" | "months"; step: number };
 
-// How each YNAB frequency repeats. "never" happens once, on date_next.
-const REPEAT: Record<Exclude<ynab.ScheduledTransactionFrequency, "never">, Repeat> = {
+// How each YNAB frequency repeats. "never" happens once, on date_next;
+// twiceAMonth is two monthly series, see scheduleDates().
+const REPEAT: Record<Exclude<ynab.ScheduledTransactionFrequency, "never" | "twiceAMonth">, Repeat> = {
   daily: { unit: "days", step: 1 },
   weekly: { unit: "days", step: 7 },
   everyOtherWeek: { unit: "days", step: 14 },
   every4Weeks: { unit: "days", step: 28 },
-  // The API does not say which two days of the month; see occurrences().
-  twiceAMonth: { unit: "months", step: 1 },
   monthly: { unit: "months", step: 1 },
   everyOtherMonth: { unit: "months", step: 2 },
   every3Months: { unit: "months", step: 3 },
@@ -43,30 +45,31 @@ function repeatOf(frequency: string): Repeat | undefined {
   return Object.hasOwn(REPEAT, frequency) ? REPEAT[frequency as keyof typeof REPEAT] : undefined;
 }
 
-/** Today's date in UTC, as YYYY-MM-DD. */
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
+function isSupported(frequency: string): boolean {
+  return frequency === "never" || frequency === "twiceAMonth" || repeatOf(frequency) !== undefined;
 }
-
-export function addDays(date: string, days: number): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-const dayOf = (date: string) => Number(date.slice(8, 10));
 
 /**
- * `date` moved `months` calendar months, landing on `day` of the month where
- * the target month has it and on the month's last day where it does not
- * (Jan 31 + 1 month = Feb 28). `day` defaults to the day of `date`.
+ * The dates on which a schedule whose next date is `first` falls, up to and
+ * including `until`, for "never" and the frequencies with a fixed step.
+ * Month-based schedules fall on `day` of the month (default: the day of
+ * `first`), or the month's last day when it is shorter, and each date is
+ * computed from `first` rather than from the previous date, so a monthly
+ * schedule on the 31st comes back to the 31st after a short month.
  */
-export function addMonthsKeepingDay(date: string, months: number, day: number = dayOf(date)): string {
-  const [year, month] = date.split("-").map(Number);
-  const target = new Date(Date.UTC(year, month - 1 + months, 1));
-  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
-  target.setUTCDate(Math.min(day, lastDay));
-  return target.toISOString().slice(0, 10);
+export function occurrences(first: string, frequency: string, until: string, day: number = dayOfMonth(first)): string[] {
+  if (first > until) return [];
+  if (frequency === "never") return [first];
+  const repeat = repeatOf(frequency);
+  if (!repeat) throw new Error(`Unknown scheduled transaction frequency: ${frequency}`);
+
+  const dates: string[] = [];
+  for (let k = 0; ; k++) {
+    const date = repeat.unit === "days" ? addDays(first, k * repeat.step) : addMonthsKeepingDay(first, k * repeat.step, day);
+    if (date > until) break;
+    dates.push(date);
+  }
+  return dates;
 }
 
 /**
@@ -76,47 +79,52 @@ export function addMonthsKeepingDay(date: string, months: number, day: number = 
  * schedule's day is date_first's.
  */
 export function scheduledDayOfMonth(dateFirst: string, dateNext: string): number {
-  const isLastDayOfMonth = addDays(dateNext, 1).slice(8, 10) === "01";
-  return isLastDayOfMonth && dayOf(dateFirst) > dayOf(dateNext) ? dayOf(dateFirst) : dayOf(dateNext);
+  return isLastDayOfMonth(dateNext) && dayOfMonth(dateFirst) > dayOfMonth(dateNext) ? dayOfMonth(dateFirst) : dayOfMonth(dateNext);
+}
+
+export interface ScheduledDate {
+  date: string;
+  /** The date is a guess: the second date of a twiceAMonth pair that YNAB does not give. */
+  approximate?: true;
 }
 
 /**
- * The dates on which a schedule whose next date is `first` falls, up to and
- * including `until`. Month-based schedules fall on `dayOfMonth` (default: the
- * day of `first`), or the month's last day when it is shorter, and each date
- * is computed from `first` rather than from the previous date, so a monthly
- * schedule on the 31st comes back to the 31st after a short month.
+ * Every date a schedule falls on from date_next up to and including `until`.
  *
- * YNAB does not say which two days a twiceAMonth schedule uses, so it is
- * approximated as `first` and 15 days later, each repeating monthly.
+ * For twiceAMonth, date_first is the first date of a pair. When date_next is
+ * on another day, it is the second of a pair, so both days are known. When it
+ * is on date_first's day, the API does not give the second day, and it is
+ * approximated as 15 days after the first.
  */
-export function occurrences(first: string, frequency: string, until: string, dayOfMonth: number = dayOf(first)): string[] {
-  if (first > until) return [];
-  if (frequency === "never") return [first];
-  const repeat = repeatOf(frequency);
-  if (!repeat) throw new Error(`Unknown scheduled transaction frequency: ${frequency}`);
+export function scheduleDates(dateFirst: string, dateNext: string, frequency: string, until: string): ScheduledDate[] {
+  if (frequency !== "twiceAMonth") {
+    return occurrences(dateNext, frequency, until, scheduledDayOfMonth(dateFirst, dateNext)).map((date) => ({ date }));
+  }
 
-  const dates: string[] = [];
-  for (let k = 0; ; k++) {
-    const date = repeat.unit === "days" ? addDays(first, k * repeat.step) : addMonthsKeepingDay(first, k * repeat.step, dayOfMonth);
-    if (date > until) break;
-    dates.push(date);
+  const firstDay = dayOfMonth(dateFirst);
+  let dates: ScheduledDate[];
+  if (addMonthsKeepingDay(dateNext, 0, firstDay) === dateNext) {
+    dates = [
+      ...occurrences(dateNext, "monthly", until, firstDay).map((date) => ({ date })),
+      ...occurrences(addDays(dateNext, 15), "monthly", until).map((date) => ({ date, approximate: true as const })),
+    ];
+  } else {
+    let nextFirst = addMonthsKeepingDay(dateNext, 0, firstDay);
+    if (nextFirst <= dateNext) nextFirst = addMonthsKeepingDay(dateNext, 1, firstDay);
+    dates = [
+      ...occurrences(dateNext, "monthly", until).map((date) => ({ date })),
+      ...occurrences(nextFirst, "monthly", until, firstDay).map((date) => ({ date })),
+    ];
   }
-  if (frequency === "twiceAMonth") {
-    dates.push(...occurrences(addDays(first, 15), "monthly", until));
-    dates.sort();
-  }
-  return dates;
+  return dates.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-interface ForecastEvent {
-  date: string;
+interface ForecastEvent extends ScheduledDate {
   amountMilliunits: number;
   payee_name: string | null;
   category_name: string | null;
   account_name: string;
   scheduled_transaction_id: string;
-  approximate?: true;
 }
 
 /** One movement of money a scheduled transaction makes: the whole row, or one leg of a split. */
@@ -150,8 +158,9 @@ function failure(error: string) {
 export async function execute(input: BalanceForecastInput, api: ynab.API) {
   try {
     const planId = resolvePlanId(input);
-    const fromDate = today();
+    const fromDate = todayUtc();
     const untilDate = addDays(fromDate, input.days ?? 30);
+    const limit = input.limit ?? 100;
 
     const [accountsResponse, scheduledResponse, decimalDigits] = await Promise.all([
       api.accounts.getAccounts(planId),
@@ -172,19 +181,15 @@ export async function execute(input: BalanceForecastInput, api: ynab.API) {
     const unsupported: Array<{ scheduled_transaction_id: string; frequency: string }> = [];
     for (const scheduled of scheduledResponse.data.scheduled_transactions) {
       if (scheduled.deleted) continue;
-      if (scheduled.frequency !== "never" && !repeatOf(scheduled.frequency)) {
+      if (!isSupported(scheduled.frequency)) {
         unsupported.push({ scheduled_transaction_id: scheduled.id, frequency: scheduled.frequency });
         continue;
       }
       // date_next is the next date YNAB has not entered yet, so an occurrence
       // already past (today here is UTC, which can run a day ahead of the
       // user's date) is still to come: it is counted on the forecast's first day.
-      const dates = occurrences(
-        scheduled.date_next,
-        scheduled.frequency,
-        untilDate,
-        scheduledDayOfMonth(scheduled.date_first, scheduled.date_next),
-      ).map((date) => (date < fromDate ? fromDate : date));
+      const dates = scheduleDates(scheduled.date_first, scheduled.date_next, scheduled.frequency, untilDate)
+        .map((scheduledDate) => (scheduledDate.date < fromDate ? { ...scheduledDate, date: fromDate } : scheduledDate));
       const fromIncluded = includedNames.has(scheduled.account_id);
 
       for (const flow of flowsOf(scheduled)) {
@@ -192,15 +197,15 @@ export async function execute(input: BalanceForecastInput, api: ynab.API) {
         // A transfer between two included accounts moves nothing in or out of the total.
         if (fromIncluded === toIncluded) continue;
 
-        for (const date of dates) {
+        for (const scheduledDate of dates) {
           events.push({
-            date,
+            ...scheduledDate,
             amountMilliunits: fromIncluded ? flow.amount : -flow.amount,
-            payee_name: flow.payee_name ?? null,
+            // On the receiving side, name the payee the way YNAB shows the transfer there.
+            payee_name: fromIncluded ? flow.payee_name ?? null : `Transfer : ${scheduled.account_name}`,
             category_name: flow.category_name ?? null,
             account_name: fromIncluded ? scheduled.account_name : includedNames.get(flow.transfer_account_id!)!,
             scheduled_transaction_id: scheduled.id,
-            ...(scheduled.frequency === "twiceAMonth" ? { approximate: true as const } : {}),
           });
         }
       }
@@ -233,7 +238,8 @@ export async function execute(input: BalanceForecastInput, api: ynab.API) {
           ending_balance: toDollars(balance, decimalDigits),
           low_point: { date: low.date, balance: toDollars(low.balance, decimalDigits) },
           event_count: events.length,
-          events: events.map(({ amountMilliunits, ...event }) => ({ ...event, amount: toDollars(amountMilliunits, decimalDigits) })),
+          events_truncated: events.length > limit,
+          events: events.slice(0, limit).map(({ amountMilliunits, ...event }) => ({ ...event, amount: toDollars(amountMilliunits, decimalDigits) })),
           running_balance: running.map((day) => ({ date: day.date, balance: toDollars(day.balance, decimalDigits) })),
           ...(unsupported.length > 0 ? { unsupported_schedules: unsupported } : {}),
           note: "Only scheduled transactions are projected. Income or spending that is not scheduled in YNAB is missing.",

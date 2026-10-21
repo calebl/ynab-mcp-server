@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
 import * as ynab from 'ynab';
+import { z } from 'zod';
 import * as BalanceForecastTool from '../tools/BalanceForecastTool';
-import { occurrences, scheduledDayOfMonth } from '../tools/BalanceForecastTool';
+import { occurrences, scheduleDates, scheduledDayOfMonth } from '../tools/BalanceForecastTool';
 
 const TODAY = '2026-01-30';
 
@@ -69,9 +70,29 @@ describe('occurrences', () => {
     expect(scheduledDayOfMonth('2025-06-10', '2026-02-28')).toBe(28);
   });
 
-  it('approximates twiceAMonth as the next date and 15 days later, each monthly', () => {
-    expect(occurrences('2026-01-01', 'twiceAMonth', '2026-02-20')).toEqual(['2026-01-01', '2026-01-16', '2026-02-01', '2026-02-16']);
-    expect(occurrences('2026-01-20', 'twiceAMonth', '2026-03-10')).toEqual(['2026-01-20', '2026-02-04', '2026-02-20', '2026-03-04']);
+  it('anchors twiceAMonth on date_first, approximating the second date as 15 days later only when YNAB does not give it', () => {
+    // date_next is on date_first's day, so it is the first of a pair and the second is unknown.
+    expect(scheduleDates('2025-12-01', '2026-01-01', 'twiceAMonth', '2026-02-20')).toEqual([
+      { date: '2026-01-01' }, { date: '2026-01-16', approximate: true }, { date: '2026-02-01' }, { date: '2026-02-16', approximate: true },
+    ]);
+    // date_next is on another day, so it is the second of a pair and both days are known.
+    expect(scheduleDates('2025-12-01', '2026-01-20', 'twiceAMonth', '2026-03-10')).toEqual([
+      { date: '2026-01-20' }, { date: '2026-02-01' }, { date: '2026-02-20' }, { date: '2026-03-01' },
+    ]);
+    // A pair that spans the end of a month: the next first date is later in date_next's month.
+    expect(scheduleDates('2025-12-20', '2026-01-04', 'twiceAMonth', '2026-03-10')).toEqual([
+      { date: '2026-01-04' }, { date: '2026-01-20' }, { date: '2026-02-04' }, { date: '2026-02-20' }, { date: '2026-03-04' },
+    ]);
+    // A first date on the 31st that YNAB moved to February's last day.
+    expect(scheduleDates('2026-01-31', '2026-02-28', 'twiceAMonth', '2026-03-31')).toEqual([
+      { date: '2026-02-28' }, { date: '2026-03-15', approximate: true }, { date: '2026-03-31' },
+    ]);
+  });
+
+  it('expands other frequencies from date_next on the scheduled day of the month', () => {
+    expect(scheduleDates('2025-10-31', '2026-02-28', 'monthly', '2026-04-30')).toEqual([
+      { date: '2026-02-28' }, { date: '2026-03-31' }, { date: '2026-04-30' },
+    ]);
   });
 
   it('happens once for never, and not at all past the horizon', () => {
@@ -82,7 +103,7 @@ describe('occurrences', () => {
 
   it('supports every frequency the YNAB SDK defines', () => {
     for (const frequency of Object.values(ynab.ScheduledTransactionFrequency)) {
-      expect(() => occurrences('2026-01-01', frequency, '2026-12-31'), frequency).not.toThrow();
+      expect(() => scheduleDates('2026-01-01', '2026-01-01', frequency, '2026-12-31'), frequency).not.toThrow();
     }
   });
 });
@@ -195,10 +216,11 @@ describe('BalanceForecastTool', () => {
 
     const onlySavings = await forecast({ accountIds: ['sav'] });
     expect(onlySavings.events).toEqual([
-      { date: '2026-02-01', amount: 200, payee_name: 'Transfer : Savings', category_name: null, account_name: 'Savings', scheduled_transaction_id: 'save' },
+      { date: '2026-02-01', amount: 200, payee_name: 'Transfer : Checking', category_name: null, account_name: 'Savings', scheduled_transaction_id: 'save' },
     ]);
     expect(onlySavings.ending_balance).toBe(5200);
 
+    // On the receiving side the payee reads the way YNAB shows the transfer there.
     // The off-budget brokerage is outside the default set, so money sent there leaves.
     const byDefault = await forecast();
     expect(byDefault.events.map((e: any) => [e.scheduled_transaction_id, e.amount, e.account_name])).toEqual([['invest', -100, 'Checking']]);
@@ -241,7 +263,7 @@ describe('BalanceForecastTool', () => {
     const response = await forecast();
 
     expect(response.events).toEqual([
-      { date: '2026-02-01', amount: 100, payee_name: 'Transfer : Checking', category_name: null, account_name: 'Checking', scheduled_transaction_id: 'split' },
+      { date: '2026-02-01', amount: 100, payee_name: 'Transfer : Brokerage', category_name: null, account_name: 'Checking', scheduled_transaction_id: 'split' },
     ]);
   });
 
@@ -292,7 +314,7 @@ describe('BalanceForecastTool', () => {
 
     const response = await forecast({ days: 20 });
 
-    expect(response.events.map((e: any) => [e.date, e.approximate])).toEqual([['2026-02-01', true], ['2026-02-16', true]]);
+    expect(response.events.map((e: any) => [e.date, e.approximate])).toEqual([['2026-02-01', undefined], ['2026-02-16', true]]);
     expect(response.unsupported_schedules).toEqual([{ scheduled_transaction_id: 'odd', frequency: 'everyFullMoon' }]);
   });
 
@@ -300,11 +322,37 @@ describe('BalanceForecastTool', () => {
     setScheduled([scheduled('rent', '2026-02-01', 'monthly', -1500000)]);
 
     const omitted = await forecast();
-    const explicit = await forecast({ days: 30, accountIds: ['chk', 'sav', 'card'] });
+    const explicit = await forecast({ days: 30, accountIds: ['chk', 'sav', 'card'], limit: 100 });
 
     expect(explicit).toEqual(omitted);
+    expect(omitted.events_truncated).toBe(false);
     expect(omitted).not.toHaveProperty('unsupported_schedules');
     expect(omitted.events[0]).not.toHaveProperty('approximate');
+  });
+
+  it('caps the events at limit while the balances still cover every event', async () => {
+    setScheduled([scheduled('coffee', '2026-01-31', 'daily', -5000)]);
+
+    const capped = await forecast({ limit: 5 });
+    expect(capped.event_count).toBe(30);
+    expect(capped.events_truncated).toBe(true);
+    expect(capped.events.map((e: any) => e.date)).toEqual(['2026-01-31', '2026-02-01', '2026-02-02', '2026-02-03', '2026-02-04']);
+    expect(capped.running_balance).toHaveLength(30);
+    expect(capped.ending_balance).toBe(5550);
+    expect(capped.low_point).toEqual({ date: '2026-03-01', balance: 5550 });
+
+    const without = await forecast({ limit: 0 });
+    expect(without.events).toEqual([]);
+    expect(without.event_count).toBe(30);
+    expect(without.ending_balance).toBe(5550);
+
+    const byDefault = await forecast({ days: 365 });
+    expect(byDefault.events).toHaveLength(100);
+    expect(byDefault.event_count).toBe(365);
+  });
+
+  it('rejects an empty accountIds list instead of forecasting nothing', () => {
+    expect(z.object(BalanceForecastTool.inputSchema).safeParse({ accountIds: [] }).success).toBe(false);
   });
 
   it('includes closed or off-budget accounts when they are asked for', async () => {
