@@ -6,7 +6,7 @@ import { getDecimalDigits, toDollars } from "./money.js";
 import { addDays, addMonthsKeepingDay, dayOfMonth, isLastDayOfMonth, todayUtc } from "./dates.js";
 
 export const name = "ynab_balance_forecast";
-export const description = "Projects the combined balance of your accounts over the next N days (from today in UTC) from scheduled transactions only: the starting balance, the scheduled events, the end-of-day running balance and the lowest point. Income or spending that is not scheduled in YNAB is not in the forecast. Transfers between two included accounts (credit card payments too) net to zero; a transfer to an account outside the forecast counts as money leaving, and one from an account outside it as money arriving. Split schedules are counted leg by leg. Where YNAB does not give the second date of a twice-a-month schedule, it is approximated as 15 days after the first. Events are capped by limit; the running balance, low point and ending balance always cover every day. For past income versus spending, use ynab_cash_flow; to list the schedules themselves, use ynab_list_scheduled_transactions.";
+export const description = "Projects the combined balance of your accounts over the next N days (from today in UTC) from scheduled transactions only: the starting balance, the scheduled events, the end-of-day running balance and the lowest point. Income or spending that is not scheduled in YNAB is not in the forecast. Transfers between two included accounts (credit card payments too) net to zero; a transfer to an account outside the forecast counts as money leaving, and one from an account outside it as money arriving. Split schedules are counted leg by leg. Occurrences whose date has passed but that YNAB has not entered yet count on the first day, marked overdue with their scheduled_date and summarised in overdue_schedules. Where YNAB does not give the second date of a twice-a-month schedule, it is approximated as 15 days after the first. Events are capped by limit; the running balance, low point and ending balance always cover every day. For past income versus spending, use ynab_cash_flow; to list the schedules themselves, use ynab_list_scheduled_transactions.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
@@ -120,6 +120,9 @@ export function scheduleDates(dateFirst: string, dateNext: string, frequency: st
 }
 
 interface ForecastEvent extends ScheduledDate {
+  /** Set when the date the event was scheduled for has passed; `date` is then the forecast's first day. */
+  overdue?: true;
+  scheduled_date?: string;
   amountMilliunits: number;
   payee_name: string | null;
   category_name: string | null;
@@ -179,6 +182,7 @@ export async function execute(input: BalanceForecastInput, api: ynab.API) {
 
     const events: ForecastEvent[] = [];
     const unsupported: Array<{ scheduled_transaction_id: string; frequency: string }> = [];
+    const overdueSchedules: Array<{ scheduled_transaction_id: string; count: number; oldest_date: string }> = [];
     for (const scheduled of scheduledResponse.data.scheduled_transactions) {
       if (scheduled.deleted) continue;
       if (!isSupported(scheduled.frequency)) {
@@ -187,15 +191,23 @@ export async function execute(input: BalanceForecastInput, api: ynab.API) {
       }
       // date_next is the next date YNAB has not entered yet, so an occurrence
       // already past (today here is UTC, which can run a day ahead of the
-      // user's date) is still to come: it is counted on the forecast's first day.
-      const dates = scheduleDates(scheduled.date_first, scheduled.date_next, scheduled.frequency, untilDate)
-        .map((scheduledDate) => (scheduledDate.date < fromDate ? { ...scheduledDate, date: fromDate } : scheduledDate));
+      // user's date) is still to come: it is counted on the forecast's first
+      // day, marked overdue with the date it was scheduled for.
+      const allDates = scheduleDates(scheduled.date_first, scheduled.date_next, scheduled.frequency, untilDate);
+      const overdueDates = allDates.filter((scheduledDate) => scheduledDate.date < fromDate);
+      const dates: Array<ScheduledDate & { overdue?: true; scheduled_date?: string }> = allDates.map((scheduledDate) =>
+        scheduledDate.date < fromDate
+          ? { ...scheduledDate, date: fromDate, overdue: true, scheduled_date: scheduledDate.date }
+          : scheduledDate
+      );
       const fromIncluded = includedNames.has(scheduled.account_id);
+      let counted = false;
 
       for (const flow of flowsOf(scheduled)) {
         const toIncluded = Boolean(flow.transfer_account_id) && includedNames.has(flow.transfer_account_id!);
         // A transfer between two included accounts moves nothing in or out of the total.
         if (fromIncluded === toIncluded) continue;
+        counted = true;
 
         for (const scheduledDate of dates) {
           events.push({
@@ -208,6 +220,13 @@ export async function execute(input: BalanceForecastInput, api: ynab.API) {
             scheduled_transaction_id: scheduled.id,
           });
         }
+      }
+      if (counted && overdueDates.length > 0) {
+        overdueSchedules.push({
+          scheduled_transaction_id: scheduled.id,
+          count: overdueDates.length,
+          oldest_date: overdueDates[0].date,
+        });
       }
     }
     events.sort((a, b) => a.date.localeCompare(b.date) || a.amountMilliunits - b.amountMilliunits);
@@ -241,6 +260,7 @@ export async function execute(input: BalanceForecastInput, api: ynab.API) {
           events_truncated: events.length > limit,
           events: events.slice(0, limit).map(({ amountMilliunits, ...event }) => ({ ...event, amount: toDollars(amountMilliunits, decimalDigits) })),
           running_balance: running.map((day) => ({ date: day.date, balance: toDollars(day.balance, decimalDigits) })),
+          ...(overdueSchedules.length > 0 ? { overdue_schedules: overdueSchedules } : {}),
           ...(unsupported.length > 0 ? { unsupported_schedules: unsupported } : {}),
           note: "Only scheduled transactions are projected. Income or spending that is not scheduled in YNAB is missing.",
         }, null, 2),

@@ -291,6 +291,23 @@ describe('BalanceForecastTool', () => {
       .toEqual(['2026-01-30', '2026-01-30', '2026-01-30', '2026-01-31', '2026-02-01', '2026-02-02', '2026-02-03', '2026-02-04', '2026-02-05', '2026-02-06']);
     expect(response.running_balance[0]).toEqual({ date: '2026-01-30', balance: 5585 });
     expect(response.low_point.date >= response.from_date).toBe(true);
+
+    // Overdue occurrences say when they were scheduled for, and are summarised per schedule.
+    expect(response.events.filter((e: any) => e.overdue).map((e: any) => [e.scheduled_transaction_id, e.date, e.scheduled_date])).toEqual([
+      ['gym', '2026-01-30', '2026-01-29'],
+      ['coffee', '2026-01-30', '2026-01-28'],
+      ['coffee', '2026-01-30', '2026-01-29'],
+    ]);
+    expect(response.events.find((e: any) => e.scheduled_transaction_id === 'coffee' && !e.overdue && e.date === '2026-01-30'))
+      .not.toHaveProperty('scheduled_date');
+    expect(response.overdue_schedules).toEqual([
+      { scheduled_transaction_id: 'gym', count: 1, oldest_date: '2026-01-29' },
+      { scheduled_transaction_id: 'coffee', count: 2, oldest_date: '2026-01-28' },
+    ]);
+
+    // A schedule outside the forecast is not reported as overdue.
+    const otherAccount = await forecast({ accountIds: ['sav'] });
+    expect(otherAccount).not.toHaveProperty('overdue_schedules');
   });
 
   it('leaves out events past the horizon, deleted schedules and accounts outside the forecast', async () => {
@@ -327,6 +344,8 @@ describe('BalanceForecastTool', () => {
     expect(explicit).toEqual(omitted);
     expect(omitted.events_truncated).toBe(false);
     expect(omitted).not.toHaveProperty('unsupported_schedules');
+    expect(omitted).not.toHaveProperty('overdue_schedules');
+    expect(omitted.events[0]).not.toHaveProperty('overdue');
     expect(omitted.events[0]).not.toHaveProperty('approximate');
   });
 
