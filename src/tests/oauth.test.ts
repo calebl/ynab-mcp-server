@@ -204,6 +204,7 @@ describe("Worker OAuth flow", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 

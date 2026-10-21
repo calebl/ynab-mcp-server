@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Worker logs a warning with GitHub's `error` and `error_description` when the GitHub OAuth token exchange fails, adding the HTTP status for non-2xx responses and logging the status with `unknown` for malformed responses. The code, state and secrets are never logged.
 
 ### Fixed
-- A non-2xx or non-JSON response from GitHub's token endpoint now shows the sign-in failure page instead of raising an unhandled Worker exception.
+- Non-JSON or invalid-shape responses from GitHub's token endpoint now show the sign-in failure page instead of raising an unhandled Worker exception.
 
 ### Changed
 - Clarified the descriptions of `ynab_update_category_budget` (points to `ynab_move_money` for moving money), `ynab_get_transactions` (account, category and payee filters are mutually exclusive), `ynab_list_months` (raw month list; points to `ynab_cash_flow`) and `ynab_autobudget_plan` (how it differs from `ynab_auto_assign` with `dryRun`).
