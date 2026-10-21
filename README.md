@@ -275,14 +275,16 @@ Real household history is much harder, as described above.
 
 ### Reporting
 
-Splits are counted through their subtransactions and transfers between your own
-accounts are excluded, so these report spending rather than money movement.
+In the spending reports, splits are counted through their subtransactions and
+transfers between your own accounts are excluded, so they report spending rather
+than money movement.
 
 | Tool | What it does |
 | --- | --- |
 | `ynab_spending_by_category` | Total spend per category over a date range, biggest first, with share of total. Defaults to the last 30 days. |
 | `ynab_spending_by_payee` | The same, grouped by merchant. |
 | `ynab_cash_flow` | Income vs spending per month with the running net, from YNAB's own monthly totals. Defaults to the last 6 months. |
+| `ynab_balance_forecast` | The combined balance of your accounts over the next `days` (default 30, max 365), projected from scheduled transactions only: starting balance, each scheduled event, the end-of-day running balance, the lowest point and the ending balance. `accountIds` picks the accounts; the default is every open on-budget account. Transfers between two included accounts (credit card payments too) net to zero, and a transfer to an account outside the forecast counts as money leaving. Splits are counted leg by leg. Twice-a-month schedules are approximated as the next date and 15 days later and marked `approximate`. |
 
 ### Writing
 

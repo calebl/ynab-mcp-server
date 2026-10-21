@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `ynab_balance_forecast` projects the combined balance of your accounts over the next `days` (default 30, max 365) from scheduled transactions only. It returns the starting balance, each scheduled event, the end-of-day running balance, the lowest point and the ending balance, and costs three requests. `accountIds` picks the accounts; the default is every open on-budget account. Transfers between two included accounts, credit card payments among them, net to zero; a transfer to an account outside the forecast counts as money leaving. Scheduled splits are counted leg by leg. YNAB does not say which two days a twice-a-month schedule uses, so those are approximated as the next date and 15 days later and marked `approximate`. Frequencies the tool does not know are listed under `unsupported_schedules` rather than guessed.
+
 ## [0.6.0] - 2026-10-21
 
 ### Security

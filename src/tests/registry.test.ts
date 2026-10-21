@@ -124,6 +124,7 @@ describe("tool registration", () => {
     expect(registered.get("ynab_move_money")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_auto_assign")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_import_transactions")?.config.annotations.idempotentHint).toBe(false);
+    expect(registered.get("ynab_balance_forecast")?.config.annotations.readOnlyHint).toBe(true);
   });
 
   it("rejects ynab_create_transaction input missing both accountId and accountName", () => {
