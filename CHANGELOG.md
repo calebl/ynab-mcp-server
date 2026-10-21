@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- A plan's currency settings are read from YNAB once per API client and plan instead of on every tool call that returns amounts, saving one request per call after the first. A failed read still falls back to 2 decimal places and is retried on the next call. The `last-used` and `default` plan aliases are read every time. The stdio server keeps the settings until it restarts; the Worker builds a new client for each request.
+
 ## [0.6.0] - 2026-10-21
 
 ### Security
