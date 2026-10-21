@@ -101,6 +101,28 @@ describe("worker MCP handler", () => {
     expect(names).not.toContain("ynab_suggest_categories");
   });
 
+  it("answers concurrent requests that reuse a JSON-RPC id with their own results", async () => {
+    const listTools = { jsonrpc: "2.0", id: 0, method: "tools/list" };
+    const [full, readOnly] = await Promise.all([
+      call(listTools).then(readResult),
+      call(listTools, { YNAB_READ_ONLY: "true" }).then(readResult),
+    ]);
+
+    const names = (result: any) => result.result.tools.map((t: { name: string }) => t.name);
+    expect(names(full)).toContain("ynab_create_transaction");
+    expect(names(readOnly)).not.toContain("ynab_create_transaction");
+  });
+
+  it("rejects a request body over the SDK's 4 MiB limit", async () => {
+    const response = await call({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/list",
+      params: { padding: "x".repeat(4 * 1024 * 1024) },
+    });
+    expect(response.status).toBe(413);
+  });
+
   it("exposes category suggestions only with both opt-in settings", async () => {
     const onlyFlag = await call(
       { jsonrpc: "2.0", id: 3, method: "tools/list" },

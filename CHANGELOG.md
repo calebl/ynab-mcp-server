@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Updated `@modelcontextprotocol/server` (the Worker's MCP SDK) from 2.0.0 to 2.3.1, which fixes GHSA-jm63-cq47-j5jp (shared transport or server instances could deliver one HTTP client's messages to another), GHSA-46jr-4wx8-v453 (one HTTP request within the size limit could exhaust memory during validation) and GHSA-rvq5-wwqv-78pq (SDK bearer authentication accepted tokens issued for another service). The Worker already built a new server for every request and validated tokens with its own OAuth provider rather than the SDK's bearer authentication. The update also adds the SDK's default 4 MiB request body limit to the Worker's `/mcp` endpoint, which 2.0.0 did not enforce. The stdio server uses `@modelcontextprotocol/sdk` 1.32.1, which already includes these fixes.
+
 ### Added
 - `ynab_get_transactions` can search: `untilDate`, `payeeContains`, `memoContains`, `minAmount`, `maxAmount` and `direction` filter the rows, and any of them (or `totalsOnly: true`) adds a `totals` block with `count`, `inflow`, `outflow` and `net` over every match, unaffected by `limit`; transfers between accounts count. `totalsOnly` returns just the totals. Without `categoryId` or `payeeId`, split transactions are matched leg by leg, and the totals count only the matching legs. With `categoryId` or `payeeId`, rows are matched as YNAB returns them, so a split's parent row in the payee listing counts at its full amount. When the `payeeId` listing returns both a split and some of its legs, a matching split is counted once, through its parent row. Without these options (or with only `direction: "any"` or `totalsOnly: false`), no rows are filtered out and no totals are returned.
 - `ynab_get_transactions` rows that are split legs listed on their own (from the `categoryId` and `payeeId` listings) carry `parent_transaction_id`.
