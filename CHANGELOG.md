@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `ynab_spending_by_category` and `ynab_spending_by_payee` take `monthly: true`, which adds `months`, `full_month_count`, `last_full_month` and `change_compares` to the response, and to each row `monthly` (spend and transaction count per calendar month, zero for months without spending), `average_monthly` (mean over the full months) and `change_pct` (the last full month against the mean of the earlier full months). A partial first or last month is listed but left out of both figures. The range is `sinceDate` when given, otherwise the last `months` calendar months (default 6), and `untilDate` defaults to today; a range over 24 months is rejected. Splits and transfers are handled as in the plain reports, so transfers between accounts are excluded. Without the option (or with `monthly: false`), the response is unchanged and `months` is ignored.
+
 ## [0.6.0] - 2026-10-21
 
 ### Security
