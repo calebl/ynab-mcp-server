@@ -153,7 +153,7 @@ happens in `src/tools/money.ts`.
 | `ynab_list_categories` | Categories grouped by category group, with goal info. |
 | `ynab_list_payees` | Payees, for resolving payee IDs. |
 | `ynab_list_months` | Every plan month since the plan began, with raw income, budgeted, activity, Ready to Assign, age-of-money and note fields. For recent income versus spending, use `ynab_cash_flow`. |
-| `ynab_list_scheduled_transactions` | Scheduled/recurring transactions. |
+| `ynab_list_scheduled_transactions` | The scheduled transactions set up in YNAB. For recurring charges found in transaction history, see `ynab_detect_recurring`. |
 | `ynab_get_transactions` | Transactions optionally filtered to `sinceDate`–`untilDate`, by `type` (`all`/`uncategorized`/`unapproved`), and by at most one of `accountId`, `categoryId` or `payeeId` (the first in that order wins). To search, add `payeeContains`, `memoContains` (case-insensitive), `minAmount`/`maxAmount` (ignoring sign) or `direction` (`outflow`/`inflow`/`any`); any search option or `untilDate` adds a `totals` block (`count`, `inflow`, `outflow`, `net`) over every match, including transfers between accounts, and `totalsOnly: true` returns only that. Without `categoryId` or `payeeId`, splits are matched leg by leg and the totals count only the matching legs; with them, rows are matched as YNAB returns them, so a split's parent row in the payee listing counts at its full amount. `limit` defaults to 100 and does not affect the totals. |
 | `ynab_suggest_categories` | Opt-in, read-only category previews for unapproved, uncategorized ordinary outflows. Deleted and categorized rows are dropped in default mode; approved, reconciled, balance-adjustment, transfer, split, and inflow rows are skipped as applicable. |
 
@@ -283,7 +283,7 @@ accounts are excluded, so these report spending rather than money movement.
 | `ynab_spending_by_category` | Total spend per category over a date range, biggest first, with share of total. Defaults to the last 30 days. |
 | `ynab_spending_by_payee` | The same, grouped by merchant. |
 | `ynab_cash_flow` | Income vs spending per month with the running net, from YNAB's own monthly totals. Defaults to the last 6 months. |
-| `ynab_detect_recurring` | Recurring outflows such as subscriptions and bills: a payee's charges of a similar amount at a regular interval (weekly to yearly), with typical amount, yearly cost, next expected date, whether it seems to have stopped and whether it is already a scheduled transaction. A heuristic; defaults to the last 365 days. |
+| `ynab_detect_recurring` | Recurring outflows such as subscriptions and bills: a payee's charges of a similar amount at a regular interval (weekly to yearly), with typical amount, yearly cost at the latest amount, next expected date, whether it seems to have stopped, and whether a scheduled transaction has the same payee name. Loan and mortgage payments are transfers, so they are not included, and refunds are not netted. A heuristic; defaults to the last 365 days. |
 
 ### Writing
 

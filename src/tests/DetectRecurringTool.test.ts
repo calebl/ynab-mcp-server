@@ -64,7 +64,7 @@ describe('DetectRecurringTool', () => {
     expect(response).toEqual({
       since_date: '2025-06-15',
       count: 1,
-      annual_cost_active: 185.88,
+      annual_cost_active: 203.88,
       recurring: [{
         payee_name: 'Netflix',
         category_name: 'Subscriptions',
@@ -73,7 +73,8 @@ describe('DetectRecurringTool', () => {
         // Median of four 15.49 charges and two 16.99 ones.
         typical_amount: 15.49,
         latest_amount: 16.99,
-        annual_cost: 185.88,
+        // The current price, not the median, so a price rise shows straight away.
+        annual_cost: 203.88,
         first_date: '2026-01-15',
         last_date: '2026-06-15',
         next_expected_date: '2026-07-15',
@@ -136,6 +137,14 @@ describe('DetectRecurringTool', () => {
     ]);
   });
 
+  it('finds a quarterly charge', async () => {
+    given(series('Water Utility', ['2025-07-01', '2025-10-01', '2026-01-01', '2026-04-01'], -90000));
+
+    expect((await detect()).recurring.map((r: any) => [r.cadence, r.annual_cost, r.next_expected_date])).toEqual([
+      ['quarterly', 360, '2026-07-01'],
+    ]);
+  });
+
   it('finds a yearly charge when sinceDate reaches back far enough', async () => {
     given(series('Warehouse Club', ['2023-07-01', '2024-07-01', '2025-07-01'], -65000));
 
@@ -167,6 +176,39 @@ describe('DetectRecurringTool', () => {
 
     expect((await detect()).recurring).toEqual([]);
     expect((await detect({ minOccurrences: 2 })).recurring).toEqual([]);
+  });
+
+  it('does not report similar-amount trips to a busy payee that are only sometimes a month apart', async () => {
+    given([
+      // Similar amounts, two of three gaps a month apart.
+      ...series('Kroger', ['2026-01-05', '2026-02-04', '2026-03-06', '2026-03-20'], [-50000, -51000, -52000, -53000]),
+      // Other trips, in other amount bands.
+      ...series('Kroger', ['2026-01-12', '2026-02-20', '2026-04-02', '2026-05-09', '2026-06-01'], [-20000, -80000, -140000, -31000, -110000]),
+    ]);
+
+    expect((await detect()).recurring).toEqual([]);
+  });
+
+  it('adds up charges in a series that fall on the same date', async () => {
+    // A phone bill split into two equal lines with no payees of their own.
+    const bill = (date: string) => txn(date, -40000, 'Phone Co', {
+      category_id: null, category_name: 'Split',
+      subtransactions: [1, 2].map((line) => (
+        { id: `${date}-${line}`, amount: -20000, deleted: false, category_id: 'c-phone', category_name: 'Phone', payee_name: null, transfer_account_id: null }
+      )),
+    });
+    given(['2026-03-28', '2026-04-28', '2026-05-28'].map(bill));
+
+    expect((await detect()).recurring).toEqual([expect.objectContaining({
+      payee_name: 'Phone Co',
+      cadence: 'monthly',
+      occurrences: 6,
+      typical_amount: 40,
+      latest_amount: 40,
+      annual_cost: 480,
+      first_date: '2026-03-28',
+      last_date: '2026-05-28',
+    })]);
   });
 
   it('treats payee names that differ only in case or spacing as one payee', async () => {
@@ -206,9 +248,9 @@ describe('DetectRecurringTool', () => {
     // Largest yearly cost first.
     expect(response.recurring.map((r: any) => [r.payee_name, r.annual_cost, r.possibly_lapsed])).toEqual([
       ['Old Gym', 480, true],
-      ['Netflix', 185.88, false],
+      ['Netflix', 203.88, false],
     ]);
-    expect(response.annual_cost_active).toBe(185.88);
+    expect(response.annual_cost_active).toBe(203.88);
   });
 
   it('reports a payee actually named "Unknown payee"', async () => {

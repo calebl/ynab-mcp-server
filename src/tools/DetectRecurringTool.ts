@@ -6,12 +6,12 @@ import { getDecimalDigits, toDollars } from "./money.js";
 import { collectSpending, daysAgo, type SpendingEntry } from "./spending.js";
 
 export const name = "ynab_detect_recurring";
-export const description = "Finds recurring outflows (subscriptions, bills, memberships) in transaction history by payee, similar amount and regular spacing, whether or not they are scheduled in YNAB. Gives each one's cadence, typical amount, yearly cost, next expected date, and whether it seems to have stopped. This is a heuristic: check the results before acting on them. Splits are counted through their subtransactions, and transfers between your own accounts (including credit card payments) and inflows are excluded. Reads the whole history window in one request, so a long sinceDate on a busy plan returns a large payload. Yearly charges need a sinceDate far enough back to show minOccurrences of them.";
+export const description = "Finds recurring outflows (subscriptions, bills, memberships) in transaction history by payee, similar amount and regular spacing, whether or not they are scheduled in YNAB. For the scheduled transactions set up in YNAB, use ynab_list_scheduled_transactions. Gives each one's cadence, typical amount, yearly cost at the latest amount, next expected date, whether it seems to have stopped, and already_scheduled (a scheduled transaction has the same payee name; amounts are not compared). This is a heuristic: check the results before acting on them. Splits are counted through their subtransactions. Transfers are excluded, so loan and mortgage payments (transfers to a loan account) and credit card payments are not reported. Inflows are excluded too, and refunds are not netted against charges. Reads the whole window from YNAB in one request, which is slow for a long sinceDate on a busy plan. Yearly charges need a sinceDate far enough back to show minOccurrences of them.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   sinceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Start of the history to scan, inclusive (ISO format: 2025-01-01). Defaults to 365 days ago."),
-  minOccurrences: z.number().int().min(2).optional().describe("How many charges of a similar amount from one payee make a pattern (default: 3)"),
+  minOccurrences: z.number().int().min(2).optional().describe("On how many different dates one payee must charge a similar amount to make a pattern (default: 3)"),
   amountTolerancePct: z.number().min(0).max(100)
     .refine((pct) => Number.isInteger(thousandths(pct)), "At most 3 decimal places")
     .optional()
@@ -48,7 +48,7 @@ const CADENCES: Cadence[] = [
   { cadence: "yearly", minDays: 350, maxDays: 380, next: (d) => addMonthsKeepingDay(d, 12), perYear: 1 },
 ];
 
-/** Share of the gaps between charges that must fit one cadence. */
+/** Share of the gaps between billing dates that must fit one cadence, once there are more than three. */
 const REGULARITY = 0.6;
 
 const DAY_MS = 86_400_000;
@@ -100,9 +100,24 @@ function amountGroups(entries: SpendingEntry[], tolerancePct: number): SpendingE
   return groups;
 }
 
+/** Charges from one amount group on one date, added together (two phone lines billed the same day). */
+interface Billing {
+  date: string;
+  amountMilliunits: number;
+}
+
+/** `charges` must be sorted by date. */
+function billingsOf(charges: SpendingEntry[]): Billing[] {
+  const byDate = new Map<string, number>();
+  for (const charge of charges) byDate.set(charge.date, (byDate.get(charge.date) ?? 0) + charge.amountMilliunits);
+  return [...byDate].map(([date, amountMilliunits]) => ({ date, amountMilliunits }));
+}
+
 function cadenceOf(dates: string[]): Cadence | undefined {
   const gaps = dates.slice(1).map((date, i) => daysBetween(dates[i], date));
-  const needed = Math.max(1, gaps.length * REGULARITY);
+  // With three gaps or fewer every one must fit: two of three fitting is common for
+  // purchases at a busy payee that merely happen to be similar in amount.
+  const needed = Math.max(1, gaps.length <= 3 ? gaps.length : gaps.length * REGULARITY);
   return CADENCES.find((c) => gaps.filter((gap) => gap >= c.minDays && gap <= c.maxDays).length >= needed);
 }
 
@@ -136,25 +151,27 @@ export async function execute(input: DetectRecurringInput, api: ynab.API) {
     const found = [];
     for (const [key, entries] of byPayee) {
       for (const group of amountGroups(entries, tolerancePct)) {
-        if (group.length < minOccurrences) continue;
         const charges = [...group].sort((a, b) => a.date.localeCompare(b.date));
-        const cadence = cadenceOf(charges.map((charge) => charge.date));
+        const billings = billingsOf(charges);
+        if (billings.length < minOccurrences) continue;
+        const cadence = cadenceOf(billings.map((billing) => billing.date));
         if (!cadence) continue;
 
-        const last = charges[charges.length - 1];
+        const last = billings[billings.length - 1];
         const nextExpected = cadence.next(last.date);
-        const typicalMilliunits = median(charges.map((charge) => charge.amountMilliunits));
+        // The latest amount, so a price change shows in the yearly cost straight away.
+        const annualMilliunits = last.amountMilliunits * cadence.perYear;
         found.push({
-          annualMilliunits: typicalMilliunits * cadence.perYear,
+          annualMilliunits,
           row: {
-            payee_name: last.payeeName.trim(),
+            payee_name: charges[charges.length - 1].payeeName.trim(),
             category_name: mostCommon(charges.map((charge) => charge.categoryName)),
             cadence: cadence.cadence,
             occurrences: charges.length,
-            typical_amount: toDollars(typicalMilliunits, decimalDigits),
-            latest_amount: last.amount,
-            annual_cost: toDollars(typicalMilliunits * cadence.perYear, decimalDigits),
-            first_date: charges[0].date,
+            typical_amount: toDollars(median(billings.map((billing) => billing.amountMilliunits)), decimalDigits),
+            latest_amount: toDollars(last.amountMilliunits, decimalDigits),
+            annual_cost: toDollars(annualMilliunits, decimalDigits),
+            first_date: billings[0].date,
             last_date: last.date,
             next_expected_date: nextExpected,
             // Overdue by more than half a cycle.
