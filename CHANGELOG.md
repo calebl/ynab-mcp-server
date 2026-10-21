@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-10-21
 
 ### Security
 - Updated `@modelcontextprotocol/server` (the Worker's MCP SDK) from 2.0.0 to 2.3.1 in response to GHSA-jm63-cq47-j5jp (shared transport or server instances could deliver one HTTP client's messages to another), GHSA-46jr-4wx8-v453 (one HTTP request could exhaust memory during validation) and GHSA-rvq5-wwqv-78pq (SDK bearer authentication accepted tokens issued for another service). The Worker was not exposed to the first or third issue: it builds a new server for every request, and its OAuth provider validates access tokens before the MCP handler instead of using the SDK's bearer authentication. To enable the validation-exhaustion safeguards, the Worker now limits MCP request bodies to 1 MiB and tool inputs to 10,000 elements. The single-client stdio entry uses `@modelcontextprotocol/sdk` 1.32.1 rather than the affected HTTP server package and has no HTTP body or bearer-authentication path.
@@ -15,9 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ynab_get_transactions` rows that are split legs listed on their own (from the `categoryId` and `payeeId` listings) carry `parent_transaction_id`.
 - The Worker logs a warning with GitHub's `error` and `error_description` when the GitHub OAuth token exchange fails, adding the HTTP status for non-2xx responses and logging the status with `unknown` for malformed responses. The code, state and secrets are never logged.
 
-### Fixed
-- Non-JSON or invalid-shape responses from GitHub's token endpoint now show the sign-in failure page instead of raising an unhandled Worker exception.
-
 ### Changed
 - Clarified the descriptions of `ynab_update_category_budget` (points to `ynab_move_money` for moving money), `ynab_get_transactions` (account, category and payee filters are mutually exclusive), `ynab_list_months` (raw month list; points to `ynab_cash_flow`) and `ynab_autobudget_plan` (how it differs from `ynab_auto_assign` with `dryRun`).
 - `ynab_bulk_approve_transactions` accepts `approved` (default `true`); `false` un-approves the listed transactions.
@@ -26,7 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ynab_approve_transaction` is now an alias of `ynab_bulk_approve_transactions` for a single transaction. It no longer reads the transaction before updating it, and returns the bulk response (`approved_count` when approving or `unapproved_count` when un-approving, plus a `transactions` list) instead of a top-level `transactionId`.
 
 ### Deprecated
-- The tool aliases `ynab_list_budgets`, `ynab_budget_summary`, `ynab_get_unapproved_transactions` and `ynab_approve_transaction` are deprecated and their descriptions now say `Deprecated alias of <tool>; use that instead`. They will be removed in the release after this one. Use `ynab_list_plans`, `ynab_plan_summary`, `ynab_get_transactions` and `ynab_bulk_approve_transactions`.
+- The tool aliases `ynab_list_budgets`, `ynab_budget_summary`, `ynab_get_unapproved_transactions` and `ynab_approve_transaction` are deprecated and their descriptions now say `Deprecated alias of <tool>; use that instead`. They will be removed in the release after 0.6.0. Use `ynab_list_plans`, `ynab_plan_summary`, `ynab_get_transactions` and `ynab_bulk_approve_transactions`.
+
+### Fixed
+- Non-JSON or invalid-shape responses from GitHub's token endpoint now show the sign-in failure page instead of raising an unhandled Worker exception.
 
 ## [0.5.0] - 2026-10-18
 
