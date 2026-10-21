@@ -74,13 +74,6 @@ export function collectSpending(
   return entries;
 }
 
-export interface MonthTotal {
-  /** First day of the month, the way YNAB names months. */
-  month: string;
-  total: number;
-  transaction_count: number;
-}
-
 export interface SpendingGroup {
   name: string;
   total: number;
@@ -92,12 +85,8 @@ export interface SpendingGroup {
   average_monthly?: number | null;
   /** Last full month against the mean of the earlier full months, in percent; null without a nonzero mean. */
   change_pct?: number | null;
-  monthly?: MonthTotal[];
-}
-
-interface Running {
-  totalMilliunits: number;
-  count: number;
+  /** Spend per month, aligned with the window's `months`. */
+  monthly_totals?: number[];
 }
 
 /**
@@ -110,7 +99,7 @@ export function groupSpending(
   decimalDigits?: number,
   window?: MonthlyWindow
 ): SpendingGroup[] {
-  const totals = new Map<string, Running & { byMonth: Map<string, Running> }>();
+  const totals = new Map<string, { totalMilliunits: number; count: number; byMonth: Map<string, number> }>();
 
   for (const entry of entries) {
     const key = keyOf(entry);
@@ -119,10 +108,7 @@ export function groupSpending(
     running.count += 1;
     if (window) {
       const month = monthOf(entry.date);
-      const inMonth = running.byMonth.get(month) ?? { totalMilliunits: 0, count: 0 };
-      inMonth.totalMilliunits += entry.amountMilliunits;
-      inMonth.count += 1;
-      running.byMonth.set(month, inMonth);
+      running.byMonth.set(month, (running.byMonth.get(month) ?? 0) + entry.amountMilliunits);
     }
     totals.set(key, running);
   }
@@ -152,9 +138,9 @@ export interface MonthlyWindow {
   /** Every month the range touches, oldest first. */
   months: string[];
   /**
-   * Months wholly inside the range. The first month is partial when the range
-   * starts after its first day, and the last when the range ends before its
-   * last day (usually the current month).
+   * Months wholly inside the range and already over. The first month is
+   * partial when the range starts after its first day; the current month, and
+   * any later one, has not ended yet.
    */
   fullMonths: string[];
 }
@@ -180,7 +166,9 @@ export function monthlyWindow(input: { sinceDate?: string; untilDate?: string; m
     throw new Error(`A monthly breakdown covers at most ${MAX_MONTHS} months; ${sinceDate} to ${untilDate} spans ${months.length}.`);
   }
 
-  const fullMonths = months.filter((month) => month >= sinceDate && lastDayOf(month) <= untilDate);
+  const today = daysAgo(0);
+  const endedBy = untilDate < today ? untilDate : today;
+  const fullMonths = months.filter((month) => month >= sinceDate && lastDayOf(month) <= endedBy);
   return { sinceDate, untilDate, months, fullMonths };
 }
 
@@ -188,18 +176,21 @@ export function monthlyWindow(input: { sinceDate?: string; untilDate?: string; m
 export function describeWindow(window: MonthlyWindow) {
   const { months, fullMonths } = window;
   const lastFullMonth = fullMonths.length > 0 ? fullMonths[fullMonths.length - 1] : null;
+  const earlierCount = fullMonths.length - 1;
   return {
     months,
     full_month_count: fullMonths.length,
     last_full_month: lastFullMonth,
-    change_compares: lastFullMonth
-      ? `${lastFullMonth} against the mean of ${fullMonths.length - 1} earlier full month(s)`
-      : "no full month in range",
+    change_compares: !lastFullMonth
+      ? "no full month in range"
+      : earlierCount === 0
+        ? "no earlier full month to compare with"
+        : `${lastFullMonth} against the mean of ${earlierCount} earlier full month(s)`,
   };
 }
 
-function monthlyBreakdown(byMonth: Map<string, Running>, window: MonthlyWindow, decimalDigits?: number) {
-  const totalIn = (month: string) => byMonth.get(month)?.totalMilliunits ?? 0;
+function monthlyBreakdown(byMonth: Map<string, number>, window: MonthlyWindow, decimalDigits?: number) {
+  const totalIn = (month: string) => byMonth.get(month) ?? 0;
   const mean = (months: string[]) => months.reduce((sum, month) => sum + totalIn(month), 0) / months.length;
 
   const { fullMonths } = window;
@@ -210,11 +201,7 @@ function monthlyBreakdown(byMonth: Map<string, Running>, window: MonthlyWindow, 
   return {
     average_monthly: fullMonths.length > 0 ? toDollars(mean(fullMonths), decimalDigits) : null,
     change_pct: earlierMean > 0 ? round2(((totalIn(last) - earlierMean) / earlierMean) * 100) : null,
-    monthly: window.months.map((month) => ({
-      month,
-      total: toDollars(totalIn(month), decimalDigits),
-      transaction_count: byMonth.get(month)?.count ?? 0,
-    })),
+    monthly_totals: window.months.map((month) => toDollars(totalIn(month), decimalDigits)),
   };
 }
 

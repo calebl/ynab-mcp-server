@@ -313,15 +313,11 @@ describe('spending reports', () => {
         name: 'Giving', total: 410, transaction_count: 4, average: 102.5, share_of_total: 71.06,
         average_monthly: 136.67,
         change_pct: 90.48,
-        monthly: [
-          { month: '2024-01-01', total: 100, transaction_count: 1 },
-          { month: '2024-02-01', total: 110, transaction_count: 2 },
-          { month: '2024-03-01', total: 200, transaction_count: 1 },
-        ],
+        monthly_totals: [100, 110, 200],
       });
       // Groceries: $80, the $20 split child, $40. March against a $50 mean is -20%.
       const groceries = response.categories[1];
-      expect(groceries.monthly.map((m: any) => m.total)).toEqual([80, 20, 40]);
+      expect(groceries.monthly_totals).toEqual([80, 20, 40]);
       expect(groceries.change_pct).toBe(-20);
     });
 
@@ -329,11 +325,7 @@ describe('spending reports', () => {
       const response = await run(SpendingByCategoryTool, { ...firstQuarter, monthly: true });
       const home = response.categories.find((c: any) => c.name === 'Home Goods');
 
-      expect(home.monthly).toEqual([
-        { month: '2024-01-01', total: 12, transaction_count: 1 },
-        { month: '2024-02-01', total: 0, transaction_count: 0 },
-        { month: '2024-03-01', total: 0, transaction_count: 0 },
-      ]);
+      expect(home.monthly_totals).toEqual([12, 0, 0]);
       expect(home.average_monthly).toBe(4);
       expect(home.change_pct).toBe(-100);
     });
@@ -342,7 +334,7 @@ describe('spending reports', () => {
       const response = await run(SpendingByCategoryTool, { ...firstQuarter, monthly: true });
       const gifts = response.categories.find((c: any) => c.name === 'Gifts');
 
-      expect(gifts.monthly.map((m: any) => m.total)).toEqual([0, 0, 15]);
+      expect(gifts.monthly_totals).toEqual([0, 0, 15]);
       expect(gifts.change_pct).toBeNull();
     });
 
@@ -352,7 +344,7 @@ describe('spending reports', () => {
       // $410 + $140 + $15 + $12. The $70 transfer, the $5 transfer child and the $500 income are left out.
       expect(response.total_spent).toBe(577);
       expect(response.categories.map((c: any) => c.name)).not.toContain('Inflow: Ready to Assign');
-      const monthTotals = [0, 1, 2].map((i) => response.categories.reduce((sum: number, c: any) => sum + c.monthly[i].total, 0));
+      const monthTotals = [0, 1, 2].map((i) => response.categories.reduce((sum: number, c: any) => sum + c.monthly_totals[i], 0));
       expect(monthTotals).toEqual([192, 130, 255]);
     });
 
@@ -363,11 +355,7 @@ describe('spending reports', () => {
       expect(response.payees.map((p: any) => p.name)).toEqual(['Church', 'Corner Store', 'Big Box', 'Toy Shop']);
       // Big Box: $12 in January, then the split's $20 + $10 children (not its $5 transfer child).
       const bigBox = response.payees[2];
-      expect(bigBox.monthly).toEqual([
-        { month: '2024-01-01', total: 12, transaction_count: 1 },
-        { month: '2024-02-01', total: 30, transaction_count: 2 },
-        { month: '2024-03-01', total: 0, transaction_count: 0 },
-      ]);
+      expect(bigBox.monthly_totals).toEqual([12, 30, 0]);
       expect(bigBox.average_monthly).toBe(14);
       expect(bigBox.change_pct).toBe(-100);
       expect(response.total_spent).toBe(577);
@@ -380,7 +368,7 @@ describe('spending reports', () => {
       expect(response.months).toHaveLength(3);
       expect(response.last_full_month).toBe('2024-02-01');
       // The March 10 gift is inside the range, so it still counts towards the totals.
-      expect(giving.monthly[2].total).toBe(200);
+      expect(giving.monthly_totals[2]).toBe(200);
       expect(giving.total).toBe(410);
       // February's $110 against January's $100.
       expect(giving.change_pct).toBe(10);
@@ -398,6 +386,32 @@ describe('spending reports', () => {
       const giving = response.categories.find((c: any) => c.name === 'Giving');
       // March's $200 against February's $110.
       expect(giving.change_pct).toBe(81.82);
+    });
+
+    it('does not count the current month or later ones as full when untilDate is in the future', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2024-03-20T12:00:00Z'));
+
+      const response = await run(SpendingByCategoryTool, { sinceDate: '2024-01-01', untilDate: '2024-06-30', monthly: true });
+      const giving = response.categories.find((c: any) => c.name === 'Giving');
+
+      expect(response.months).toEqual(['2024-01-01', '2024-02-01', '2024-03-01', '2024-04-01', '2024-05-01', '2024-06-01']);
+      expect(response.full_month_count).toBe(2);
+      expect(response.last_full_month).toBe('2024-02-01');
+      expect(giving.monthly_totals).toEqual([100, 110, 200, 0, 0, 0]);
+      // February's $110 against January's $100, not an empty June against the rest.
+      expect(giving.change_pct).toBe(10);
+      expect(giving.average_monthly).toBe(105);
+    });
+
+    it('says when there is no earlier full month to compare with', async () => {
+      const response = await run(SpendingByCategoryTool, { sinceDate: '2024-02-01', untilDate: '2024-03-15', monthly: true });
+
+      expect(response.full_month_count).toBe(1);
+      expect(response.change_compares).toBe('no earlier full month to compare with');
+      const giving = response.categories.find((c: any) => c.name === 'Giving');
+      expect(giving.average_monthly).toBe(110);
+      expect(giving.change_pct).toBeNull();
     });
 
     it('has no mean or change without a full month', async () => {
@@ -444,7 +458,7 @@ describe('spending reports', () => {
 
       expect(response.categories).toHaveLength(1);
       expect(response.category_count).toBe(4);
-      expect(response.categories[0].monthly).toHaveLength(3);
+      expect(response.categories[0].monthly_totals).toHaveLength(3);
     });
 
     it('leaves the response unchanged with monthly: false, even alongside months', async () => {
