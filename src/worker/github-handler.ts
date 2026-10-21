@@ -230,8 +230,20 @@ export const GitHubHandler = {
           redirect_uri: new URL("/callback", request.url).href,
         }),
       });
-      const tokenBody = (await tokenResponse.json()) as { access_token?: string; error?: string };
+      if (!tokenResponse.ok) {
+        console.warn("github token exchange failed: HTTP", tokenResponse.status);
+        return html("<h1>Sign-in failed</h1><p>GitHub rejected the code (unknown).</p>", 401);
+      }
+      let tokenBody: { access_token?: string; error?: string; error_description?: string };
+      try {
+        tokenBody = await tokenResponse.json();
+      } catch {
+        console.warn("github token exchange failed: non-JSON response, HTTP", tokenResponse.status);
+        return html("<h1>Sign-in failed</h1><p>GitHub rejected the code (unknown).</p>", 401);
+      }
       if (!tokenBody.access_token) {
+        // Log only GitHub's error fields: never the code, state, or response body.
+        console.warn("github token exchange failed:", tokenBody.error ?? "unknown", tokenBody.error_description ?? "");
         return html(`<h1>Sign-in failed</h1><p>GitHub rejected the code (${tokenBody.error ?? "unknown"}).</p>`, 401);
       }
 

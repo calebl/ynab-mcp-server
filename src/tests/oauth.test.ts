@@ -270,6 +270,58 @@ describe("Worker OAuth flow", () => {
     });
   });
 
+  describe("failed GitHub token exchange", () => {
+    function githubAnswers(tokenResponse: () => Response) {
+      vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        githubCalls.push(url);
+        if (url === "https://github.com/login/oauth/access_token") return tokenResponse();
+        throw new Error(`unexpected fetch ${url}`);
+      });
+    }
+
+    async function failedSignIn(tokenResponse: () => Response) {
+      githubAnswers(tokenResponse);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const env = makeEnv();
+      const { cookie, state } = await approveUpToGitHub(env, CLAUDE_CB);
+      const response = await callback(env, state, cookie);
+      const logged = warn.mock.calls.map((args) => [...args]);
+      warn.mockRestore();
+      expect(response.status).toBe(401);
+      expect(await response.text()).toContain("Sign-in failed");
+      expect(grants(env)).toHaveLength(0);
+      for (const args of logged) {
+        for (const arg of args) {
+          expect(String(arg)).not.toContain("gh-code");
+          expect(String(arg)).not.toContain(state);
+        }
+      }
+      return logged;
+    }
+
+    it("logs GitHub's error and error_description", async () => {
+      const logged = await failedSignIn(() =>
+        Response.json({ error: "bad_verification_code", error_description: "The code passed is incorrect or expired." }),
+      );
+      expect(logged).toEqual([
+        ["github token exchange failed:", "bad_verification_code", "The code passed is incorrect or expired."],
+      ]);
+    });
+
+    it("logs the HTTP status of a non-2xx response", async () => {
+      const logged = await failedSignIn(
+        () => new Response("<html>Bad gateway</html>", { status: 502, headers: { "content-type": "text/html" } }),
+      );
+      expect(logged).toEqual([["github token exchange failed: HTTP", 502]]);
+    });
+
+    it("logs a non-JSON response", async () => {
+      const logged = await failedSignIn(() => new Response("<html>oops</html>", { status: 200 }));
+      expect(logged).toEqual([["github token exchange failed: non-JSON response, HTTP", 200]]);
+    });
+  });
+
   describe("approval page", () => {
     it.each([CLAUDE_CB, CHATGPT_CB, LOOPBACK_CB])("completes sign-in for %s once approved", async (redirectUri) => {
       const env = makeEnv();
