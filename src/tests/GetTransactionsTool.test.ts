@@ -631,6 +631,16 @@ describe('GetTransactionsTool search', () => {
     });
   });
 
+  it('should keep amount bounds exact rather than rounding them to milliunits', async () => {
+    mockApi.transactions.getTransactions.mockResolvedValue({
+      data: { transactions: [txn({ id: 'a', amount: -1234 }), txn({ id: 'b', amount: -1235 }), txn({ id: 'c', amount: -25500 })] },
+    });
+    expect((await run({ maxAmount: 1.2345 })).transactions.map((t: any) => t.id)).toEqual(['a']);
+    expect((await run({ minAmount: 1.2344, maxAmount: 2 })).transactions.map((t: any) => t.id)).toEqual(['b']);
+    // A bound equal to an amount still includes it.
+    expect((await run({ minAmount: 25.5, maxAmount: 25.5 })).transactions.map((t: any) => t.id)).toEqual(['c']);
+  });
+
   it('should apply direction and amount bounds to the absolute amount', async () => {
     const inflow = await run({ direction: 'inflow' });
     expect(inflow.transactions.map((t: any) => t.id)).toEqual(['pay']);

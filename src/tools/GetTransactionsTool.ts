@@ -2,7 +2,7 @@ import { resolvePlanId } from "./planId.js";
 import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
-import { getDecimalDigits, toDollars, toMilliunits } from "./money.js";
+import { getDecimalDigits, toDollars } from "./money.js";
 import { mapSubtransactions } from "./splits.js";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -90,8 +90,8 @@ interface SearchFilters {
   untilDate?: string;
   payeeContains?: string;
   memoContains?: string;
-  minMilliunits?: number;
-  maxMilliunits?: number;
+  minAmount?: number;
+  maxAmount?: number;
   direction: "outflow" | "inflow" | "any";
 }
 
@@ -111,11 +111,13 @@ function contains(text: string | null | undefined, needle: string | undefined): 
 }
 
 function legMatches(leg: Leg, filters: SearchFilters): boolean {
-  const size = Math.abs(leg.amount);
+  // Milliunits divided by 1000 is the double nearest the exact amount, so comparing it with the
+  // bound as given neither widens nor narrows the range, whatever precision the bound has.
+  const size = Math.abs(leg.amount) / 1000;
   if (filters.direction === "outflow" && leg.amount >= 0) return false;
   if (filters.direction === "inflow" && leg.amount <= 0) return false;
-  if (filters.minMilliunits !== undefined && size < filters.minMilliunits) return false;
-  if (filters.maxMilliunits !== undefined && size > filters.maxMilliunits) return false;
+  if (filters.minAmount !== undefined && size < filters.minAmount) return false;
+  if (filters.maxAmount !== undefined && size > filters.maxAmount) return false;
   return contains(leg.payee_name, filters.payeeContains) && contains(leg.memo, filters.memoContains);
 }
 
@@ -205,8 +207,8 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
         untilDate: input.untilDate,
         payeeContains: input.payeeContains,
         memoContains: input.memoContains,
-        minMilliunits: input.minAmount === undefined ? undefined : toMilliunits(input.minAmount),
-        maxMilliunits: input.maxAmount === undefined ? undefined : toMilliunits(input.maxAmount),
+        minAmount: input.minAmount,
+        maxAmount: input.maxAmount,
         direction: input.direction ?? "any",
       };
       const matched = matches
