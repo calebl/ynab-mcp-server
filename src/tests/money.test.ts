@@ -101,4 +101,58 @@ describe("getDecimalDigits", () => {
     const lookup = vi.fn().mockResolvedValue({ data: { settings: {} } });
     expect(await getDecimalDigits(apiWithSettings(lookup), "plan-unknown")).toBe(2);
   });
+
+  it("reads a plan's settings once for repeated and concurrent calls", async () => {
+    const lookup = vi.fn().mockResolvedValue(settings(3));
+    const api = apiWithSettings(lookup);
+
+    expect(await Promise.all([getDecimalDigits(api, "plan-kwd"), getDecimalDigits(api, "plan-kwd")])).toEqual([3, 3]);
+    expect(await getDecimalDigits(api, "plan-kwd")).toBe(3);
+    expect(lookup).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps each plan's settings separate", async () => {
+    const lookup = vi.fn((planId: string) => Promise.resolve(settings(planId === "plan-kwd" ? 3 : 0)));
+    const api = apiWithSettings(lookup);
+
+    expect(await getDecimalDigits(api, "plan-kwd")).toBe(3);
+    expect(await getDecimalDigits(api, "plan-jpy")).toBe(0);
+    expect(await getDecimalDigits(api, "plan-kwd")).toBe(3);
+    expect(await getDecimalDigits(api, "plan-jpy")).toBe(0);
+    expect(lookup).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not remember a failed read, even for callers that shared it", async () => {
+    const lookup = vi.fn().mockRejectedValueOnce(new Error("rate limited")).mockResolvedValue(settings(3));
+    const api = apiWithSettings(lookup);
+
+    expect(await Promise.all([getDecimalDigits(api, "plan-kwd"), getDecimalDigits(api, "plan-kwd")])).toEqual([2, 2]);
+    expect(await getDecimalDigits(api, "plan-kwd")).toBe(3);
+    expect(await getDecimalDigits(api, "plan-kwd")).toBe(3);
+    expect(lookup).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not share settings between API clients", async () => {
+    const first = vi.fn().mockResolvedValue(settings(3));
+    const second = vi.fn().mockResolvedValue(settings(0));
+
+    expect(await getDecimalDigits(apiWithSettings(first), "plan-shared")).toBe(3);
+    expect(await getDecimalDigits(apiWithSettings(second), "plan-shared")).toBe(0);
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the settings every time for YNAB's last-used and default plan aliases", async () => {
+    const lookup = vi.fn()
+      .mockResolvedValueOnce(settings(3))
+      .mockResolvedValueOnce(settings(0))
+      .mockResolvedValue(settings(2));
+    const api = apiWithSettings(lookup);
+
+    expect(await getDecimalDigits(api, "last-used")).toBe(3);
+    expect(await getDecimalDigits(api, "last-used")).toBe(0);
+    expect(await getDecimalDigits(api, "default")).toBe(2);
+    expect(await getDecimalDigits(api, "default")).toBe(2);
+    expect(lookup).toHaveBeenCalledTimes(4);
+  });
 });
