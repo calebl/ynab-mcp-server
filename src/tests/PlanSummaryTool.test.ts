@@ -331,6 +331,197 @@ describe('PlanSummaryTool', () => {
     });
   });
 
+  describe('budgetVsActuals', () => {
+    const category = (
+      id: string,
+      name: string,
+      group: [string, string],
+      budgeted: number,
+      activity: number,
+      balance: number,
+      extra: Record<string, unknown> = {},
+    ) => ({
+      id,
+      name,
+      category_group_id: group[0],
+      category_group_name: group[1],
+      budgeted,
+      activity,
+      balance,
+      hidden: false,
+      deleted: false,
+      internal: false,
+      ...extra,
+    });
+
+    const BILLS: [string, string] = ['group-bills', 'Bills'];
+    const FUN: [string, string] = ['group-fun', 'Fun'];
+    const CARDS: [string, string] = ['group-cards', 'Credit Card Payments'];
+    const INTERNAL: [string, string] = ['group-internal', 'Internal Master Category'];
+
+    const month = (categories: unknown[]) => ({
+      data: {
+        month: {
+          month: '2026-09-01',
+          income: 900000,
+          budgeted: 800000,
+          activity: -850000,
+          to_be_budgeted: 0,
+          age_of_money: 30,
+          categories,
+        },
+      },
+    });
+
+    const run = async (input: Record<string, unknown>, categories: unknown[]) => {
+      mockApi.accounts.getAccounts.mockResolvedValue({ data: { accounts: [] } });
+      mockApi.months.getPlanMonth.mockResolvedValue(month(categories));
+      const result = await PlanSummaryTool.execute(input, mockApi as any);
+      return JSON.parse(result.content[0].text);
+    };
+
+    const CATEGORIES = [
+      category('c-rent', 'Rent', BILLS, 1500000, -1500000, 0),
+      category('c-dining', 'Dining Out', FUN, 200000, -250000, -50000),
+      category('c-power', 'Electric', BILLS, 150000, -120000, 30000),
+      category('c-hidden', 'Old Hobby', FUN, 50000, -10000, 40000, { hidden: true }),
+      category('c-deleted', 'Gone', FUN, 70000, -70000, 0, { deleted: true }),
+    ];
+
+    it('leaves the response unchanged when omitted or false', async () => {
+      const omitted = await run({}, CATEGORIES);
+      const explicitFalse = await run({ budgetVsActuals: false }, CATEGORIES);
+
+      expect(omitted).not.toHaveProperty('budget_vs_actuals');
+      expect(explicitFalse).toEqual(omitted);
+    });
+
+    it('reports each visible category with group subtotals and totals', async () => {
+      const result = await run({ budgetVsActuals: true }, CATEGORIES);
+
+      // The existing summary is still there.
+      expect(result.overspent.map((c: any) => c.name)).toEqual(['Dining Out']);
+
+      const { groups, totals } = result.budget_vs_actuals;
+      // Groups appear in the order YNAB lists their first category; hidden and deleted categories are left out.
+      expect(groups.map((g: any) => g.category_group_name)).toEqual(['Bills', 'Fun']);
+      expect(groups[0]).toEqual({
+        category_group_id: 'group-bills',
+        category_group_name: 'Bills',
+        budgeted: 1650,
+        activity: -1620,
+        balance: 30,
+        variance: 30,
+        percent_used: 98.2,
+        categories: [
+          { id: 'c-rent', name: 'Rent', budgeted: 1500, activity: -1500, balance: 0, variance: 0, percent_used: 100 },
+          { id: 'c-power', name: 'Electric', budgeted: 150, activity: -120, balance: 30, variance: 30, percent_used: 80 },
+        ],
+      });
+      expect(groups[1].categories).toEqual([
+        { id: 'c-dining', name: 'Dining Out', budgeted: 200, activity: -250, balance: -50, variance: -50, percent_used: 125 },
+      ]);
+      expect(totals).toEqual({
+        budgeted: 1850,
+        activity: -1870,
+        balance: -20,
+        variance: -20,
+        percent_used: 101.1,
+      });
+    });
+
+    it('skips Ready to Assign, whose activity is the month income, and keeps other internal categories with activity', async () => {
+      // YNAB's month endpoint returns "Inflow: Ready to Assign" among the categories,
+      // with the month's income as its activity and a balance that accumulates across months.
+      const result = await run({ budgetVsActuals: true }, [
+        category('c-rta', 'Inflow: Ready to Assign', INTERNAL, 0, 900000, 2428718370, { internal: true }),
+        category('c-uncat', 'Uncategorized', INTERNAL, 0, -40000, -40000, { internal: true }),
+        category('c-quiet', 'Quiet Internal', INTERNAL, 0, 0, 0, { internal: true }),
+        category('c-rent', 'Rent', BILLS, 1500000, -1500000, 0),
+      ]);
+
+      const { groups, totals } = result.budget_vs_actuals;
+      expect(groups.map((g: any) => g.category_group_name)).toEqual(['Internal Master Category', 'Bills']);
+      expect(groups[0].categories).toEqual([
+        { id: 'c-uncat', name: 'Uncategorized', budgeted: 0, activity: -40, balance: -40, variance: -40, percent_used: null },
+      ]);
+      expect(totals).toEqual({ budgeted: 1500, activity: -1540, balance: -40, variance: -40, percent_used: 102.7 });
+    });
+
+    it('recognises Ready to Assign by its group when the internal flag is missing', async () => {
+      const result = await run({ budgetVsActuals: true }, [
+        category('c-rta', 'Inflow: Ready to Assign', INTERNAL, 0, 900000, 2428718370, { internal: undefined }),
+        category('c-rent', 'Rent', BILLS, 1500000, -1500000, 0),
+      ]);
+
+      expect(result.budget_vs_actuals.groups.map((g: any) => g.category_group_name)).toEqual(['Bills']);
+      expect(result.budget_vs_actuals.totals.activity).toBe(-1500);
+    });
+
+    it('reports percent used as null when nothing was assigned, and below zero after net refunds', async () => {
+      const result = await run({ budgetVsActuals: true }, [
+        category('c-gifts', 'Gifts', FUN, 0, -40000, -40000),
+        category('c-moved', 'Moved Out', FUN, -25000, 0, 0),
+        category('c-refund', 'Electronics', FUN, 100000, 30000, 130000),
+      ]);
+
+      const [fun] = result.budget_vs_actuals.groups;
+      expect(fun.categories.map((c: any) => [c.name, c.variance, c.percent_used])).toEqual([
+        ['Gifts', -40, null],
+        ['Moved Out', -25, null],
+        ['Electronics', 130, -30],
+      ]);
+      expect(fun.percent_used).toBe(13.3);
+    });
+
+    it('lists Credit Card Payments as its own group and leaves it out of the totals', async () => {
+      // A $90 card purchase in Dining Out moves $90 into the card's payment category.
+      const result = await run({ budgetVsActuals: true }, [
+        category('c-dining', 'Dining Out', FUN, 200000, -90000, 110000),
+        category('c-visa', 'Visa', CARDS, 0, 90000, 90000),
+      ]);
+
+      const { groups, totals } = result.budget_vs_actuals;
+      expect(groups.map((g: any) => g.category_group_name)).toEqual(['Fun', 'Credit Card Payments']);
+      expect(groups[1]).toMatchObject({ activity: 90, categories: [{ name: 'Visa', activity: 90 }] });
+      expect(totals).toEqual({ budgeted: 200, activity: -90, balance: 110, variance: 110, percent_used: 45 });
+    });
+
+    it('does not count a card payment made in the month as spending', async () => {
+      // Last month's $300 bill is paid this month: the payment category's activity is +90 - 300.
+      const result = await run({ budgetVsActuals: true }, [
+        category('c-dining', 'Dining Out', FUN, 200000, -90000, 110000),
+        category('c-visa', 'Visa', CARDS, 0, -210000, 0),
+      ]);
+
+      const { groups, totals } = result.budget_vs_actuals;
+      expect(groups[1].activity).toBe(-210);
+      expect(totals).toEqual({ budgeted: 200, activity: -90, balance: 110, variance: 110, percent_used: 45 });
+    });
+
+    it('uses the plan currency precision', async () => {
+      (mockApi as any).plans = {
+        getPlanSettingsById: vi.fn().mockResolvedValue({
+          data: { settings: { currency_format: { decimal_digits: 3 } } },
+        }),
+      };
+
+      const result = await run({ budgetVsActuals: true }, [
+        category('c-rent', 'Rent', BILLS, 1234567, -1000001, 234566),
+      ]);
+
+      expect(result.budget_vs_actuals.groups[0].categories[0]).toEqual({
+        id: 'c-rent',
+        name: 'Rent',
+        budgeted: 1234.567,
+        activity: -1000.001,
+        balance: 234.566,
+        variance: 234.566,
+        percent_used: 81,
+      });
+    });
+  });
+
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       expect(PlanSummaryTool.name).toBe('ynab_plan_summary');
@@ -341,6 +532,7 @@ describe('PlanSummaryTool', () => {
       expect(PlanSummaryTool.inputSchema).toHaveProperty('planId');
       expect(PlanSummaryTool.inputSchema).toHaveProperty('budgetId');
       expect(PlanSummaryTool.inputSchema).toHaveProperty('month');
+      expect(PlanSummaryTool.inputSchema).toHaveProperty('budgetVsActuals');
     });
   });
 });
