@@ -70,6 +70,7 @@ describe('DetectRecurringTool', () => {
         category_name: 'Subscriptions',
         cadence: 'monthly',
         occurrences: 6,
+        charges: 6,
         // Median of four 15.49 charges and two 16.99 ones.
         typical_amount: 15.49,
         latest_amount: 16.99,
@@ -202,7 +203,8 @@ describe('DetectRecurringTool', () => {
     expect((await detect()).recurring).toEqual([expect.objectContaining({
       payee_name: 'Phone Co',
       cadence: 'monthly',
-      occurrences: 6,
+      occurrences: 3,
+      charges: 6,
       typical_amount: 40,
       latest_amount: 40,
       annual_cost: 480,

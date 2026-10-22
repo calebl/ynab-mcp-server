@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage } from "./errorUtils.js";
 import { getDecimalDigits, toDollars } from "./money.js";
+import { addDays, addMonthsKeepingDay, daysBetween, todayUtc } from "./dates.js";
 import { collectSpending, daysAgo, type SpendingEntry } from "./spending.js";
 
 export const name = "ynab_detect_recurring";
@@ -50,23 +51,6 @@ const CADENCES: Cadence[] = [
 
 /** Share of the gaps between billing dates that must fit one cadence, once there are more than three. */
 const REGULARITY = 0.6;
-
-const DAY_MS = 86_400_000;
-
-function addDays(date: string, days: number): string {
-  return new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
-}
-
-/** Moves `date` by whole months, keeping its day of the month or clamping to the month's last day (Jan 31 + 1 = Feb 28). */
-function addMonthsKeepingDay(date: string, months: number): string {
-  const [year, month, day] = date.split("-").map(Number);
-  const lastDay = new Date(Date.UTC(year, month - 1 + months + 1, 0)).getUTCDate();
-  return new Date(Date.UTC(year, month - 1 + months, Math.min(day, lastDay))).toISOString().slice(0, 10);
-}
-
-function daysBetween(from: string, to: string): number {
-  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS);
-}
 
 /** Payee names that differ only in case or spacing ("NETFLIX ", "Netflix") are one payee. */
 function payeeKey(payeeName: string): string {
@@ -147,7 +131,7 @@ export async function execute(input: DetectRecurringInput, api: ynab.API) {
       byPayee.set(key, entries);
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayUtc();
     const found = [];
     for (const [key, entries] of byPayee) {
       for (const group of amountGroups(entries, tolerancePct)) {
@@ -167,7 +151,8 @@ export async function execute(input: DetectRecurringInput, api: ynab.API) {
             payee_name: charges[charges.length - 1].payeeName.trim(),
             category_name: mostCommon(charges.map((charge) => charge.categoryName)),
             cadence: cadence.cadence,
-            occurrences: charges.length,
+            occurrences: billings.length,
+            charges: charges.length,
             typical_amount: toDollars(median(billings.map((billing) => billing.amountMilliunits)), decimalDigits),
             latest_amount: toDollars(last.amountMilliunits, decimalDigits),
             annual_cost: toDollars(annualMilliunits, decimalDigits),
