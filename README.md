@@ -280,8 +280,8 @@ accounts are excluded, so these report spending rather than money movement.
 
 | Tool | What it does |
 | --- | --- |
-| `ynab_spending_by_category` | Total spend per category over a date range, biggest first, with share of total. Defaults to the last 30 days. |
-| `ynab_spending_by_payee` | The same, grouped by merchant. |
+| `ynab_spending_by_category` | Total spend per category over a date range, biggest first, with share of total. Defaults to the last 30 days. With `monthly: true`, each category also gets spend per calendar month, its mean over the full months, and its last full month's change against the earlier full months, over the last `months` months (default 6, at most 24) or from `sinceDate`, which overrides `months`; `untilDate` then defaults to today. Totals are gross outflows, so refunds aren't netted. |
+| `ynab_spending_by_payee` | The same, grouped by merchant, including `monthly`. |
 | `ynab_cash_flow` | Income vs spending per month with the running net, from YNAB's own monthly totals. Defaults to the last 6 months. |
 | `ynab_detect_recurring` | Recurring outflows such as subscriptions and bills: a payee's charges of a similar amount at a regular interval (weekly to yearly), with typical amount, yearly cost at the latest amount, next expected date, whether it seems to have stopped, and whether a scheduled transaction has the same payee name. Loan and mortgage payments are transfers, so they are not included, and refunds are not netted. A heuristic; defaults to the last 365 days. |
 
