@@ -5,7 +5,7 @@ import { getErrorMessage } from "./errorUtils.js";
 import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_cash_flow";
-export const description = "Income versus spending, month by month, so you can see whether you are running a surplus. Uses YNAB's own monthly totals rather than re-adding transactions.";
+export const description = "Income versus spending, month by month, so you can see whether you are running a surplus. Uses YNAB's own monthly totals rather than re-adding transactions. For a projected balance, use ynab_balance_forecast.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
