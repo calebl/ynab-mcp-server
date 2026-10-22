@@ -5,7 +5,7 @@ import { getErrorMessage } from "./errorUtils.js";
 import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_list_scheduled_transactions";
-export const description = "Lists all scheduled (recurring) transactions in a plan.";
+export const description = "Lists all scheduled (recurring) transactions in a plan. For a projected balance, use ynab_balance_forecast.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
