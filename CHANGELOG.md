@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `ynab_plan_summary` accepts `budgetVsActuals`. With `true`, the response adds a `budget_vs_actuals` block comparing assigned with actual spending for the month: `budgeted`, `activity`, `balance`, `variance` (budgeted plus activity; below zero means more was spent than assigned) and `percent_used` (spent as a percentage of budgeted, `null` when nothing was assigned) for each visible category, subtotalled per category group (in the order YNAB lists them) and in `totals`. Credit Card Payments is listed as its own group but left out of `totals`, because its activity is card spending moving in minus payments going out. YNAB's internal Inflow: Ready to Assign category is skipped, because the month endpoint returns it with the month's income as its activity; other internal categories, such as Uncategorized, are listed and counted when they have activity. Without the option, or with `budgetVsActuals: false`, the response is unchanged.
+
 ### Changed
 - A plan's currency settings are read from YNAB once per API client and plan instead of on every tool call that returns amounts, saving one request per call after the first. A failed read still falls back to 2 decimal places and is retried on the next call. The `last-used` and `default` plan aliases are read every time. The stdio server keeps the settings until it restarts; the Worker builds a new client for each request.
 
