@@ -405,17 +405,6 @@ resolved before the pull request can be merged.
 
 ## Compatibility
 
-These tool names are deprecated aliases. They still work for now, but are
-announced as deprecated in the next release and removed in the release after
-that:
-
-| Alias | Use instead |
-| --- | --- |
-| `ynab_list_budgets` | `ynab_list_plans` |
-| `ynab_budget_summary` | `ynab_plan_summary` |
-| `ynab_get_unapproved_transactions` | `ynab_get_transactions` with `type: "unapproved"` |
-| `ynab_approve_transaction` | `ynab_bulk_approve_transactions` with a one-element `transactionIds` |
-
 `budgetId` and `YNAB_BUDGET_ID` are deprecated but still
 accepted; there is no removal date. Use `planId` and `YNAB_PLAN_ID` for new
 integrations.
