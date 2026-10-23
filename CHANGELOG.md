@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Updated the locked `zod` from 4.6.5 to 4.6.7 in response to GHSA-mrhx-c7xc-m3w5 (memory exhaustion while collecting issues for a large array without a length limit). Both servers were exposed: they validate tool input with `zod`, and some tool inputs, such as `accountIds` and `subtransactions`, are arrays with no maximum length. The Worker only accepts these calls after GitHub OAuth.
+- Updated the locked `ip-address` from 10.7.2 to 10.7.4 in response to GHSA-rxp7-6hxx-x8q5 (quadratic-time zone identifier match in `Address6`). Neither server was exposed: it is only a transitive dependency of `express-rate-limit` under `@modelcontextprotocol/sdk`, and neither server uses `express-rate-limit`.
+- Updated the locked `@vitest/mocker` (with `vitest` and its packages) from 4.1.11 to 4.1.12 in response to GHSA-qxg6-89mg-rqv8 and GHSA-xp26-3454-mjgp. Neither server was exposed: it is a development-only dependency.
+
 ## [0.7.0] - 2026-10-23
 
 ### Security
