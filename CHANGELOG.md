@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-23
+
 ### Security
 - Updated the locked `zod` from 4.6.5 to 4.6.7 in response to GHSA-mrhx-c7xc-m3w5 (memory exhaustion while collecting issues for a large array without a length limit). Both servers validate tool input with `zod`, and the stdio server has inputs such as `accountIds` and `subtransactions` whose schemas have no maximum length. The Worker additionally limits request bodies to 1 MiB and nested tool inputs to 10,000 elements, after GitHub OAuth.
 - Updated the locked `ip-address` from 10.7.2 to 10.7.4 in response to GHSA-rxp7-6hxx-x8q5 (quadratic-time zone identifier match in `Address6`). Neither server was exposed: it is only a transitive dependency of `express-rate-limit` under `@modelcontextprotocol/sdk`, and neither server uses `express-rate-limit`.
