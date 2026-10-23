@@ -1,6 +1,6 @@
 {
   "name": "ynab-mcp-server",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "MCP server for interacting with a YNAB plan",
   "author": "Caleb LeNoir <caleb.lenoir@hey.com>",
   "contributors": [
