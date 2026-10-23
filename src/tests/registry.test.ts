@@ -116,7 +116,6 @@ describe("tool registration", () => {
     // Spot-check the specific hints called out for this tool set.
     expect(registered.get("ynab_delete_transaction")?.config.annotations.destructiveHint).toBe(true);
     expect(registered.get("ynab_create_transaction")?.config.annotations.destructiveHint).toBe(false);
-    expect(registered.get("ynab_approve_transaction")?.config.annotations.idempotentHint).toBe(true);
     expect(registered.get("ynab_update_transaction")?.config.annotations.idempotentHint).toBe(true);
     expect(registered.get("ynab_bulk_approve_transactions")?.config.annotations.idempotentHint).toBe(true);
     expect(registered.get("ynab_update_category_budget")?.config.annotations.idempotentHint).toBe(true);
@@ -265,7 +264,7 @@ describe("tool registration", () => {
     expect(api.months.getPlanMonth).toHaveBeenCalledWith(expected, "current");
   });
 
-  it("successfully calls canonical and legacy plan tool registrations", async () => {
+  it("successfully calls the plan tool registrations", async () => {
     vi.stubEnv("YNAB_API_TOKEN", "test-token");
     const api = {
       plans: { getPlans: vi.fn().mockResolvedValue({ data: { plans: [] } }) },
@@ -289,24 +288,20 @@ describe("tool registration", () => {
     };
     const registered = register(api as unknown as ynab.API);
 
-    for (const name of ["ynab_list_plans", "ynab_list_budgets"]) {
-      const result = await registered.get(name)!.callback({});
-      expect(result.isError, name).toBeUndefined();
-    }
-    for (const name of ["ynab_plan_summary", "ynab_budget_summary"]) {
-      const result = await registered.get(name)!.callback({ planId: "test-plan" });
-      expect(result.isError, name).toBeUndefined();
-    }
+    const listResult = await registered.get("ynab_list_plans")!.callback({});
+    expect(listResult.isError).toBeUndefined();
+    const summaryResult = await registered.get("ynab_plan_summary")!.callback({ planId: "test-plan" });
+    expect(summaryResult.isError).toBeUndefined();
 
-    expect(api.plans.getPlans).toHaveBeenCalledTimes(2);
-    expect(api.accounts.getAccounts).toHaveBeenCalledTimes(2);
+    expect(api.plans.getPlans).toHaveBeenCalledTimes(1);
+    expect(api.accounts.getAccounts).toHaveBeenCalledTimes(1);
   });
 
-  it("marks the registered list-budgets missing-token failure as isError", async () => {
+  it("marks the registered list-plans missing-token failure as isError", async () => {
     vi.stubEnv("YNAB_API_TOKEN", "");
     const registered = register();
 
-    const result = await registered.get("ynab_list_budgets")!.callback({});
+    const result = await registered.get("ynab_list_plans")!.callback({});
 
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content[0].text)).toEqual({
@@ -512,30 +507,19 @@ describe("a configured plan the token cannot see", () => {
   });
 });
 
-describe("deprecated aliases", () => {
+describe("removed aliases", () => {
   it.each([
     ["ynab_list_budgets", "ynab_list_plans"],
     ["ynab_budget_summary", "ynab_plan_summary"],
     ["ynab_get_unapproved_transactions", "ynab_get_transactions"],
     ["ynab_approve_transaction", "ynab_bulk_approve_transactions"],
-  ])("describes %s as a deprecated alias of %s", (alias, target) => {
+  ])("no longer registers %s, only %s", (alias, replacement) => {
     const registered = register();
-    expect(registered.get(alias)?.config.description).toBe(`Deprecated alias of ${target}; use that instead`);
-    expect(registered.get(alias)?.config.annotations.readOnlyHint)
-      .toBe(registered.get(target)?.config.annotations.readOnlyHint);
+    expect(registered.has(alias)).toBe(false);
+    expect(registered.has(replacement)).toBe(true);
   });
 
-  it("keeps each alias in the read-only set exactly when its target is", () => {
-    const registered = new Map<string, unknown>();
-    registerAll({ registerTool: (name) => { registered.set(name, true); } }, {} as ynab.API, { readOnly: true });
-
-    expect(registered.has("ynab_get_unapproved_transactions")).toBe(true);
-    expect(registered.has("ynab_get_transactions")).toBe(true);
-    expect(registered.has("ynab_approve_transaction")).toBe(false);
-    expect(registered.has("ynab_bulk_approve_transactions")).toBe(false);
-  });
-
-  it("maps a ynab_get_unapproved_transactions call onto an unlimited unapproved listing", async () => {
+  it("lists unapproved transactions through ynab_get_transactions", async () => {
     vi.stubEnv("YNAB_API_TOKEN", "test-token");
     const rows = Array.from({ length: 150 }, (_, i) => ({
       id: `txn-${i}`,
@@ -555,7 +539,12 @@ describe("deprecated aliases", () => {
     };
     const registered = register(api as unknown as ynab.API);
 
-    const result = await registered.get("ynab_get_unapproved_transactions")!.callback({ planId: "plan-1", sinceDate: "2024-01-01" });
+    const result = await registered.get("ynab_get_transactions")!.callback({
+      planId: "plan-1",
+      sinceDate: "2024-01-01",
+      type: "unapproved",
+      limit: 1000,
+    });
 
     expect(result.isError).toBeUndefined();
     expect(api.transactions.getTransactions).toHaveBeenCalledWith("plan-1", "2024-01-01", undefined, "unapproved");
@@ -573,7 +562,7 @@ describe("deprecated aliases", () => {
   it.each([
     [{}, true],
     [{ approved: false }, false],
-  ])("maps a ynab_approve_transaction call with %j onto a one-row bulk update", async (extra, approved) => {
+  ])("approves a single transaction through ynab_bulk_approve_transactions with %j", async (extra, approved) => {
     vi.stubEnv("YNAB_API_TOKEN", "test-token");
     const api = {
       transactions: {
@@ -584,8 +573,8 @@ describe("deprecated aliases", () => {
       plans: { getPlanSettingsById: vi.fn().mockRejectedValue(new Error("no settings")) },
     };
     const registered = register(api as unknown as ynab.API);
-    const callback = registered.get("ynab_approve_transaction")!;
-    const input = (callback.config.inputSchema as z.ZodTypeAny).parse({ budgetId: "plan-1", transactionId: "txn-1", ...extra });
+    const callback = registered.get("ynab_bulk_approve_transactions")!;
+    const input = (callback.config.inputSchema as z.ZodTypeAny).parse({ budgetId: "plan-1", transactionIds: ["txn-1"], ...extra });
 
     const result = await callback.callback(input);
 
