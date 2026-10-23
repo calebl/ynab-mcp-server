@@ -7,8 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Removed
-- The deprecated tool aliases are gone, as announced in 0.6.0: `ynab_list_budgets` (use `ynab_list_plans`), `ynab_budget_summary` (use `ynab_plan_summary`), `ynab_get_unapproved_transactions` (use `ynab_get_transactions` with `type: "unapproved"`; it returns up to 100 rows by default, accepts `limit` up to 1000 for more, and reports `total_available` so callers can check whether the returned list is complete) and `ynab_approve_transaction` (use `ynab_bulk_approve_transactions` with a one-element `transactionIds`). The `budgetId` parameter and `YNAB_BUDGET_ID` are still accepted.
+## [0.7.0] - 2026-10-23
+
+### Security
+- Updated the locked `hono` from 4.13.8 to 4.13.13 in response to GHSA-5r4p-p66f-jhc7 (`serveStatic` double-decodes the request path) and `vite` from 7.3.6 to 7.3.7 in response to the bundled `launch-editor` advisories GHSA-698v-4r3x-3vcv, GHSA-587h-7wmj-h5pm and GHSA-r825-w8mm-5pxw. Neither server was exposed: `hono` is only a transitive dependency of `@modelcontextprotocol/sdk` and nothing imports `serveStatic`, and `vite` is a development-only dependency of `vitest`. The Worker bundle is unchanged.
 
 ### Added
 - `ynab_detect_recurring` finds recurring outflows (subscriptions, bills, memberships) in transaction history, whether or not they are scheduled in YNAB. It groups a payee's outflows by similar amount (`amountTolerancePct`, default 10), adds up charges in a group that fall on the same date, and reports a group charged on at least `minOccurrences` dates (default 3) whose spacing fits a weekly, biweekly, monthly, quarterly or yearly cadence. Each result has `payee_name`, `category_name`, `cadence`, `occurrences` (billing dates), `charges` (every charge, which can be more than `occurrences` when one date has several), `typical_amount` (median), `latest_amount`, `annual_cost` (`latest_amount` × charges per year), `first_date`, `last_date`, `next_expected_date`, `possibly_lapsed` and `already_scheduled` (matched by payee name only); the response adds `annual_cost_active` over the ones not lapsed. It reads outflows the way the spending reports do (splits through their subtransactions, transfers and inflows excluded, so loan and mortgage payments are not included and refunds are not netted), treats payee names that differ only in case or spacing as one payee, and defaults `sinceDate` to 365 days ago, all in one transactions request. It is a heuristic.
@@ -21,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ynab_list_scheduled_transactions`'s description now says it lists the scheduled transactions set up in YNAB, and also points to `ynab_detect_recurring` for recurring charges in transaction history.
 - `ynab_spending_by_category` and `ynab_spending_by_payee` descriptions say their totals are gross outflows: refunds and other inflows aren't netted, so they can differ from a category's activity in YNAB.
 - A plan's currency settings are read from YNAB once per API client and plan instead of on every tool call that returns amounts, saving one request per call after the first. A failed read still falls back to 2 decimal places and is retried on the next call. The `last-used` and `default` plan aliases are read every time. The stdio server keeps the settings until it restarts; the Worker builds a new client for each request.
+
+### Removed
+- The deprecated tool aliases are gone, as announced in 0.6.0: `ynab_list_budgets` (use `ynab_list_plans`), `ynab_budget_summary` (use `ynab_plan_summary`), `ynab_get_unapproved_transactions` (use `ynab_get_transactions` with `type: "unapproved"`; it returns up to 100 rows by default, accepts `limit` up to 1000 for more, and reports `total_available` so callers can check whether the returned list is complete) and `ynab_approve_transaction` (use `ynab_bulk_approve_transactions` with a one-element `transactionIds`). The `budgetId` parameter and `YNAB_BUDGET_ID` are still accepted.
 
 ## [0.6.0] - 2026-10-21
 
