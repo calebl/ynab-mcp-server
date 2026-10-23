@@ -297,9 +297,13 @@ than money movement.
 | `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call, or un-approves them with `approved: false`. |
 | `ynab_apply_category_suggestions` | Applies up to 25 explicit category suggestions with refetch and stale-data checks, dry-run support, and a pre-write undo manifest. Never auto-applies or approves transactions. |
 | `ynab_update_category_budget` | Sets the total budgeted amount for one category in a month. Not an increment; use `ynab_move_money` to move money between categories. |
+| `ynab_create_category` | Creates a category in a group given as `categoryGroupId` or `categoryGroupName`, with an optional `note`, `goalTarget` and `goalTargetDate`. `createGroupIfMissing: true` creates the group when no group has exactly that name. Refuses a name already used in the group, and never uses a hidden, internal or ambiguous group found by name. |
+| `ynab_update_category` | Renames a category, moves it to another existing group, or changes its note or target. Finds it by `categoryId` or `categoryName`, hidden categories included; only the fields passed change, and `note: ""` clears the note. |
 | `ynab_import_transactions` | Triggers an import from linked institutions, the same as hitting Import in the YNAB app. |
 | `ynab_move_money` | Moves budgeted money between two categories in a month, for covering overspending. |
 | `ynab_auto_assign` | Spreads Ready to Assign over categories with unmet monthly goals, largest shortfall first. `dryRun` to preview, `maxTotal` to cap it. |
+
+YNAB's API cannot hide, delete or reorder categories or groups, so those still happen in the YNAB app.
 
 #### Names instead of IDs
 

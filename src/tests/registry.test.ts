@@ -125,6 +125,10 @@ describe("tool registration", () => {
     expect(registered.get("ynab_auto_assign")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_import_transactions")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_balance_forecast")?.config.annotations.readOnlyHint).toBe(true);
+    for (const name of ["ynab_create_category", "ynab_update_category"]) {
+      expect(registered.get(name)?.config.annotations.readOnlyHint, name).toBe(false);
+      expect(registered.get(name)?.config.annotations.idempotentHint, name).toBe(false);
+    }
     expect(registered.get("ynab_detect_recurring")?.config.annotations).toEqual({
       title: "Detect Recurring",
       readOnlyHint: true,
@@ -160,6 +164,27 @@ describe("tool registration", () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.issues.some((issue) => issue.message === "Either payeeId or payeeName must be provided")).toBe(true);
+  });
+
+  it.each([
+    ["ynab_create_category", { name: "Shopping" }, "Either categoryGroupId or categoryGroupName must be provided"],
+    ["ynab_update_category", { name: "Shopping" }, "Either categoryId or categoryName must be provided"],
+  ])("rejects %s input without an id or a name to find", (tool, input, message) => {
+    const registered = register();
+    const schema = registered.get(tool)!.config.inputSchema as z.ZodType;
+
+    const result = schema.safeParse(input);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.some((issue) => issue.message === message)).toBe(true);
+  });
+
+  it("leaves the category structure tools out in read-only mode", () => {
+    const registered = new Map<string, unknown>();
+    registerAll({ registerTool: (name) => { registered.set(name, true); } }, {} as ynab.API, { readOnly: true });
+    expect(registered.has("ynab_create_category")).toBe(false);
+    expect(registered.has("ynab_update_category")).toBe(false);
+    expect(registered.has("ynab_list_categories")).toBe(true);
   });
 
   it("passes null optional inputs to tools as omissions", async () => {
