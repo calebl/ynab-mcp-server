@@ -17,7 +17,7 @@ describe('UpdateCategoryTool', () => {
   };
 
   const groups = [
-    group('g-wants', 'Wants', [['c-ent', '🍿 Entertainment'], ['c-old', 'Old stuff', { hidden: true }]]),
+    group('g-wants', 'Wants', [['c-ent', '🍿 Entertainment'], ['c-old', 'Old stuff', { hidden: true }]], { internal: true }),
     group('g-savings', 'Savings', [['c-ef', 'Emergency fund']]),
   ];
 
@@ -54,6 +54,12 @@ describe('UpdateCategoryTool', () => {
     const response = await run({ categoryName: 'Entertainment', categoryGroupName: 'savings' });
     expect(mockApi.categories.updateCategory).toHaveBeenCalledWith('plan-1', 'c-ent', { category: { category_group_id: 'g-savings' } });
     expect(response.after.category_group_name).toBe('Savings');
+  });
+
+  it('treats a move into the current group as a no-op instead of sending an empty update', async () => {
+    const response = await run({ categoryId: 'c-ef', categoryGroupName: 'Savings' });
+    expect(mockApi.categories.updateCategory).not.toHaveBeenCalled();
+    expect(response).toMatchObject({ success: true, message: 'Emergency fund already matches; nothing was changed' });
   });
 
   it('clears a note with an empty string', async () => {

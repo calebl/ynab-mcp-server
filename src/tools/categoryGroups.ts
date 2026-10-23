@@ -11,6 +11,13 @@ import { toMilliunits } from "./money.js";
 
 export const CREDIT_CARD_PAYMENTS_GROUP = "Credit Card Payments";
 
+/**
+ * YNAB's own groups. The `internal` flag can't identify them: YNAB also sets it
+ * on the starter groups a new plan comes with (Bills, Needs, Wants), which
+ * take new categories like any other group.
+ */
+const SYSTEM_GROUPS = new Set(["Internal Master Category", "Hidden Categories"]);
+
 /** YNAB's limit for category group names (see `SaveCategoryGroup`). */
 export const MAX_GROUP_NAME_LENGTH = 50;
 
@@ -95,7 +102,7 @@ function resolve<T extends { id: string; name: string }>(
 }
 
 function groupRestriction(group: ynab.CategoryGroupWithCategories, byId: boolean): Restriction | null {
-  if (group.internal) return "internal";
+  if (SYSTEM_GROUPS.has(group.name)) return "internal";
   if (group.name === CREDIT_CARD_PAYMENTS_GROUP) return "credit-card-payments";
   // A hidden group can be targeted deliberately by id, but a name that only
   // matches a hidden group is reported rather than treated as missing.
@@ -119,7 +126,7 @@ export function resolveGroup(
 export function resolveCategory(groups: ynab.CategoryGroupWithCategories[], lookup: Lookup): Resolution<GroupedCategory> {
   const categories = groups.flatMap((group) => group.categories.map((category) => ({ ...category, group })));
   return resolve(categories, lookup, "category", (category) => {
-    if (category.internal || category.group.internal) return "internal";
+    if (category.internal || SYSTEM_GROUPS.has(category.group.name)) return "internal";
     if (category.group.name === CREDIT_CARD_PAYMENTS_GROUP) return "credit-card-payments";
     return null;
   }, true);

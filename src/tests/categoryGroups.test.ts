@@ -16,7 +16,8 @@ function group(id: string, name: string, categories: ynab.Category[] = [], extra
 
 const internal = group("g-internal", "Internal Master Category", [category("c-rta", "Inflow: Ready to Assign", { internal: true })], { internal: true });
 const cards = group("g-cards", "Credit Card Payments", [category("c-visa", "Visa")]);
-const needs = group("g-needs", "Needs", [category("c-groceries", "🛒 Groceries"), category("c-old", "Old stuff", { hidden: true })]);
+// YNAB flags its starter groups as internal too; they are ordinary groups.
+const needs = group("g-needs", "Needs", [category("c-groceries", "🛒 Groceries"), category("c-old", "Old stuff", { hidden: true })], { internal: true });
 const savings = group("g-savings", "😌 Savings", [category("c-ef", "Emergency fund")]);
 const hiddenGroup = group("g-hidden", "Archive", [category("c-archived", "Archived thing")], { hidden: true });
 const groups = [internal, cards, needs, savings, hiddenGroup];
@@ -43,6 +44,11 @@ describe("resolveGroup", () => {
     expect(resolveGroup(groups, { id: "g-internal" })).toMatchObject({ kind: "disallowed", reason: "internal" });
     expect(resolveGroup(groups, { id: "g-cards" })).toMatchObject({ kind: "disallowed", reason: "credit-card-payments" });
     expect(resolveGroup(groups, { name: "credit card payments" })).toMatchObject({ kind: "disallowed", reason: "credit-card-payments" });
+  });
+
+  it("treats starter groups YNAB flags as internal as ordinary groups", () => {
+    expect(resolveGroup(groups, { name: "Needs" })).toMatchObject({ kind: "found", item: { id: "g-needs" } });
+    expect(resolveCategory(groups, { name: "groceries" })).toMatchObject({ kind: "found", item: { id: "c-groceries" } });
   });
 
   it("allows a hidden group by id but reports a name that only matches it", () => {

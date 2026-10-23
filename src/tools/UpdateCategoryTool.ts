@@ -89,11 +89,14 @@ export async function execute(input: UpdateCategoryInput, api: ynab.API) {
     if (input.goalTarget !== undefined) patch.goal_target = toMilliunits(input.goalTarget);
     if (input.goalTargetDate !== undefined) patch.goal_target_date = input.goalTargetDate;
 
-    const [response, decimalDigits] = await Promise.all([
-      api.categories.updateCategory(planId, category.id, { category: patch }),
+    // A move into the group it is already in leaves nothing to send, and YNAB rejects an empty update.
+    const unchanged = Object.keys(patch).length === 0;
+    const [updated, decimalDigits] = await Promise.all([
+      unchanged
+        ? Promise.resolve(category)
+        : api.categories.updateCategory(planId, category.id, { category: patch }).then((response) => response.data.category),
       getDecimalDigits(api, planId),
     ]);
-    const updated = response.data.category;
 
     return {
       content: [{
@@ -104,7 +107,7 @@ export async function execute(input: UpdateCategoryInput, api: ynab.API) {
           category_id: category.id,
           before: summarize(category, category.group.name, decimalDigits),
           after: summarize(updated, targetGroup.name, decimalDigits),
-          message: `Updated ${updated.name}`,
+          message: unchanged ? `${updated.name} already matches; nothing was changed` : `Updated ${updated.name}`,
         }, null, 2),
       }],
     };

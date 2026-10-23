@@ -19,7 +19,7 @@ describe('CreateCategoryTool', () => {
   const groups = [
     group('g-internal', 'Internal Master Category', [], { internal: true }),
     group('g-cards', 'Credit Card Payments', ['Visa']),
-    group('g-wants', 'Wants', ['🍽️ Dining out']),
+    group('g-wants', 'Wants', ['🍽️ Dining out'], { internal: true }),
     group('g-archive', 'Archive', [], { hidden: true }),
   ];
 
