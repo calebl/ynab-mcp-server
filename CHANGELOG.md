@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
-- Updated the locked `undici` from 7.29.1 to 7.30.1 in response to GHSA-xjj6-f33q-929c (denial of service via unhandled error on excessive content-encodings). `miniflare` (through `wrangler`) pins `undici` to an exact vulnerable version, so an npm `overrides` entry scoped to `miniflare` lifts it to the patched release. Neither server was exposed: `undici` is a development-only dependency of the local Worker tooling.
+- Updated the locked `undici` from 7.29.1 to 7.30.1 in response to GHSA-xjj6-f33q-929c (denial of service via unhandled error on excessive content-encodings). `miniflare` (through `wrangler`) pins `undici` to an exact vulnerable version, so a top-level npm `overrides` entry lifts it to the patched release (a `miniflare`-scoped override fails on npm 10; `miniflare` is still the only package that pulls in `undici`). Neither server was exposed: `undici` is a development-only dependency of the local Worker tooling.
 
 ## [0.7.2] - 2026-10-31
 
