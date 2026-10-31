@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Updated the locked `fast-uri` from 3.1.8 to 3.1.9 in response to GHSA-wjr9-j795-jxcr (host confusion via unchecked WHATWG host canonicalization). Neither server was exposed: it is only reached through `ajv` in `@modelcontextprotocol/sdk`, which both servers load for its default JSON Schema validator but use only to validate elicitation responses, and neither server sends elicitation requests.
+
 ## [0.7.1] - 2026-10-23
 
 ### Security
