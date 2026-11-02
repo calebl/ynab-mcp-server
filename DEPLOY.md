@@ -190,8 +190,10 @@ application:
   flag for each client; there is no default) as the only allowed redirect
   URIs. The script accepts exact `https` callbacks, exact `http` callbacks on
   localhost or another loopback address, and exact custom-scheme callbacks for
-  native clients. Cloudflare's wildcard form is also accepted, but only as one
-  final `/*` suffix; other wildcard placements and non-loopback `http` are
+  native clients, including single-slash forms such as
+  `com.example.app:/oauth/callback`. Cloudflare's wildcard form is also
+  accepted for HTTP(S) paths, but only as one final `/*` suffix; custom-scheme
+  wildcards, query wildcards, other placements, and non-loopback `http` are
   refused.
 
 It prints `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` for step 3. Other
@@ -210,9 +212,13 @@ clearly labelled placeholder for that server-assigned ID; with `--yes`, that
 returned ID is the only value substituted. With `--yes`, before changing
 anything the script saves the Access application's full JSON to
 `.cloudflare-access/` (git-ignored), and `apply` prints the rollback command.
-An update keeps every application setting it doesn't change. The script
-checks its flags and refuses when more than one Access application matches
-before it writes anything, and it stops on any API error.
+An update keeps every application setting it doesn't change. Because policies
+and Managed OAuth settings apply to the whole Access application, the script
+refuses to update an application that also protects another destination; split
+those destinations into separate applications or use the dashboard. A
+Worker's `worker` and `preview_worker` destinations count as the same target.
+The script also refuses when more than one Access application matches before
+it writes anything, and it stops on any API error.
 
 To undo an `apply`, pass the backup file it printed. Run without `--yes`
 first to see the request:

@@ -26,6 +26,10 @@ const HOSTNAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9
 const PENDING_POLICY_ID = "<server-assigned policy id from the policy POST>";
 const PLAIN_POLICY_FIELDS = new Set([
   "id",
+  "uid",
+  "account_id",
+  "app_count",
+  "reusable",
   "name",
   "decision",
   "include",
@@ -58,8 +62,8 @@ Target (inspect and apply; exactly one):
 apply options:
   --email <address>       Identity the Allow policy admits (required)
   --redirect-uri <uri>    Exact https, loopback http, or custom-scheme callback
-                          URI of an MCP client (required, repeatable). A single
-                          wildcard is allowed only as a final /* suffix.
+                          URI of an MCP client (required, repeatable). HTTP(S)
+                          paths may use one wildcard as a final /* suffix.
   --allow-localhost       Admit any client redirecting to localhost
   --allow-loopback        Admit any client redirecting to a loopback address
   --token-lifetime <d>    Access token lifetime (default 15m)
@@ -386,10 +390,6 @@ function readApplyOptions(values) {
 
 function validateRedirectUri(uri) {
   if (uri !== uri.trim()) fail(`--redirect-uri "${uri}" is not a valid callback URI`);
-  const wildcardCount = [...uri].filter((character) => character === "*").length;
-  if (wildcardCount > 0 && (wildcardCount !== 1 || !uri.endsWith("/*"))) {
-    fail(`--redirect-uri "${uri}" may use a wildcard only as a final /* suffix`);
-  }
 
   let parsed;
   try {
@@ -397,9 +397,23 @@ function validateRedirectUri(uri) {
   } catch {
     fail(`--redirect-uri "${uri}" is not a URL`);
   }
-  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(uri)) {
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(uri)) {
     fail(`--redirect-uri "${uri}" must be an https, loopback http, or custom-scheme URI`);
   }
+
+  const wildcardCount = [...uri].filter((character) => character === "*").length;
+  if (
+    wildcardCount > 0 &&
+    (wildcardCount !== 1 ||
+      !["https:", "http:"].includes(parsed.protocol) ||
+      !uri.endsWith("/*") ||
+      !parsed.pathname.endsWith("/*"))
+  ) {
+    fail(
+      `--redirect-uri "${uri}" may use a wildcard only as a final /* HTTP(S) path suffix`,
+    );
+  }
+
   if (parsed.protocol === "https:") return;
   if (parsed.protocol === "http:") {
     const hostname = parsed.hostname.toLowerCase();
@@ -415,6 +429,25 @@ const isOnlyEmail = (policy, email) =>
   policy.include[0]?.email?.email?.toLowerCase() === email.toLowerCase() &&
   (policy.exclude ?? []).length === 0 &&
   (policy.require ?? []).length === 0;
+
+function otherDestinations(app, target) {
+  return (app.destinations ?? []).filter((destination) => {
+    if (target.kind === "worker") {
+      return !(
+        WORKER_DESTINATIONS.has(destination.type) && destination.worker_id === target.tag
+      );
+    }
+    return !(destination.type === "public" && hostOf(destination.uri) === target.host);
+  });
+}
+
+function describeDestination(destination) {
+  if (destination.type === "public") return `public:${destination.uri}`;
+  if (WORKER_DESTINATIONS.has(destination.type)) {
+    return `${destination.type}:${destination.worker_id}`;
+  }
+  return JSON.stringify(destination);
+}
 
 function oauthConfiguration(existing, opts) {
   const current = existing ?? {};
@@ -480,6 +513,21 @@ async function apply(values, ctx) {
     );
   }
 
+  // The current app, fetched on its own so the PUT starts from the full record.
+  const existing = matches.length
+    ? await api.get(`/accounts/${account}/access/apps/${matches[0].id}`)
+    : undefined;
+  if (existing) {
+    const others = otherDestinations(existing, resolved);
+    if (others.length > 0) {
+      fail(
+        `Access application ${existing.name} (${existing.id}) also protects other destinations: ${others
+          .map(describeDestination)
+          .join(", ")}; split them into separate Access applications or use the dashboard`,
+      );
+    }
+  }
+
   const policies = await api.list(`/accounts/${account}/access/policies`);
   const reusable = policies.find((p) => isOnlyEmail(p, opts.email));
   const policyBody = reusable
@@ -489,10 +537,6 @@ async function apply(values, ctx) {
         decision: "allow",
         include: [{ email: { email: opts.email } }],
       };
-  // The current app, fetched on its own so the PUT starts from the full record.
-  const existing = matches.length
-    ? await api.get(`/accounts/${account}/access/apps/${matches[0].id}`)
-    : undefined;
   let workerDomain;
   if (!existing && resolved.kind === "worker") {
     const workersSubdomain = await api.get(`/accounts/${account}/workers/subdomain`);

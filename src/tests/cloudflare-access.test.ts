@@ -16,6 +16,23 @@ const CALLBACK = "https://client.example/oauth/callback";
 type Json = Record<string, any>;
 type Call = { method: string; path: string; body?: Json };
 
+const plainPolicy = (overrides: Json = {}): Json => ({
+  id: "pol-mine",
+  uid: "policy-uid",
+  account_id: ACCOUNT,
+  app_count: 1,
+  reusable: true,
+  name: "Mine",
+  precedence: 1,
+  decision: "allow",
+  include: [{ email: { email: EMAIL } }],
+  exclude: [],
+  require: [],
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+  ...overrides,
+});
+
 const workerApp = (): Json => ({
   id: "app-w",
   aud: "aud-w",
@@ -351,7 +368,7 @@ describe("apply", () => {
       apps: [workerApp()],
       policies: [
         { id: "pol-broad", decision: "allow", include: [{ everyone: {} }] },
-        { id: "pol-mine", name: "Mine", decision: "allow", include: [{ email: { email: "Owner@Example.com" } }] },
+        plainPolicy({ include: [{ email: { email: "Owner@Example.com" } }] }),
       ],
     });
     const args = [
@@ -385,11 +402,11 @@ describe("apply", () => {
   it("accepts exact custom-scheme, loopback, and suffix-wildcard callbacks", async () => {
     const cf = fakeCloudflare({
       apps: [workerApp()],
-      policies: [{ id: "pol-mine", decision: "allow", include: [{ email: { email: EMAIL } }] }],
+      policies: [plainPolicy()],
     });
     const callbacks = [
       CALLBACK,
-      "com.example.client://oauth/callback",
+      "com.example.client:/oauth/callback",
       "http://127.0.0.1:43123/oauth/callback",
       "https://client.example/oauth/*",
     ];
@@ -434,7 +451,7 @@ describe("apply", () => {
   });
 
   it("creates a Worker-level app when the Worker has none", async () => {
-    const cf = fakeCloudflare({ policies: [{ id: "pol-mine", decision: "allow", include: [{ email: { email: EMAIL } }] }] });
+    const cf = fakeCloudflare({ policies: [plainPolicy()] });
     expect(await cli(cf, [...applyArgs(["--worker", "trial"]), "--yes"])).toBe(0);
 
     const writes = cf.writes();
@@ -466,6 +483,45 @@ describe("apply", () => {
     });
     // The Worker-level app was left alone.
     expect(cf.writes().some((w) => w.path.endsWith("/app-w"))).toBe(false);
+  });
+
+  it("accepts worker and preview destinations for the same Worker", async () => {
+    const app = workerApp();
+    app.destinations = [
+      { type: "worker", worker_id: "tag-main" },
+      { type: "preview_worker", worker_id: "tag-main" },
+    ];
+    const cf = fakeCloudflare({ apps: [app], policies: [plainPolicy()] });
+
+    expect(await cli(cf, [...applyArgs(["--worker", "ynab-mcp-server"]), "--yes"])).toBe(0);
+    expect(cf.writes()).toHaveLength(1);
+    expect(cf.writes()[0].body?.destinations).toEqual([
+      { type: "worker", worker_id: "tag-main" },
+    ]);
+  });
+
+  it("refuses to change a Worker app shared with another destination", async () => {
+    const app = workerApp();
+    app.destinations.push({ type: "public", uri: "admin.example.com" });
+    const cf = fakeCloudflare({ apps: [app], policies: [plainPolicy()] });
+
+    expect(await cli(cf, [...applyArgs(["--worker", "ynab-mcp-server"]), "--yes"])).toBe(1);
+    expect(errors.join("\n")).toContain("other destinations: public:admin.example.com");
+    expect(errors.join("\n")).toContain("split them into separate Access applications or use the dashboard");
+    expect(cf.writes()).toEqual([]);
+    expect(backups()).toEqual([]);
+  });
+
+  it("refuses to change a hostname app shared with another destination", async () => {
+    const app = hostnameApp();
+    app.destinations.push({ type: "public", uri: "admin.example.com" });
+    const cf = fakeCloudflare({ apps: [app], policies: [plainPolicy()] });
+
+    expect(await cli(cf, [...applyArgs(["--hostname", "ynab.example.com"]), "--yes"])).toBe(1);
+    expect(errors.join("\n")).toContain("other destinations: public:admin.example.com");
+    expect(errors.join("\n")).toContain("split them into separate Access applications or use the dashboard");
+    expect(cf.writes()).toEqual([]);
+    expect(backups()).toEqual([]);
   });
 
   it("updates the custom-domain app for --hostname without touching its destinations", async () => {
@@ -502,11 +558,15 @@ describe("apply", () => {
     ],
     [
       [...applyArgs(["--worker", "w"]).slice(0, -1), "https://client.example/*/callback"],
-      "may use a wildcard only as a final /* suffix",
+      "may use a wildcard only as a final /* HTTP(S) path suffix",
     ],
     [
-      [...applyArgs(["--worker", "w"]).slice(0, -1), "com.example.client:/oauth/callback"],
-      "must be an https, loopback http, or custom-scheme URI",
+      [...applyArgs(["--worker", "w"]).slice(0, -1), "https://client.example/callback?next=/*"],
+      "may use a wildcard only as a final /* HTTP(S) path suffix",
+    ],
+    [
+      [...applyArgs(["--worker", "w"]).slice(0, -1), "com.example.client:/oauth/*"],
+      "may use a wildcard only as a final /* HTTP(S) path suffix",
     ],
     [[...applyArgs(["--worker", "w"]), "--grant-session", "two weeks"], "must be a duration"],
     [[...applyArgs(["--hostname", "https://ynab.example.com/"])], "must be a bare hostname"],
