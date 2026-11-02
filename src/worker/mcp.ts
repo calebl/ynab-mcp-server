@@ -36,7 +36,7 @@ export function createServer(env: WorkerEnv) {
 
   const server = new McpServer({
     name: "ynab-mcp-server",
-    version: "0.7.2",
+    version: "0.8.0",
   }, {
     maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS,
   });
