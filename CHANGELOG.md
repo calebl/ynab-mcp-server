@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-02
+
 ### Added
 - The Worker can sign MCP clients in through [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) in place of GitHub. With `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` and `CF_ACCESS_ALLOWED_EMAIL` set, it serves only `/mcp`, and only to a request whose `Cf-Access-Jwt-Assertion` token is signed by the team, issued for the application, unexpired and for that email. Any other identity gets a 403, including service tokens, which carry no email. A partial Access configuration, or `ALLOWED_REDIRECT_URIS` set alongside it, answers every request with a 500 rather than falling back to GitHub sign-in. See [DEPLOY.md](./DEPLOY.md#cloudflare-access).
 
