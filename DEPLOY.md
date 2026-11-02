@@ -79,27 +79,43 @@ requests never reach the Worker, and the Worker verifies the signed
 `Cf-Access-Jwt-Assertion` token on every request it does get. You need no
 GitHub OAuth app and no `OAUTH_KV` namespace.
 
-1. In `wrangler.jsonc`, remove the `kv_namespaces` block. Serve the Worker on
-   a custom domain in a zone on your account, since Access protects hostnames,
-   and turn off its `workers.dev` address so nothing reaches it around Access:
+Access can protect the Worker in one of two ways:
 
-   ```jsonc
-   "workers_dev": false,
-   "preview_urls": false,
-   "routes": [{ "pattern": "ynab.example.com", "custom_domain": true }],
-   ```
+- **No custom domain: Worker-level Access.** Access protects the Worker
+  itself, set to all traffic, which covers every address the Worker answers
+  on, including its `workers.dev` address and preview URLs. The connector URL
+  stays `https://ynab-mcp-server.<your-subdomain>.workers.dev/mcp`.
+- **Custom domain: a self-hosted Access application.** Access protects one
+  hostname in a zone on your account, so the Worker's `workers.dev` address
+  has to be turned off, or requests could reach it around Access.
 
-2. In the Zero Trust dashboard, add a self-hosted Access application for that
-   hostname with an Allow policy for your own identity, and turn on
-   Managed OAuth so MCP clients can sign in through it.
-3. In the application's Managed OAuth settings, add the exact callback URI of
-   each MCP client you use to **Allowed redirect URIs** (see the
-   [example callback URIs](#restricting-redirects-optional)). For a local
-   client such as Claude Code, also turn on **Allow localhost clients** or
-   **Allow loopback clients**. Either one admits any client redirecting to
-   that address. Leave `ALLOWED_REDIRECT_URIS` unset, or the Worker answers
-   every request with a 500.
-4. Set `CF_ACCESS_TEAM_DOMAIN` to your team domain as a bare hostname
+1. In `wrangler.jsonc`, remove the `kv_namespaces` block.
+   - For Worker-level Access, keep the `workers.dev` address. You can turn
+     off preview URLs if you don't use them:
+
+     ```jsonc
+     "preview_urls": false,
+     ```
+
+   - For a custom domain, serve the Worker there and turn off its other
+     addresses:
+
+     ```jsonc
+     "workers_dev": false,
+     "preview_urls": false,
+     "routes": [{ "pattern": "ynab.example.com", "custom_domain": true }],
+     ```
+
+   Then deploy once (step 4) so the Worker exists for Access to protect.
+2. Set up Access with the setup script below (or in the dashboard). Either
+   way you end up with an Access application that has an Allow policy for
+   your own email and Managed OAuth turned on, so MCP clients can sign in
+   through it, with the exact callback URI of each MCP client you use in its
+   allowed redirect URIs (see the
+   [example callback URIs](#restricting-redirects-optional)). Leave
+   `ALLOWED_REDIRECT_URIS` unset, or the Worker answers every request with a
+   500.
+3. Set `CF_ACCESS_TEAM_DOMAIN` to your team domain as a bare hostname
    (`<team>.cloudflareaccess.com`, no `https://`), `CF_ACCESS_AUD` to the
    application's Audience (AUD) tag, and `CF_ACCESS_ALLOWED_EMAIL` to your own
    email, each with `npx wrangler secret put`. With all three set, the
@@ -107,11 +123,113 @@ GitHub OAuth app and no `OAUTH_KV` namespace.
    email (compared case-insensitively). A token for any other identity gets a
    403, even one the Access policy allowed, and so does a service token, which
    carries no email. With only some of them set, the Worker answers every
-   request with a 500 instead of falling back to GitHub sign-in.
+   request with a 500 instead of falling back to GitHub sign-in. Deploy again
+   (step 4) to switch the Worker to Access sign-in.
 
 This mode has been tested with claude.ai in a browser and the Claude mobile
-app. Other MCP clients haven't been tested through Access, so check yours
-before relying on it.
+app. Others have reported claude.ai failing to connect through Access Managed
+OAuth, so check your client before relying on it, for example by trying it on
+a separate test Worker first. Other MCP clients haven't been tested through
+Access.
+
+##### Setup script
+
+`scripts/cloudflare-access.mjs` sets up the Access application through the
+Cloudflare API, so you don't have to click through the dashboard. It needs
+Node and this repository checkout, nothing else. It takes every value from
+the environment and its flags, and keeps nothing of yours in the repository.
+
+Create an API token in the Cloudflare dashboard (My Profile → API Tokens →
+Create Token → Create Custom Token), limited to your account, with these
+permissions:
+
+| Permission | Access | Used for |
+| --- | --- | --- |
+| Account · Access: Apps and Policies | Edit | Reading and writing the Access application and its Allow policy |
+| Account · Access: Organizations, Identity Providers, and Groups | Read | Your team domain and login methods |
+| Account · Workers Scripts | Read | Finding the Worker for `--worker` |
+
+Give it a short expiry and delete it when you're done. Pass it in
+`CLOUDFLARE_API_TOKEN`. If the token can see more than one account, also set
+`CLOUDFLARE_ACCOUNT_ID`.
+
+```bash
+export CLOUDFLARE_API_TOKEN=...   # or load it from a file you keep private
+
+# Read-only: team domain, login methods, and any Access application already
+# protecting the Worker, with its policies and Managed OAuth settings.
+npm run cf-access -- inspect --worker ynab-mcp-server
+
+# Prints the exact requests it would send, and changes nothing.
+npm run cf-access -- apply --worker ynab-mcp-server \
+  --email you@example.com \
+  --redirect-uri https://claude.ai/api/mcp/auth_callback \
+  --redirect-uri https://claude.com/api/mcp/auth_callback
+
+# The same command with --yes makes the changes.
+npm run cf-access -- apply --worker ynab-mcp-server \
+  --email you@example.com \
+  --redirect-uri https://claude.ai/api/mcp/auth_callback \
+  --redirect-uri https://claude.com/api/mcp/auth_callback \
+  --yes
+```
+
+For a custom domain, pass `--hostname ynab.example.com` instead of `--worker`.
+
+`apply` creates an Allow policy for `--email`, or reuses one that admits only
+that email. It then creates or updates the Access application:
+
+- With `--worker`, the Worker-level application, set to all traffic. If the
+  Worker has Access for preview URLs only, `apply` switches it to all traffic.
+- With `--hostname`, the self-hosted application for that hostname.
+- Its policies are replaced by the Allow policy for your email.
+- Managed OAuth is turned on, with your `--redirect-uri` values (repeat the
+  flag for each client; there is no default) as the only allowed redirect
+  URIs.
+
+It prints `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` for step 3. Other
+options:
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--allow-localhost`, `--allow-loopback` | off | Admit any client redirecting to localhost, or to a loopback address, such as Claude Code. Either one admits any local client. |
+| `--token-lifetime` | `15m` | Lifetime of the access tokens Access issues to clients |
+| `--grant-session` | `336h` | How long a client stays signed in before it has to sign in through Access again |
+
+Without `--yes`, `apply` and `rollback` only print the requests they would
+send. With `--yes`, before changing anything they save the Access
+application's full JSON to `.cloudflare-access/` (git-ignored), and `apply`
+prints the rollback command. An update keeps every application setting it
+doesn't change. The script checks its flags and refuses when more than one
+Access application matches before it writes anything, and it stops on any API
+error.
+
+To undo an `apply`, pass the backup file it printed. Run without `--yes`
+first to see the request:
+
+```bash
+npm run cf-access -- rollback --from .cloudflare-access/<backup>.json --yes
+```
+
+This restores the application's destinations, policies and Managed OAuth
+settings from the backup, or deletes the application if `apply` created it.
+The Allow policy `apply` created is left in place. Clients connected through
+Access stop working until you set up sign-in again.
+
+##### In the dashboard
+
+- **Worker-level Access:** in Workers & Pages, open the Worker and turn on
+  Cloudflare Access for all traffic. Then, in the Zero Trust dashboard, open
+  the Access application this created.
+- **Custom domain:** in the Zero Trust dashboard, add a self-hosted Access
+  application for the hostname.
+
+Give the application an Allow policy for your own identity and turn on
+Managed OAuth. In its Managed OAuth settings, add the exact callback URI of
+each MCP client you use to **Allowed redirect URIs**. For a local client such
+as Claude Code, also turn on **Allow localhost clients** or **Allow loopback
+clients**; either one admits any client redirecting to that address. Copy the
+application's Audience (AUD) tag for `CF_ACCESS_AUD`.
 
 ### 3. Set deployment values and secrets
 
@@ -158,7 +276,7 @@ npm run deploy
 1. claude.ai → Settings → Connectors → **Add custom connector**
 2. Name: `YNAB`
 3. URL: `https://ynab-mcp-server.<your-subdomain>.workers.dev/mcp`, or your
-   custom domain's `/mcp` with Cloudflare Access
+   custom domain's `/mcp` if you serve the Worker there
 4. Connect. With GitHub sign-in, check the address on the approval page and
    choose **Approve**, then complete the GitHub sign-in. With Cloudflare
    Access, sign in through Access.
@@ -467,3 +585,4 @@ paths and the OAuth metadata endpoints.
 | `migrations/` | D1 schema for the auto-budget service |
 | `src/worker/github-handler.ts` | GitHub sign-in and the single-user gate |
 | `src/worker/access.ts` | Cloudflare Access mode: verifies the Access token in place of the GitHub sign-in |
+| `scripts/cloudflare-access.mjs` | Sets up the Cloudflare Access application (`npm run cf-access`) |

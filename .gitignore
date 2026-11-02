@@ -12,3 +12,5 @@ dist
 .dev.vars
 wrangler.jsonc
 .wrangler/
+# Backups written by scripts/cloudflare-access.mjs
+.cloudflare-access/
