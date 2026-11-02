@@ -148,7 +148,7 @@ permissions:
 | --- | --- | --- |
 | Account · Access: Apps and Policies | Edit | Reading and writing the Access application and its Allow policy |
 | Account · Access: Organizations, Identity Providers, and Groups | Read | Your team domain and login methods |
-| Account · Workers Scripts | Read | Finding the Worker for `--worker` |
+| Account · Workers Scripts | Read | Finding the Worker and its `workers.dev` hostname for `--worker` |
 
 Give it a short expiry and delete it when you're done. Pass it in
 `CLOUDFLARE_API_TOKEN`. If the token can see more than one account, also set
@@ -178,7 +178,9 @@ npm run cf-access -- apply --worker ynab-mcp-server \
 For a custom domain, pass `--hostname ynab.example.com` instead of `--worker`.
 
 `apply` creates an Allow policy for `--email`, or reuses one that admits only
-that email. It then creates or updates the Access application:
+that email and has no additional approval, justification, isolation, MFA,
+connection, or session controls. It then creates or updates the Access
+application:
 
 - With `--worker`, the Worker-level application, set to all traffic. If the
   Worker has Access for preview URLs only, `apply` switches it to all traffic.
@@ -186,7 +188,11 @@ that email. It then creates or updates the Access application:
 - Its policies are replaced by the Allow policy for your email.
 - Managed OAuth is turned on, with your `--redirect-uri` values (repeat the
   flag for each client; there is no default) as the only allowed redirect
-  URIs.
+  URIs. The script accepts exact `https` callbacks, exact `http` callbacks on
+  localhost or another loopback address, and exact custom-scheme callbacks for
+  native clients. Cloudflare's wildcard form is also accepted, but only as one
+  final `/*` suffix; other wildcard placements and non-loopback `http` are
+  refused.
 
 It prints `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` for step 3. Other
 options:

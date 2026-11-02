@@ -9,6 +9,7 @@ import { run } from "../../scripts/cloudflare-access.mjs";
 const API = "https://api.cloudflare.com/client/v4";
 const ACCOUNT = "acct-1";
 const TEAM_DOMAIN = "team.cloudflareaccess.com";
+const WORKERS_SUBDOMAIN = "example-account";
 const EMAIL = "owner@example.com";
 const CALLBACK = "https://client.example/oauth/callback";
 
@@ -20,6 +21,7 @@ const workerApp = (): Json => ({
   aud: "aud-w",
   name: "ynab-mcp-server",
   type: "self_hosted",
+  domain: `ynab-mcp-server.${WORKERS_SUBDOMAIN}.workers.dev`,
   destinations: [{ type: "preview_worker", worker_id: "tag-main" }],
   policies: [
     {
@@ -53,6 +55,7 @@ const otherWorkerApp = (): Json => ({
   aud: "aud-other",
   name: "other",
   type: "self_hosted",
+  domain: `other.${WORKERS_SUBDOMAIN}.workers.dev`,
   destinations: [{ type: "worker", worker_id: "tag-other" }],
   policies: [],
 });
@@ -88,10 +91,16 @@ function fakeCloudflare(options: { apps?: Json[]; policies?: Json[] } = {}) {
         ]),
       ];
     }
+    if (key === `GET ${base}/workers/subdomain`) {
+      return [200, ok({ subdomain: WORKERS_SUBDOMAIN })];
+    }
     if (key === `GET ${base}/access/apps`) return [200, ok([...apps.values()])];
     if (key === `GET ${base}/access/policies`) return [200, ok(policies)];
     if (key === `POST ${base}/access/policies`) return [200, ok({ ...body, id: "pol-new" })];
     if (key === `POST ${base}/access/apps`) {
+      if (body?.type === "self_hosted" && !body.domain) {
+        return [400, { success: false, errors: [{ code: 1000, message: "domain is required" }] }];
+      }
       const app = { ...body, id: "app-new", aud: "aud-new" };
       apps.set(app.id, app);
       return [200, ok(app)];
@@ -102,6 +111,9 @@ function fakeCloudflare(options: { apps?: Json[]; policies?: Json[] } = {}) {
       const current = apps.get(id)!;
       if (method === "GET") return [200, ok(current)];
       if (method === "PUT") {
+        if (body?.type === "self_hosted" && !body.domain) {
+          return [400, { success: false, errors: [{ code: 1000, message: "domain is required" }] }];
+        }
         const updated = { ...body, id, aud: current.aud, created_at: current.created_at };
         apps.set(id, updated);
         return [200, ok(updated)];
@@ -370,15 +382,68 @@ describe("apply", () => {
     });
   });
 
+  it("accepts exact custom-scheme, loopback, and suffix-wildcard callbacks", async () => {
+    const cf = fakeCloudflare({
+      apps: [workerApp()],
+      policies: [{ id: "pol-mine", decision: "allow", include: [{ email: { email: EMAIL } }] }],
+    });
+    const callbacks = [
+      CALLBACK,
+      "com.example.client://oauth/callback",
+      "http://127.0.0.1:43123/oauth/callback",
+      "https://client.example/oauth/*",
+    ];
+    const args = applyArgs(["--worker", "ynab-mcp-server"]);
+    for (const callback of callbacks.slice(1)) args.push("--redirect-uri", callback);
+
+    expect(await cli(cf, [...args, "--yes"])).toBe(0);
+    expect(cf.writes()).toHaveLength(1);
+    expect(cf.writes()[0].body).toMatchObject({
+      oauth_configuration: {
+        dynamic_client_registration: { allowed_uris: callbacks },
+      },
+    });
+  });
+
+  it("creates a plain policy instead of reusing one with additional access controls", async () => {
+    const cf = fakeCloudflare({
+      apps: [workerApp()],
+      policies: [
+        {
+          id: "pol-restricted",
+          decision: "allow",
+          include: [{ email: { email: EMAIL } }],
+          approval_required: true,
+          approval_groups: [{ approvals_needed: 1, email_addresses: ["admin@example.com"] }],
+          purpose_justification_required: true,
+          isolation_required: true,
+          connection_rules: { ssh: { usernames: ["owner"] } },
+          session_duration: "1h",
+        },
+      ],
+    });
+
+    expect(await cli(cf, [...applyArgs(["--worker", "ynab-mcp-server"]), "--yes"])).toBe(0);
+    expect(cf.writes().map((write) => write.method)).toEqual(["POST", "PUT"]);
+    expect(cf.writes()[0].body).toEqual({
+      name: `Allow ${EMAIL}`,
+      decision: "allow",
+      include: [{ email: { email: EMAIL } }],
+    });
+    expect(cf.writes()[1].body?.policies).toEqual([{ id: "pol-new", precedence: 1 }]);
+  });
+
   it("creates a Worker-level app when the Worker has none", async () => {
     const cf = fakeCloudflare({ policies: [{ id: "pol-mine", decision: "allow", include: [{ email: { email: EMAIL } }] }] });
     expect(await cli(cf, [...applyArgs(["--worker", "trial"]), "--yes"])).toBe(0);
 
     const writes = cf.writes();
     expect(writes.map((w) => `${w.method} ${w.path}`)).toEqual([`POST /accounts/${ACCOUNT}/access/apps`]);
+    expect(cf.calls.some((call) => call.path === `/accounts/${ACCOUNT}/workers/subdomain`)).toBe(true);
     expect(writes[0].body).toMatchObject({
       name: "trial",
       type: "self_hosted",
+      domain: `trial.${WORKERS_SUBDOMAIN}.workers.dev`,
       destinations: [{ type: "worker", worker_id: "tag-trial" }],
       policies: [{ id: "pol-mine", precedence: 1 }],
       oauth_configuration: { enabled: true },
@@ -431,7 +496,18 @@ describe("apply", () => {
       ["apply", "--worker", "w", "--hostname", "h.example.com", "--email", EMAIL, "--redirect-uri", CALLBACK],
       "exactly one of --worker",
     ],
-    [[...applyArgs(["--worker", "w"]).slice(0, -1), "http://client.example/cb"], "must use https"],
+    [
+      [...applyArgs(["--worker", "w"]).slice(0, -1), "http://client.example/cb"],
+      "may use http only for a loopback address",
+    ],
+    [
+      [...applyArgs(["--worker", "w"]).slice(0, -1), "https://client.example/*/callback"],
+      "may use a wildcard only as a final /* suffix",
+    ],
+    [
+      [...applyArgs(["--worker", "w"]).slice(0, -1), "com.example.client:/oauth/callback"],
+      "must be an https, loopback http, or custom-scheme URI",
+    ],
     [[...applyArgs(["--worker", "w"]), "--grant-session", "two weeks"], "must be a duration"],
     [[...applyArgs(["--hostname", "https://ynab.example.com/"])], "must be a bare hostname"],
     [[...applyArgs(["--hostname", "ynab.example.com/path"])], "must be a bare hostname"],

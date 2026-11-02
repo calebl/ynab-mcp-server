@@ -24,6 +24,17 @@ const WORKER_DESTINATIONS = new Set(["worker", "preview_worker"]);
 const DURATION = /^\d+(\.\d+)?(s|m|h)$/;
 const HOSTNAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i;
 const PENDING_POLICY_ID = "<server-assigned policy id from the policy POST>";
+const PLAIN_POLICY_FIELDS = new Set([
+  "id",
+  "name",
+  "decision",
+  "include",
+  "exclude",
+  "require",
+  "precedence",
+  "created_at",
+  "updated_at",
+]);
 
 const USAGE = `Usage: npm run cf-access -- <command> [options]
 
@@ -46,8 +57,9 @@ Target (inspect and apply; exactly one):
 
 apply options:
   --email <address>       Identity the Allow policy admits (required)
-  --redirect-uri <uri>    Exact https callback URI of an MCP client
-                          (required, repeat for each client)
+  --redirect-uri <uri>    Exact https, loopback http, or custom-scheme callback
+                          URI of an MCP client (required, repeatable). A single
+                          wildcard is allowed only as a final /* suffix.
   --allow-localhost       Admit any client redirecting to localhost
   --allow-loopback        Admit any client redirecting to a loopback address
   --token-lifetime <d>    Access token lifetime (default 15m)
@@ -351,15 +363,7 @@ function readApplyOptions(values) {
   if (redirectUris.length === 0) {
     fail("--redirect-uri is required; pass the exact callback URI of each MCP client");
   }
-  for (const uri of redirectUris) {
-    let parsed;
-    try {
-      parsed = new URL(uri);
-    } catch {
-      fail(`--redirect-uri "${uri}" is not a URL`);
-    }
-    if (parsed.protocol !== "https:") fail(`--redirect-uri "${uri}" must use https`);
-  }
+  for (const uri of redirectUris) validateRedirectUri(uri);
 
   const tokenLifetime = values["token-lifetime"] ?? "15m";
   const grantSession = values["grant-session"] ?? "336h";
@@ -380,7 +384,32 @@ function readApplyOptions(values) {
   };
 }
 
+function validateRedirectUri(uri) {
+  if (uri !== uri.trim()) fail(`--redirect-uri "${uri}" is not a valid callback URI`);
+  const wildcardCount = [...uri].filter((character) => character === "*").length;
+  if (wildcardCount > 0 && (wildcardCount !== 1 || !uri.endsWith("/*"))) {
+    fail(`--redirect-uri "${uri}" may use a wildcard only as a final /* suffix`);
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    fail(`--redirect-uri "${uri}" is not a URL`);
+  }
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(uri)) {
+    fail(`--redirect-uri "${uri}" must be an https, loopback http, or custom-scheme URI`);
+  }
+  if (parsed.protocol === "https:") return;
+  if (parsed.protocol === "http:") {
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === "localhost" || hostname === "[::1]" || hostname.startsWith("127.")) return;
+    fail(`--redirect-uri "${uri}" may use http only for a loopback address`);
+  }
+}
+
 const isOnlyEmail = (policy, email) =>
+  Object.keys(policy).every((field) => PLAIN_POLICY_FIELDS.has(field)) &&
   policy.decision === "allow" &&
   (policy.include ?? []).length === 1 &&
   policy.include[0]?.email?.email?.toLowerCase() === email.toLowerCase() &&
@@ -464,6 +493,14 @@ async function apply(values, ctx) {
   const existing = matches.length
     ? await api.get(`/accounts/${account}/access/apps/${matches[0].id}`)
     : undefined;
+  let workerDomain;
+  if (!existing && resolved.kind === "worker") {
+    const workersSubdomain = await api.get(`/accounts/${account}/workers/subdomain`);
+    if (!workersSubdomain?.subdomain) {
+      fail("the account has no workers.dev subdomain; enable workers.dev before creating Worker-level Access");
+    }
+    workerDomain = `${resolved.name}.${workersSubdomain.subdomain}.workers.dev`;
+  }
 
   const appBody = (policyId) => {
     const policiesRef = [{ id: policyId, precedence: 1 }];
@@ -485,6 +522,7 @@ async function apply(values, ctx) {
       resolved.kind === "worker"
         ? {
             name: resolved.name,
+            domain: workerDomain,
             destinations: [{ type: "worker", worker_id: resolved.tag }],
           }
         : {
