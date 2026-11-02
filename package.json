@@ -52,6 +52,7 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.worker.json",
     "dev:worker": "wrangler dev",
     "deploy": "wrangler deploy",
+    "cf-access": "node scripts/cloudflare-access.mjs",
     "test:run": "vitest run"
   },
   "dependencies": {
