@@ -138,6 +138,7 @@ Access.
 Cloudflare API, so you don't have to click through the dashboard. It needs
 Node and this repository checkout, nothing else. It takes every value from
 the environment and its flags, and keeps nothing of yours in the repository.
+Run `npm run cf-access -- help` (or `--help` / `-h`) for its full usage.
 
 Create an API token in the Cloudflare dashboard (My Profile → API Tokens →
 Create Token → Create Custom Token), limited to your account, with these
@@ -197,12 +198,15 @@ options:
 | `--grant-session` | `336h` | How long a client stays signed in before it has to sign in through Access again |
 
 Without `--yes`, `apply` and `rollback` only print the requests they would
-send. With `--yes`, before changing anything they save the Access
-application's full JSON to `.cloudflare-access/` (git-ignored), and `apply`
-prints the rollback command. An update keeps every application setting it
-doesn't change. The script checks its flags and refuses when more than one
-Access application matches before it writes anything, and it stops on any API
-error.
+send. The dry run prints each exact request body. If `apply` must first create
+a policy, Cloudflare assigns its ID, so the following app body contains one
+clearly labelled placeholder for that server-assigned ID; with `--yes`, that
+returned ID is the only value substituted. With `--yes`, before changing
+anything the script saves the Access application's full JSON to
+`.cloudflare-access/` (git-ignored), and `apply` prints the rollback command.
+An update keeps every application setting it doesn't change. The script
+checks its flags and refuses when more than one Access application matches
+before it writes anything, and it stops on any API error.
 
 To undo an `apply`, pass the backup file it printed. Run without `--yes`
 first to see the request:

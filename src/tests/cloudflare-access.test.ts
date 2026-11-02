@@ -181,6 +181,11 @@ function cli(cf: ReturnType<typeof fakeCloudflare>, args: string[], env: Json = 
 }
 
 const text = () => output.join("\n");
+const printedBodyAfter = (request: string) => {
+  const index = output.indexOf(request);
+  expect(index).toBeGreaterThanOrEqual(0);
+  return JSON.parse(output[index + 1]);
+};
 const backups = () => (existsSync(backupDir) ? readdirSync(backupDir) : []);
 const readBackup = (name: string) => JSON.parse(readFileSync(join(backupDir, name), "utf8"));
 const applyArgs = (target: string[]) => [
@@ -211,7 +216,7 @@ describe("inspect", () => {
 
   it("selects the self-hosted app for --hostname", async () => {
     const cf = fakeCloudflare();
-    expect(await cli(cf, ["inspect", "--hostname", "https://YNAB.example.com/"])).toBe(0);
+    expect(await cli(cf, ["inspect", "--hostname", "YNAB.example.com"])).toBe(0);
 
     expect(cf.writes()).toEqual([]);
     expect(text()).toContain("Access applications for ynab.example.com: 1");
@@ -228,6 +233,17 @@ describe("inspect", () => {
     ).toBe(0);
     expect(cf.calls.some((c) => c.path === "/accounts")).toBe(false);
   });
+
+  it("prints every ambiguous match and exits non-zero", async () => {
+    const second = { ...workerApp(), id: "app-w2", destinations: [{ type: "worker", worker_id: "tag-main" }] };
+    const cf = fakeCloudflare({ apps: [workerApp(), second] });
+
+    expect(await cli(cf, ["inspect", "--worker", "ynab-mcp-server"])).toBe(1);
+    expect(text()).toContain('"id": "app-w"');
+    expect(text()).toContain('"id": "app-w2"');
+    expect(errors.join("\n")).toContain("2 Access applications match Worker ynab-mcp-server");
+    expect(cf.writes()).toEqual([]);
+  });
 });
 
 describe("apply", () => {
@@ -242,6 +258,28 @@ describe("apply", () => {
     expect(text()).toContain(`"allowed_uris": [\n        "${CALLBACK}"\n      ]`);
     expect(text()).toContain('"custom_deny_message": "unrelated field"');
     expect(text()).toContain("Nothing was changed");
+  });
+
+  it("substitutes only the server-assigned policy ID in the printed app body", async () => {
+    const cf = fakeCloudflare();
+    expect(await cli(cf, applyArgs(["--worker", "ynab-mcp-server"]))).toBe(0);
+
+    const policyRequest = `POST ${API}/accounts/${ACCOUNT}/access/policies`;
+    const appRequest = `PUT ${API}/accounts/${ACCOUNT}/access/apps/app-w`;
+    const dryPolicyBody = printedBodyAfter(policyRequest);
+    const dryAppBody = printedBodyAfter(appRequest);
+    expect(dryAppBody.policies).toEqual([
+      { id: "<server-assigned policy id from the policy POST>", precedence: 1 },
+    ]);
+    expect(text()).toContain("is the only placeholder");
+
+    output = [];
+    expect(await cli(cf, [...applyArgs(["--worker", "ynab-mcp-server"]), "--yes"])).toBe(0);
+    const writes = cf.writes();
+    expect(writes[0].body).toEqual(dryPolicyBody);
+    const expectedAppBody = structuredClone(dryAppBody);
+    expectedAppBody.policies[0].id = "pol-new";
+    expect(writes[1].body).toEqual(expectedAppBody);
   });
 
   it("backs up the app before writing and keeps unrelated fields in the PUT", async () => {
@@ -395,6 +433,8 @@ describe("apply", () => {
     ],
     [[...applyArgs(["--worker", "w"]).slice(0, -1), "http://client.example/cb"], "must use https"],
     [[...applyArgs(["--worker", "w"]), "--grant-session", "two weeks"], "must be a duration"],
+    [[...applyArgs(["--hostname", "https://ynab.example.com/"])], "must be a bare hostname"],
+    [[...applyArgs(["--hostname", "ynab.example.com/path"])], "must be a bare hostname"],
   ])("refuses a missing or invalid input: %j", async (args, message) => {
     const cf = fakeCloudflare();
     expect(await cli(cf, [...args, "--yes"])).toBe(1);
@@ -484,11 +524,29 @@ describe("rollback", () => {
   });
 });
 
-it("prints usage for help and rejects unknown commands", async () => {
-  const cf = fakeCloudflare();
-  expect(await cli(cf, ["help"])).toBe(0);
-  expect(text()).toContain("Usage: npm run cf-access");
-  expect(await cli(cf, ["launch"])).toBe(1);
-  expect(errors.join("\n")).toContain('unknown command "launch"');
-  expect(cf.calls).toEqual([]);
+describe("command-line interface", () => {
+  it.each([["help"], ["--help"], ["-h"]])("prints usage for %j", async (...args) => {
+    const cf = fakeCloudflare();
+    expect(await cli(cf, args)).toBe(0);
+    expect(text()).toContain("Usage: npm run cf-access");
+    expect(cf.calls).toEqual([]);
+  });
+
+  it.each([
+    [["inspect", "--worker", "ynab-mcp-server", "--email", EMAIL], "--email does not apply to inspect"],
+    [[...applyArgs(["--worker", "ynab-mcp-server"]), "--from", "backup.json"], "--from does not apply to apply"],
+    [["rollback", "--from", "backup.json", "--worker", "ynab-mcp-server"], "--worker does not apply to rollback"],
+  ])("rejects command-inapplicable options: %j", async (args, message) => {
+    const cf = fakeCloudflare();
+    expect(await cli(cf, args)).toBe(1);
+    expect(errors.join("\n")).toContain(message);
+    expect(cf.calls).toEqual([]);
+  });
+
+  it("rejects unknown commands", async () => {
+    const cf = fakeCloudflare();
+    expect(await cli(cf, ["launch"])).toBe(1);
+    expect(errors.join("\n")).toContain('unknown command "launch"');
+    expect(cf.calls).toEqual([]);
+  });
 });

@@ -22,10 +22,13 @@ const DEFAULT_BACKUP_DIR = ".cloudflare-access";
 const READ_ONLY_APP_FIELDS = ["id", "aud", "created_at", "updated_at"];
 const WORKER_DESTINATIONS = new Set(["worker", "preview_worker"]);
 const DURATION = /^\d+(\.\d+)?(s|m|h)$/;
+const HOSTNAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i;
+const PENDING_POLICY_ID = "<server-assigned policy id from the policy POST>";
 
 const USAGE = `Usage: npm run cf-access -- <command> [options]
 
 Commands:
+  help      Show this help (also --help or -h).
   inspect   Show the team domain, login methods, and the matching Access
             application with its policies and Managed OAuth settings.
             Read-only.
@@ -55,7 +58,10 @@ rollback options:
   --from <file>           Backup written by apply (required)
 
   --yes                   Send the changes. Without it, apply and rollback
-                          only print the requests they would make.
+                          only print the requests they would make. If apply
+                          must create a policy, the app body labels its one
+                          placeholder for the policy ID assigned by Cloudflare;
+                          that ID is the only value substituted with --yes.
 
 Environment:
   CLOUDFLARE_API_TOKEN    API token (required)
@@ -133,10 +139,35 @@ async function dispatch(argv, ctx) {
   }
   if (extra.length) fail(`unexpected argument: ${extra[0]}`);
 
-  if (command === "inspect") return inspect(values, ctx);
-  if (command === "apply") return apply(values, ctx);
-  if (command === "rollback") return rollback(values, ctx);
+  if (command === "inspect") {
+    rejectInapplicableOptions(values, command, ["worker", "hostname"]);
+    return inspect(values, ctx);
+  }
+  if (command === "apply") {
+    rejectInapplicableOptions(values, command, [
+      "worker",
+      "hostname",
+      "email",
+      "redirect-uri",
+      "allow-localhost",
+      "allow-loopback",
+      "token-lifetime",
+      "grant-session",
+      "yes",
+    ]);
+    return apply(values, ctx);
+  }
+  if (command === "rollback") {
+    rejectInapplicableOptions(values, command, ["from", "yes"]);
+    return rollback(values, ctx);
+  }
   fail(`unknown command "${command}"\n\n${USAGE}`);
+}
+
+function rejectInapplicableOptions(values, command, allowed) {
+  const allowedSet = new Set([...allowed, "help"]);
+  const invalid = Object.keys(values).find((name) => !allowedSet.has(name));
+  if (invalid) fail(`--${invalid} does not apply to ${command}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -219,13 +250,11 @@ function readTarget(values) {
     if (!values.worker) fail("--worker needs a Worker name");
     return { kind: "worker", name: values.worker };
   }
-  const host = values.hostname
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .replace(/\/+$/, "");
-  if (!host || host.includes("/")) fail("--hostname must be a bare hostname, like ynab.example.com");
-  return { kind: "hostname", host };
+  const rawHost = values.hostname;
+  if (!rawHost || rawHost !== rawHost.trim() || !HOSTNAME.test(rawHost)) {
+    fail("--hostname must be a bare hostname, like ynab.example.com");
+  }
+  return { kind: "hostname", host: rawHost.toLowerCase() };
 }
 
 async function resolveTarget(target, api, account) {
@@ -301,7 +330,13 @@ async function inspect(values, ctx) {
   ctx.log(`Access applications for ${resolved.label}: ${apps.length}`);
   for (const app of apps) ctx.log(json(summarize(app)));
   if (apps.length === 0) ctx.log("apply would create one.");
-  if (apps.length > 1) ctx.log("apply refuses to choose between them; remove the extra ones first.");
+  if (apps.length > 1) {
+    fail(
+      `${apps.length} Access applications match ${resolved.label} (${apps
+        .map((app) => app.id)
+        .join(", ")}); remove the extra ones first`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -425,8 +460,6 @@ async function apply(values, ctx) {
         decision: "allow",
         include: [{ email: { email: opts.email } }],
       };
-  const pendingPolicyId = "<id of the new policy>";
-
   // The current app, fetched on its own so the PUT starts from the full record.
   const existing = matches.length
     ? await api.get(`/accounts/${account}/access/apps/${matches[0].id}`)
@@ -488,7 +521,12 @@ async function apply(values, ctx) {
   if (dryRun) {
     ctx.log("\nDry run. These are the requests apply would send:\n");
     if (policyBody) printRequest(ctx, "POST", `/accounts/${account}/access/policies`, policyBody);
-    printRequest(ctx, appMethod, appPath, appBody(reusable ? reusable.id : pendingPolicyId));
+    printRequest(ctx, appMethod, appPath, appBody(reusable ? reusable.id : PENDING_POLICY_ID));
+    if (policyBody) {
+      ctx.log(
+        `\n${PENDING_POLICY_ID} is the only placeholder; with --yes it is replaced by the policy ID returned by the preceding POST.`,
+      );
+    }
     ctx.log("\nNothing was changed. Run again with --yes to apply.");
     return;
   }
