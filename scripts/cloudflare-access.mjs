@@ -417,7 +417,12 @@ function validateRedirectUri(uri) {
   if (parsed.protocol === "https:") return;
   if (parsed.protocol === "http:") {
     const hostname = parsed.hostname.toLowerCase();
-    if (hostname === "localhost" || hostname === "[::1]" || hostname.startsWith("127.")) return;
+    const ipv4Octets = hostname.split(".");
+    const isIpv4Loopback =
+      ipv4Octets.length === 4 &&
+      ipv4Octets[0] === "127" &&
+      ipv4Octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255);
+    if (hostname === "localhost" || hostname === "[::1]" || isIpv4Loopback) return;
     fail(`--redirect-uri "${uri}" may use http only for a loopback address`);
   }
 }

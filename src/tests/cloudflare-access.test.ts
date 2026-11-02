@@ -408,16 +408,23 @@ describe("apply", () => {
       CALLBACK,
       "com.example.client:/oauth/callback",
       "http://127.0.0.1:43123/oauth/callback",
+      "http://127.5.6.7/oauth/callback",
+      "http://[::1]:43123/oauth/callback",
+      "http://localhost:43123/oauth/callback",
       "https://client.example/oauth/*",
     ];
     const args = applyArgs(["--worker", "ynab-mcp-server"]);
     for (const callback of callbacks.slice(1)) args.push("--redirect-uri", callback);
 
-    expect(await cli(cf, [...args, "--yes"])).toBe(0);
+    expect(await cli(cf, [...args, "--allow-localhost", "--allow-loopback", "--yes"])).toBe(0);
     expect(cf.writes()).toHaveLength(1);
     expect(cf.writes()[0].body).toMatchObject({
       oauth_configuration: {
-        dynamic_client_registration: { allowed_uris: callbacks },
+        dynamic_client_registration: {
+          allowed_uris: callbacks,
+          allow_any_on_localhost: true,
+          allow_any_on_loopback: true,
+        },
       },
     });
   });
@@ -601,6 +608,14 @@ describe("apply", () => {
     ],
     [
       [...applyArgs(["--worker", "w"]).slice(0, -1), "http://client.example/cb"],
+      "may use http only for a loopback address",
+    ],
+    [
+      [
+        ...applyArgs(["--worker", "w"]).slice(0, -1),
+        "http://127.example.com/cb",
+        "--allow-loopback",
+      ],
       "may use http only for a loopback address",
     ],
     [
