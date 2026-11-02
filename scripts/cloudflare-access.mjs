@@ -430,23 +430,78 @@ const isOnlyEmail = (policy, email) =>
   (policy.exclude ?? []).length === 0 &&
   (policy.require ?? []).length === 0;
 
-function otherDestinations(app, target) {
-  return (app.destinations ?? []).filter((destination) => {
-    if (target.kind === "worker") {
-      return !(
-        WORKER_DESTINATIONS.has(destination.type) && destination.worker_id === target.tag
-      );
-    }
-    return !(destination.type === "public" && hostOf(destination.uri) === target.host);
-  });
-}
-
 function describeDestination(destination) {
   if (destination.type === "public") return `public:${destination.uri}`;
   if (WORKER_DESTINATIONS.has(destination.type)) {
     return `${destination.type}:${destination.worker_id}`;
   }
   return JSON.stringify(destination);
+}
+
+function validateExistingAppTarget(app, target) {
+  const destinations = app.destinations ?? [];
+  const targetDestinations = [];
+  const others = [];
+
+  if (target.kind === "worker") {
+    for (const destination of destinations) {
+      if (WORKER_DESTINATIONS.has(destination.type) && destination.worker_id === target.tag) {
+        targetDestinations.push(destination);
+      } else {
+        others.push(describeDestination(destination));
+      }
+    }
+  } else {
+    const legacyDestinations = [
+      ...(app.domain ? [`domain:${app.domain}`] : []),
+      ...(app.self_hosted_domains ?? []).map((domain) => `self_hosted_domain:${domain}`),
+    ];
+    for (const description of legacyDestinations) {
+      const value = description.slice(description.indexOf(":") + 1);
+      if (value.toLowerCase() !== target.host) others.push(description);
+    }
+    for (const destination of destinations) {
+      if (
+        destination.type === "public" &&
+        String(destination.uri).toLowerCase() === target.host
+      ) {
+        targetDestinations.push(destination);
+      } else {
+        others.push(describeDestination(destination));
+      }
+    }
+    const hasExactLegacyDestination = legacyDestinations.some((description) => {
+      const value = description.slice(description.indexOf(":") + 1);
+      return value.toLowerCase() === target.host;
+    });
+    if (targetDestinations.length === 0 && !hasExactLegacyDestination && others.length === 0) {
+      others.push(`missing:${target.host}`);
+    }
+  }
+
+  if (target.kind === "worker" && targetDestinations.length === 0) {
+    others.push(`missing Worker destination:${target.tag}`);
+  }
+
+  if (others.length > 0) {
+    fail(
+      `Access application ${app.name} (${app.id}) also protects other destinations: ${others.join(
+        ", ",
+      )}; split them into separate Access applications or use the dashboard`,
+    );
+  }
+
+  const overridden = targetDestinations.filter((destination) => {
+    if (Array.isArray(destination.overrides)) return destination.overrides.length > 0;
+    return Boolean(destination.overrides);
+  });
+  if (overridden.length > 0) {
+    fail(
+      `Access application ${app.name} (${app.id}) has destination overrides on ${overridden
+        .map(describeDestination)
+        .join(", ")}; remove the overrides or use the dashboard`,
+    );
+  }
 }
 
 function oauthConfiguration(existing, opts) {
@@ -517,16 +572,7 @@ async function apply(values, ctx) {
   const existing = matches.length
     ? await api.get(`/accounts/${account}/access/apps/${matches[0].id}`)
     : undefined;
-  if (existing) {
-    const others = otherDestinations(existing, resolved);
-    if (others.length > 0) {
-      fail(
-        `Access application ${existing.name} (${existing.id}) also protects other destinations: ${others
-          .map(describeDestination)
-          .join(", ")}; split them into separate Access applications or use the dashboard`,
-      );
-    }
-  }
+  if (existing) validateExistingAppTarget(existing, resolved);
 
   const policies = await api.list(`/accounts/${account}/access/policies`);
   const reusable = policies.find((p) => isOnlyEmail(p, opts.email));

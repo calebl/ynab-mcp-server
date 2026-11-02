@@ -524,6 +524,53 @@ describe("apply", () => {
     expect(backups()).toEqual([]);
   });
 
+  it("refuses a hostname destination with a path", async () => {
+    const app = hostnameApp();
+    app.domain = "ynab.example.com/admin";
+    app.destinations = [{ type: "public", uri: "ynab.example.com/admin" }];
+    const cf = fakeCloudflare({ apps: [app], policies: [plainPolicy()] });
+
+    expect(await cli(cf, [...applyArgs(["--hostname", "ynab.example.com"]), "--yes"])).toBe(1);
+    expect(errors.join("\n")).toContain("public:ynab.example.com/admin");
+    expect(cf.writes()).toEqual([]);
+    expect(backups()).toEqual([]);
+  });
+
+  it("refuses a hostname app with an additional legacy domain", async () => {
+    const app = hostnameApp();
+    app.self_hosted_domains = ["ynab.example.com", "admin.example.com"];
+    const cf = fakeCloudflare({ apps: [app], policies: [plainPolicy()] });
+
+    expect(await cli(cf, [...applyArgs(["--hostname", "ynab.example.com"]), "--yes"])).toBe(1);
+    expect(errors.join("\n")).toContain("self_hosted_domain:admin.example.com");
+    expect(cf.writes()).toEqual([]);
+    expect(backups()).toEqual([]);
+  });
+
+  it("refuses a hostname destination with overrides", async () => {
+    const app = hostnameApp();
+    app.destinations[0].overrides = [{ behavior: "public", path_pattern: "/mcp" }];
+    const cf = fakeCloudflare({ apps: [app], policies: [plainPolicy()] });
+
+    expect(await cli(cf, [...applyArgs(["--hostname", "ynab.example.com"]), "--yes"])).toBe(1);
+    expect(errors.join("\n")).toContain("destination overrides on public:ynab.example.com");
+    expect(errors.join("\n")).toContain("remove the overrides or use the dashboard");
+    expect(cf.writes()).toEqual([]);
+    expect(backups()).toEqual([]);
+  });
+
+  it("refuses a Worker destination with overrides", async () => {
+    const app = workerApp();
+    app.destinations[0].overrides = [{ behavior: "bypass", path_pattern: "/mcp" }];
+    const cf = fakeCloudflare({ apps: [app], policies: [plainPolicy()] });
+
+    expect(await cli(cf, [...applyArgs(["--worker", "ynab-mcp-server"]), "--yes"])).toBe(1);
+    expect(errors.join("\n")).toContain("destination overrides on preview_worker:tag-main");
+    expect(errors.join("\n")).toContain("remove the overrides or use the dashboard");
+    expect(cf.writes()).toEqual([]);
+    expect(backups()).toEqual([]);
+  });
+
   it("updates the custom-domain app for --hostname without touching its destinations", async () => {
     const cf = fakeCloudflare();
     expect(await cli(cf, [...applyArgs(["--hostname", "ynab.example.com"]), "--yes"])).toBe(0);

@@ -215,10 +215,13 @@ anything the script saves the Access application's full JSON to
 An update keeps every application setting it doesn't change. Because policies
 and Managed OAuth settings apply to the whole Access application, the script
 refuses to update an application that also protects another destination; split
-those destinations into separate applications or use the dashboard. A
-Worker's `worker` and `preview_worker` destinations count as the same target.
-The script also refuses when more than one Access application matches before
-it writes anything, and it stops on any API error.
+those destinations into separate applications or use the dashboard. For a
+hostname, every active domain must be that exact bare hostname, with no path.
+A Worker's `worker` and `preview_worker` destinations count as the same target.
+The script also refuses target destinations with overrides, because a public
+or bypass override could leave part of the target unprotected. It refuses when
+more than one Access application matches before it writes anything, and it
+stops on any API error.
 
 To undo an `apply`, pass the backup file it printed. Run without `--yes`
 first to see the request:
