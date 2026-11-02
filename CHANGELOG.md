@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The Worker can sign MCP clients in through [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) in place of GitHub. With `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` and `CF_ACCESS_ALLOWED_EMAIL` set, it serves only `/mcp`, and only to a request whose `Cf-Access-Jwt-Assertion` token is signed by the team, issued for the application, unexpired and for that email. Any other identity gets a 403, including service tokens, which carry no email. A partial Access configuration, or `ALLOWED_REDIRECT_URIS` set alongside it, answers every request with a 500 rather than falling back to GitHub sign-in. See [DEPLOY.md](./DEPLOY.md#cloudflare-access).
+
+### Changed
+- GitHub sign-in answers with a 500 naming a missing `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` or `ALLOWED_GITHUB_LOGIN`, instead of sending GitHub an undefined client ID or failing after the GitHub round trip.
+
 ### Security
 - Updated the locked `undici` from 7.29.1 to 7.30.1 in response to GHSA-xjj6-f33q-929c (denial of service via unhandled error on excessive content-encodings). `miniflare` (through `wrangler`) pins `undici` to an exact vulnerable version, so a top-level npm `overrides` entry lifts it to the patched release (a `miniflare`-scoped override fails on npm 10; `miniflare` is still the only package that pulls in `undici`). Neither server was exposed: `undici` is a development-only dependency of the local Worker tooling.
 - Updated the locked `body-parser` from 2.3.0 to 2.4.0 in response to GHSA-27r3-jxmh-p828 (denial of service via trailing bytes after a compressed request body); its updated `qs` dependency range also moved the locked `qs` from 6.16.0 to 6.17.1. Neither server was exposed: the stdio server (`src/index.ts`) uses only the stdio transport and never loads `express` or `body-parser` from `@modelcontextprotocol/sdk`, and the Worker bundle (`src/worker/`, `@modelcontextprotocol/server`) does not include `body-parser`.

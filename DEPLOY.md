@@ -5,12 +5,13 @@ these tools from claude.ai, the Claude mobile app, or another MCP client that
 supports remote servers, deploy the Worker in `src/worker/` to Cloudflare and
 add it as a custom connector.
 
-The Worker holds the YNAB token server-side and puts GitHub sign-in in front of
-it, restricted to a single GitHub account. These are separate layers:
-GitHub sign-in controls who may connect, while the YNAB Personal Access Token
-controls which YNAB account the server reaches. They answer different
-questions, and neither substitutes for the other. The Worker uses one
-server-wide YNAB token, so anyone admitted through GitHub reaches the
+The Worker holds the YNAB token server-side and puts either
+[GitHub sign-in](#github-sign-in) or [Cloudflare Access](#cloudflare-access)
+in front of it, restricted to a single account. These are separate layers: the
+sign-in controls who may connect, while the YNAB Personal Access Token controls
+which YNAB account the server reaches. They answer different questions, and
+neither substitutes for the other. The Worker uses one server-wide YNAB token,
+so anyone admitted through the sign-in reaches the
 deployer's YNAB account, money, and every plan available to that token—not
 their own YNAB account.
 `ynab_list_plans` lists all of those plans, and a caller-supplied `planId`
@@ -34,7 +35,14 @@ The template includes an optional `AUTOBUDGET_DB` block with a placeholder D1
 ID. Remove that block before your first deploy unless you are setting up the
 auto-budget service below.
 
-### 2. Create the KV namespace for OAuth state and grants
+### 2. Set up sign-in
+
+Pick one of the two below. Setting any `CF_ACCESS_*` value switches the Worker
+to Cloudflare Access. Otherwise it uses GitHub sign-in.
+
+#### GitHub sign-in
+
+Create the KV namespace for OAuth state and grants:
 
 ```bash
 npx wrangler kv namespace create OAUTH_KV
@@ -44,9 +52,8 @@ Copy the printed `id` into your local `wrangler.jsonc`, replacing
 `REPLACE_WITH_KV_NAMESPACE_ID`. Do not edit `wrangler.example.jsonc` with your
 account-specific value.
 
-### 3. Create a GitHub OAuth app
-
-At <https://github.com/settings/developers> → **New OAuth App**:
+Then create a GitHub OAuth app at <https://github.com/settings/developers> →
+**New OAuth App**:
 
 - **Homepage URL**: `https://ynab-mcp-server.<your-subdomain>.workers.dev`
 - **Authorization callback URL**: `https://ynab-mcp-server.<your-subdomain>.workers.dev/callback`
@@ -54,17 +61,65 @@ At <https://github.com/settings/developers> → **New OAuth App**:
 You get the exact hostname after the first `npm run deploy`; deploy once, then
 fill these in and update them if the name changes.
 
-### 4. Set deployment values and secrets
-
-Run each command and paste the value when prompted. Keep deployment-specific
-values out of `wrangler.jsonc`; Wrangler stores them remotely on the Worker.
-Only the GitHub username stored in `ALLOWED_GITHUB_LOGIN` can complete sign-in.
+Finally, set the GitHub secrets. Only the GitHub username stored in
+`ALLOWED_GITHUB_LOGIN` can complete sign-in.
 
 ```bash
 npx wrangler secret put ALLOWED_GITHUB_LOGIN
-npx wrangler secret put YNAB_API_TOKEN
 npx wrangler secret put GITHUB_CLIENT_ID
 npx wrangler secret put GITHUB_CLIENT_SECRET
+```
+
+#### Cloudflare Access
+
+If your Cloudflare account already uses [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/),
+it can sign MCP clients in instead of the Worker's own GitHub OAuth. Access
+runs the OAuth flow with the client at Cloudflare's edge, so unauthenticated
+requests never reach the Worker, and the Worker verifies the signed
+`Cf-Access-Jwt-Assertion` token on every request it does get. You need no
+GitHub OAuth app and no `OAUTH_KV` namespace.
+
+1. In `wrangler.jsonc`, remove the `kv_namespaces` block. Serve the Worker on
+   a custom domain in a zone on your account, since Access protects hostnames,
+   and turn off its `workers.dev` address so nothing reaches it around Access:
+
+   ```jsonc
+   "workers_dev": false,
+   "preview_urls": false,
+   "routes": [{ "pattern": "ynab.example.com", "custom_domain": true }],
+   ```
+
+2. In the Zero Trust dashboard, add a self-hosted Access application for that
+   hostname with an Allow policy for your own identity, and turn on
+   Managed OAuth so MCP clients can sign in through it.
+3. In the application's Managed OAuth settings, add the exact callback URI of
+   each MCP client you use to **Allowed redirect URIs** (see the
+   [example callback URIs](#restricting-redirects-optional)). For a local
+   client such as Claude Code, also turn on **Allow localhost clients** or
+   **Allow loopback clients**. Either one admits any client redirecting to
+   that address. Leave `ALLOWED_REDIRECT_URIS` unset, or the Worker answers
+   every request with a 500.
+4. Set `CF_ACCESS_TEAM_DOMAIN` to your team domain as a bare hostname
+   (`<team>.cloudflareaccess.com`, no `https://`), `CF_ACCESS_AUD` to the
+   application's Audience (AUD) tag, and `CF_ACCESS_ALLOWED_EMAIL` to your own
+   email, each with `npx wrangler secret put`. With all three set, the
+   Worker answers only `/mcp`, and only with a valid Access token for that
+   email (compared case-insensitively). A token for any other identity gets a
+   403, even one the Access policy allowed, and so does a service token, which
+   carries no email. With only some of them set, the Worker answers every
+   request with a 500 instead of falling back to GitHub sign-in.
+
+This mode has been tested with claude.ai in a browser and the Claude mobile
+app. Other MCP clients haven't been tested through Access, so check yours
+before relying on it.
+
+### 3. Set deployment values and secrets
+
+Run each command and paste the value when prompted. Keep deployment-specific
+values out of `wrangler.jsonc`; Wrangler stores them remotely on the Worker.
+
+```bash
+npx wrangler secret put YNAB_API_TOKEN
 ```
 
 Optionally pin a default plan so tool calls can omit `planId`:
@@ -92,7 +147,7 @@ category's most frequent payee names to the model. It improves accuracy on your
 own filing habits but discloses aggregated payee history to TypeSafe, so it is
 off unless set.
 
-### 6. Deploy
+### 4. Deploy
 
 ```bash
 npm run deploy
@@ -102,9 +157,11 @@ npm run deploy
 
 1. claude.ai → Settings → Connectors → **Add custom connector**
 2. Name: `YNAB`
-3. URL: `https://ynab-mcp-server.<your-subdomain>.workers.dev/mcp`
-4. Connect, check the address on the approval page and choose **Approve**, then
-   complete the GitHub sign-in
+3. URL: `https://ynab-mcp-server.<your-subdomain>.workers.dev/mcp`, or your
+   custom domain's `/mcp` with Cloudflare Access
+4. Connect. With GitHub sign-in, check the address on the approval page and
+   choose **Approve**, then complete the GitHub sign-in. With Cloudflare
+   Access, sign in through Access.
 
 Once connected it works everywhere you are signed in to Claude, including the
 mobile app. Your Mac does not need to be running.
@@ -113,6 +170,9 @@ Any MCP client that supports remote servers with OAuth can connect the same
 way: give it the `/mcp` URL and complete the sign-in it opens.
 
 ## Approving MCP clients
+
+_This section applies to GitHub sign-in. With Cloudflare Access, the Access
+application's allowed redirect URIs decide which clients can connect._
 
 MCP clients register themselves with the Worker automatically, so the Worker
 cannot know in advance which ones are yours. Every permitted sign-in therefore
@@ -401,8 +461,9 @@ paths and the OAuth metadata endpoints.
 | --- | --- |
 | `src/registry.ts` | The one tool list, shared by both entry points |
 | `src/index.ts` | stdio entry (local Claude Code / Claude Desktop) |
-| `src/worker/index.ts` | Worker entry: OAuth in front of the MCP handler |
+| `src/worker/index.ts` | Worker entry: GitHub OAuth or Cloudflare Access in front of the MCP handler |
 | `src/worker/mcp.ts` | Builds the MCP server and serves `/mcp` |
 | `src/worker/autobudget/` | The auto-budget service and its MCP tools |
 | `migrations/` | D1 schema for the auto-budget service |
 | `src/worker/github-handler.ts` | GitHub sign-in and the single-user gate |
+| `src/worker/access.ts` | Cloudflare Access mode: verifies the Access token in place of the GitHub sign-in |

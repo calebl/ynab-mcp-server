@@ -6,15 +6,24 @@ export interface WorkerEnv {
   YNAB_PLAN_ID?: string;
   /** Deprecated but still accepted compatibility alias; no removal date. */
   YNAB_BUDGET_ID?: string;
-  /** GitHub OAuth app credentials, used only to identify the caller. */
-  GITHUB_CLIENT_ID: string;
-  GITHUB_CLIENT_SECRET: string;
-  /** The single GitHub login allowed to use this server. */
-  ALLOWED_GITHUB_LOGIN: string;
+  /**
+   * Cloudflare Access team domain (`<team>.cloudflareaccess.com`) and application
+   * audience tag. Setting any `CF_ACCESS_*` value replaces the GitHub OAuth
+   * below, and Access mode needs these two plus `CF_ACCESS_ALLOWED_EMAIL`.
+   */
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  CF_ACCESS_AUD?: string;
+  /** The single email allowed to use this server. Required in Access mode. */
+  CF_ACCESS_ALLOWED_EMAIL?: string;
+  /** GitHub OAuth app credentials, used only to identify the caller. Required for GitHub sign-in. */
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  /** The single GitHub login allowed to use this server. Required for GitHub sign-in. */
+  ALLOWED_GITHUB_LOGIN?: string;
   /**
    * Optional exact OAuth redirect URIs, separated by commas or whitespace, that
    * MCP clients may receive grants at. http loopback redirects are always
-   * allowed. May be a plain var or a secret.
+   * allowed. May be a plain var or a secret. GitHub sign-in only.
    */
   ALLOWED_REDIRECT_URIS?: string;
   /** Set to "true" to omit tools that write to YNAB. */

@@ -51,8 +51,8 @@ export function createServer(env: WorkerEnv) {
 }
 
 /**
- * Serves /mcp. Behind OAuthProvider this is only reached with a valid access
- * token, so every request here belongs to an authorized grant.
+ * Serves /mcp. Behind OAuthProvider or Cloudflare Access this is only reached
+ * with a valid token, so every request here belongs to an authorized caller.
  */
 export const McpApiHandler = {
   async fetch(request: Request, env: WorkerEnv): Promise<Response> {

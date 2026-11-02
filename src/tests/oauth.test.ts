@@ -448,4 +448,23 @@ describe("Worker OAuth flow", () => {
       expect((await authorize(env, clientId, ATTACKER_CB)).status).toBe(200);
     });
   });
+
+  describe.each(["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "ALLOWED_GITHUB_LOGIN"])("when %s is missing", (setting) => {
+    let response: Response;
+
+    beforeEach(async () => {
+      const env = makeEnv();
+      const clientId = await register(env, CLAUDE_CB);
+      delete env[setting];
+      response = await authorize(env, clientId, CLAUDE_CB);
+    });
+
+    it("responds with a 500 status", () => {
+      expect(response.status).toBe(500);
+    });
+
+    it("names the missing setting", async () => {
+      expect(await response.text()).toContain(setting);
+    });
+  });
 });

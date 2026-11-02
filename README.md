@@ -57,6 +57,12 @@ Environment variables:
 | `YNAB_AI_CATEGORIZATION` | no | Set to `"true"` together with `TYPESAFE_API_KEY` to expose the opt-in suggestion tool. |
 | `YNAB_AI_TYPICAL_PAYEES` | no | Set to `"true"` to send each category's most frequent payee names from the last 12 months with each model request. Off by default because it discloses aggregated payee history to TypeSafe. |
 | `YNAB_READ_ONLY` | no | Set to `"true"` (case-insensitive; surrounding whitespace is ignored) to remove tools that write to YNAB, in both the stdio server and the Worker. |
+| `ALLOWED_GITHUB_LOGIN` | no | Worker only. The single GitHub login allowed through [GitHub sign-in](./DEPLOY.md#github-sign-in). Required for GitHub sign-in. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | no | Worker only. The GitHub OAuth app's credentials. Required for GitHub sign-in. |
+| `ALLOWED_REDIRECT_URIS` | no | Worker only. Exact OAuth callback URIs that GitHub sign-in may deliver grants to. See [Restricting redirects](./DEPLOY.md#restricting-redirects-optional). Must be unset with Cloudflare Access. |
+| `CF_ACCESS_TEAM_DOMAIN` | no | Worker only. Your Cloudflare Access team domain (`<team>.cloudflareaccess.com`). Setting any `CF_ACCESS_*` value replaces GitHub sign-in with [Cloudflare Access](./DEPLOY.md#cloudflare-access), which needs all three. |
+| `CF_ACCESS_AUD` | no | Worker only. The Access application's Audience (AUD) tag. |
+| `CF_ACCESS_ALLOWED_EMAIL` | no | Worker only. The single email allowed through Access. Any other identity, including a service token, is refused. |
 
 ### Local: Claude Desktop / Claude Code
 
@@ -116,6 +122,10 @@ just started. To restrict which clients can connect at all, set
 local clients stay allowed). See
 [Approving MCP clients](./DEPLOY.md#approving-mcp-clients) for example callback
 URIs.
+
+To sign in through Cloudflare Access instead of GitHub, see
+[Cloudflare Access](./DEPLOY.md#cloudflare-access),
+which also lists the MCP clients tested with it.
 
 ## Why not YNAB OAuth?
 

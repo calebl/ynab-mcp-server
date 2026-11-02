@@ -103,6 +103,10 @@ async function takePending(env: HandlerEnv, key: string, session: string | undef
   return pending;
 }
 
+function missingSetting(name: string) {
+  return html(`<h1>Server not configured</h1><p>GitHub sign-in needs <code>${name}</code>.</p>`, 500);
+}
+
 const REDIRECT_REFUSED =
   "<h1>Client not allowed</h1><p>This server's ALLOWED_REDIRECT_URIS setting does not include the address this client asked to receive access at.</p>";
 const REQUEST_EXPIRED =
@@ -150,6 +154,11 @@ function approvalPage(env: HandlerEnv, authRequest: AuthRequest, clientName: str
  */
 export const GitHubHandler = {
   async fetch(request: Request, env: HandlerEnv): Promise<Response> {
+    const { GITHUB_CLIENT_ID: clientId, GITHUB_CLIENT_SECRET: clientSecret, ALLOWED_GITHUB_LOGIN: allowedLogin } = env;
+    if (!clientId) return missingSetting("GITHUB_CLIENT_ID");
+    if (!clientSecret) return missingSetting("GITHUB_CLIENT_SECRET");
+    if (!allowedLogin) return missingSetting("ALLOWED_GITHUB_LOGIN");
+
     const url = new URL(request.url);
     const allowedRedirects = parseAllowedRedirectUris(env.ALLOWED_REDIRECT_URIS);
 
@@ -198,7 +207,7 @@ export const GitHubHandler = {
       await env.OAUTH_KV.put(STATE_PREFIX + state, JSON.stringify(pending), { expirationTtl: PENDING_TTL });
 
       const redirect = new URL(GITHUB_AUTHORIZE_URL);
-      redirect.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
+      redirect.searchParams.set("client_id", clientId);
       redirect.searchParams.set("redirect_uri", new URL("/callback", request.url).href);
       redirect.searchParams.set("scope", "read:user");
       redirect.searchParams.set("state", state);
@@ -224,8 +233,8 @@ export const GitHubHandler = {
         method: "POST",
         headers: { accept: "application/json", "content-type": "application/json" },
         body: JSON.stringify({
-          client_id: env.GITHUB_CLIENT_ID,
-          client_secret: env.GITHUB_CLIENT_SECRET,
+          client_id: clientId,
+          client_secret: clientSecret,
           code,
           redirect_uri: new URL("/callback", request.url).href,
         }),
@@ -267,8 +276,7 @@ export const GitHubHandler = {
       }
       const user = (await userResponse.json()) as { login: string; name: string | null };
 
-      const allowed = env.ALLOWED_GITHUB_LOGIN.toLowerCase();
-      if (user.login.toLowerCase() !== allowed) {
+      if (user.login.toLowerCase() !== allowedLogin.toLowerCase()) {
         return html(
           `<h1>Access denied</h1><p>This server is private. The account <strong>${user.login}</strong> is not permitted.</p>`,
           403,

@@ -1,5 +1,6 @@
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
 
+import { AccessHandler, usesAccess } from "./access.js";
 import { GitHubHandler } from "./github-handler.js";
 import { getErrorMessage } from "../tools/errorUtils.js";
 import { runAutobudget } from "./autobudget/run.js";
@@ -18,6 +19,7 @@ const provider = new OAuthProvider({
 
 export default {
   fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+    if (usesAccess(env)) return AccessHandler.fetch(request, env);
     return provider.fetch(request, env as any, ctx);
   },
 
@@ -31,7 +33,7 @@ export default {
       const outcome = await runNag(env);
       console.log("nag:", JSON.stringify(outcome));
 
-      if (outcome.ran) {
+      if (outcome.ran && !usesAccess(env)) {
         // Piggyback the OAuth housekeeping on a run that already did work.
         const purged = await provider.purgeExpiredData(env as any);
         console.log("oauth purge:", JSON.stringify(purged));
