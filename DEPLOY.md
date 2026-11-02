@@ -136,8 +136,9 @@ Access.
 
 `scripts/cloudflare-access.mjs` sets up the Access application through the
 Cloudflare API, so you don't have to click through the dashboard. It needs
-Node and this repository checkout, nothing else. It takes every value from
-the environment and its flags, and keeps nothing of yours in the repository.
+Node and this repository checkout, nothing else. It takes every input from
+the environment and its flags, keeps credentials out of tracked files, and
+writes rollback backups only to the git-ignored `.cloudflare-access/` directory.
 Run `npm run cf-access -- help` (or `--help` / `-h`) for its full usage.
 
 Create an API token in the Cloudflare dashboard (My Profile → API Tokens →
@@ -210,9 +211,11 @@ send. The dry run prints each exact request body. If `apply` must first create
 a policy, Cloudflare assigns its ID, so the following app body contains one
 clearly labelled placeholder for that server-assigned ID; with `--yes`, that
 returned ID is the only value substituted. With `--yes`, before changing
-anything the script saves the Access application's full JSON to
-`.cloudflare-access/` (git-ignored), and `apply` prints the rollback command.
-An update keeps every application setting it doesn't change. Because policies
+anything the script writes a rollback record to `.cloudflare-access/`
+(git-ignored). For an update, that record contains the Access application's
+full JSON; for a newly created application, it records the returned application
+ID so rollback can delete it. `apply` prints the rollback command. An update
+keeps every application setting it doesn't change. Because policies
 and Managed OAuth settings apply to the whole Access application, the script
 refuses to update an application that also protects another destination; split
 those destinations into separate applications or use the dashboard. For a
