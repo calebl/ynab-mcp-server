@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A streamable-HTTP entry point for self-hosting: `npm run start:http` (`dist/http.js`) serves the same tools as the stdio server, statelessly, at `POST /mcp`, with `GET /healthz` beside it, on `HOST`/`PORT` (default `127.0.0.1:3000`). One YNAB client is shared across requests. It has no authentication of its own, so run it on a private network or behind an authenticating proxy. See [Self-hosted: streamable HTTP](./README.md#self-hosted-streamable-http).
 - `npm run cf-access` (`scripts/cloudflare-access.mjs`) sets up Cloudflare Access sign-in for the Worker through the Cloudflare API: `inspect` shows the current setup, `apply` creates or updates the Access application with an Allow policy for one email and Managed OAuth limited to the given redirect URIs, and `rollback` undoes an `apply` from the backup it saved. `apply` and `rollback` only print their requests unless given `--yes`. It runs from a checkout and is not part of the npm package. DEPLOY.md also documents Worker-level Access, which protects the `workers.dev` address without a custom domain. See [DEPLOY.md](./DEPLOY.md#setup-script).
 
 ## [0.8.0] - 2026-11-02

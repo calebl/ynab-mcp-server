@@ -56,7 +56,8 @@ Environment variables:
 | `TYPESAFE_API_KEY` | no | Operator-owned TypeSafe credential. Required, but not sufficient, to enable category suggestions. |
 | `YNAB_AI_CATEGORIZATION` | no | Set to `"true"` together with `TYPESAFE_API_KEY` to expose the opt-in suggestion tool. |
 | `YNAB_AI_TYPICAL_PAYEES` | no | Set to `"true"` to send each category's most frequent payee names from the last 12 months with each model request. Off by default because it discloses aggregated payee history to TypeSafe. |
-| `YNAB_READ_ONLY` | no | Set to `"true"` (case-insensitive; surrounding whitespace is ignored) to remove tools that write to YNAB, in both the stdio server and the Worker. |
+| `YNAB_READ_ONLY` | no | Set to `"true"` (case-insensitive; surrounding whitespace is ignored) to remove tools that write to YNAB, in the stdio server, the HTTP server and the Worker. |
+| `HOST`, `PORT` | no | HTTP server only. Address and port to listen on; default `127.0.0.1` and `3000`. |
 | `ALLOWED_GITHUB_LOGIN` | no | Worker only. The single GitHub login allowed through [GitHub sign-in](./DEPLOY.md#github-sign-in). Required for GitHub sign-in. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | no | Worker only. The GitHub OAuth app's credentials. Required for GitHub sign-in. |
 | `ALLOWED_REDIRECT_URIS` | no | Worker only. Exact OAuth callback URIs that GitHub sign-in may deliver grants to. See [Restricting redirects](./DEPLOY.md#restricting-redirects-optional). Must be unset with Cloudflare Access. |
@@ -80,6 +81,27 @@ Environment variables:
   }
 }
 ```
+
+### Self-hosted: streamable HTTP
+
+To run the server in a container or behind your own reverse proxy or MCP
+gateway, start the HTTP entry point instead of the stdio one:
+
+```sh
+npm run build
+YNAB_API_TOKEN=your-token HOST=0.0.0.0 PORT=3000 npm run start:http
+```
+
+It serves stateless [streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http)
+at `POST /mcp` and a health check at `GET /healthz`, with the same tools and
+environment variables as the stdio server. It holds one YNAB client for the
+life of the process, so the plan-settings cache is shared across requests.
+
+It does **no authentication of its own**. Anyone who can reach `/mcp` uses
+your YNAB token with every tool you expose, including the write tools unless
+`YNAB_READ_ONLY` is set. It listens on `127.0.0.1` unless you set `HOST`; only
+widen that on a private network or behind a proxy that authenticates callers.
+For a hosted endpoint with sign-in built in, use the Worker below.
 
 ### Remote: phone and claude.ai
 
