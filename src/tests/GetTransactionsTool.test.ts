@@ -380,8 +380,9 @@ describe('GetTransactionsTool', () => {
       );
 
       const response = JSON.parse(result.content[0].text);
-      expect(response.transactions[0].amount).toBe(-25.99);
-      expect(response.transactions[1].amount).toBe(-15);
+      // Newest first: txn-2 (2024-01-16) before txn-1 (2024-01-15).
+      expect(response.transactions[0].amount).toBe(-15);
+      expect(response.transactions[1].amount).toBe(-25.99);
     });
 
     it('should return error when no plan ID is available', async () => {
@@ -511,7 +512,14 @@ describe('GetTransactionsTool search', () => {
   it('should leave the response unchanged when no search option is given', async () => {
     const response = await run({});
     expect(Object.keys(response)).toEqual(['transactions', 'transaction_count', 'total_available']);
-    expect(response.transactions.map((t: any) => t.id)).toEqual(['give-1', 'pay', 'split', 'give-2']);
+    expect(response.transactions.map((t: any) => t.id)).toEqual(['give-2', 'split', 'pay', 'give-1']);
+    expect(response.total_available).toBe(4);
+  });
+
+  it('should return the newest transactions first, so the limit keeps the most recent', async () => {
+    const response = await run({ limit: 2 });
+    expect(response.transactions.map((t: any) => t.id)).toEqual(['give-2', 'split']);
+    expect(response.transaction_count).toBe(2);
     expect(response.total_available).toBe(4);
   });
 
@@ -524,7 +532,7 @@ describe('GetTransactionsTool search', () => {
   it('should send untilDate to YNAB and enforce it if later rows come back', async () => {
     const response = await run({ sinceDate: '2026-01-01', untilDate: '2026-03-31' });
     expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith('test-budget-id', '2026-01-01', '2026-03-31', undefined);
-    expect(response.transactions.map((t: any) => t.id)).toEqual(['give-1', 'pay', 'split']);
+    expect(response.transactions.map((t: any) => t.id)).toEqual(['split', 'pay', 'give-1']);
     expect(response.totals).toEqual({ count: 3, inflow: 300, outflow: 160, net: 140 });
   });
 
@@ -539,7 +547,7 @@ describe('GetTransactionsTool search', () => {
 
   it('should match payee text case-insensitively', async () => {
     const response = await run({ payeeContains: 'RED CROSS' });
-    expect(response.transactions.map((t: any) => t.id)).toEqual(['give-1', 'give-2']);
+    expect(response.transactions.map((t: any) => t.id)).toEqual(['give-2', 'give-1']);
     expect(response.totals).toEqual({ count: 2, inflow: 0, outflow: 125.5, net: -125.5 });
   });
 
@@ -646,7 +654,7 @@ describe('GetTransactionsTool search', () => {
     expect(inflow.transactions.map((t: any) => t.id)).toEqual(['pay']);
 
     const response = await run({ direction: 'outflow', minAmount: 25.5, maxAmount: 100 });
-    expect(response.transactions.map((t: any) => t.id)).toEqual(['give-1', 'split', 'give-2']);
+    expect(response.transactions.map((t: any) => t.id)).toEqual(['give-2', 'split', 'give-1']);
     expect(response.totals.outflow).toBe(170.5);
   });
 
