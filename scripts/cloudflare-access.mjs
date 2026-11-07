@@ -588,15 +588,6 @@ async function apply(values, ctx) {
         decision: "allow",
         include: [{ email: { email: opts.email } }],
       };
-  let workerDomain;
-  if (!existing && resolved.kind === "worker") {
-    const workersSubdomain = await api.get(`/accounts/${account}/workers/subdomain`);
-    if (!workersSubdomain?.subdomain) {
-      fail("the account has no workers.dev subdomain; enable workers.dev before creating Worker-level Access");
-    }
-    workerDomain = `${resolved.name}.${workersSubdomain.subdomain}.workers.dev`;
-  }
-
   const appBody = (policyId) => {
     const policiesRef = [{ id: policyId, precedence: 1 }];
     if (existing) {
@@ -613,11 +604,12 @@ async function apply(values, ctx) {
       body.oauth_configuration = oauthConfiguration(existing.oauth_configuration, opts);
       return body;
     }
+    // Cloudflare rejects a `domain` alongside a worker destination (error 12130),
+    // so a Worker-level app is created without one.
     const base =
       resolved.kind === "worker"
         ? {
             name: resolved.name,
-            domain: workerDomain,
             destinations: [{ type: "worker", worker_id: resolved.tag }],
           }
         : {

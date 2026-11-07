@@ -149,7 +149,7 @@ permissions:
 | --- | --- | --- |
 | Account · Access: Apps and Policies | Edit | Reading and writing the Access application and its Allow policy |
 | Account · Access: Organizations, Identity Providers, and Groups | Read | Your team domain and login methods |
-| Account · Workers Scripts | Read | Finding the Worker and its `workers.dev` hostname for `--worker` |
+| Account · Workers Scripts | Read | Finding the Worker for `--worker` |
 
 Give it a short expiry and delete it when you're done. Pass it in
 `CLOUDFLARE_API_TOKEN`. If the token can see more than one account, also set

@@ -9,7 +9,6 @@ import { run } from "../../scripts/cloudflare-access.mjs";
 const API = "https://api.cloudflare.com/client/v4";
 const ACCOUNT = "acct-1";
 const TEAM_DOMAIN = "team.cloudflareaccess.com";
-const WORKERS_SUBDOMAIN = "example-account";
 const EMAIL = "owner@example.com";
 const CALLBACK = "https://client.example/oauth/callback";
 
@@ -38,7 +37,7 @@ const workerApp = (): Json => ({
   aud: "aud-w",
   name: "ynab-mcp-server",
   type: "self_hosted",
-  domain: `ynab-mcp-server.${WORKERS_SUBDOMAIN}.workers.dev`,
+  domain: null,
   destinations: [{ type: "preview_worker", worker_id: "tag-main" }],
   policies: [
     {
@@ -72,10 +71,34 @@ const otherWorkerApp = (): Json => ({
   aud: "aud-other",
   name: "other",
   type: "self_hosted",
-  domain: `other.${WORKERS_SUBDOMAIN}.workers.dev`,
+  domain: null,
   destinations: [{ type: "worker", worker_id: "tag-other" }],
   policies: [],
 });
+
+const WORKER_DESTINATION_TYPES = new Set(["worker", "preview_worker"]);
+
+/**
+ * Mirrors Cloudflare's validation of a self-hosted app body: a public
+ * destination needs a `domain`, and a worker destination must not have one
+ * (the live API answers error 12130, "domain not included in destinations").
+ */
+function invalidAppBody(body?: Json): Json | undefined {
+  if (body?.type !== "self_hosted") return undefined;
+  const destinations: Json[] = body.destinations ?? [];
+  const hasWorker = destinations.some((d) => WORKER_DESTINATION_TYPES.has(d.type));
+  const hasPublic = destinations.some((d) => d.type === "public");
+  if (body.domain && hasWorker) {
+    return {
+      success: false,
+      errors: [{ code: 12130, message: "domain not included in destinations" }],
+    };
+  }
+  if (!body.domain && hasPublic) {
+    return { success: false, errors: [{ code: 1000, message: "domain is required" }] };
+  }
+  return undefined;
+}
 
 /** An in-memory stand-in for the parts of the Cloudflare API the script uses. */
 function fakeCloudflare(options: { apps?: Json[]; policies?: Json[] } = {}) {
@@ -108,16 +131,12 @@ function fakeCloudflare(options: { apps?: Json[]; policies?: Json[] } = {}) {
         ]),
       ];
     }
-    if (key === `GET ${base}/workers/subdomain`) {
-      return [200, ok({ subdomain: WORKERS_SUBDOMAIN })];
-    }
     if (key === `GET ${base}/access/apps`) return [200, ok([...apps.values()])];
     if (key === `GET ${base}/access/policies`) return [200, ok(policies)];
     if (key === `POST ${base}/access/policies`) return [200, ok({ ...body, id: "pol-new" })];
     if (key === `POST ${base}/access/apps`) {
-      if (body?.type === "self_hosted" && !body.domain) {
-        return [400, { success: false, errors: [{ code: 1000, message: "domain is required" }] }];
-      }
+      const invalid = invalidAppBody(body);
+      if (invalid) return [400, invalid];
       const app = { ...body, id: "app-new", aud: "aud-new" };
       apps.set(app.id, app);
       return [200, ok(app)];
@@ -128,9 +147,8 @@ function fakeCloudflare(options: { apps?: Json[]; policies?: Json[] } = {}) {
       const current = apps.get(id)!;
       if (method === "GET") return [200, ok(current)];
       if (method === "PUT") {
-        if (body?.type === "self_hosted" && !body.domain) {
-          return [400, { success: false, errors: [{ code: 1000, message: "domain is required" }] }];
-        }
+        const invalid = invalidAppBody(body);
+        if (invalid) return [400, invalid];
         const updated = { ...body, id, aud: current.aud, created_at: current.created_at };
         apps.set(id, updated);
         return [200, ok(updated)];
@@ -463,18 +481,32 @@ describe("apply", () => {
 
     const writes = cf.writes();
     expect(writes.map((w) => `${w.method} ${w.path}`)).toEqual([`POST /accounts/${ACCOUNT}/access/apps`]);
-    expect(cf.calls.some((call) => call.path === `/accounts/${ACCOUNT}/workers/subdomain`)).toBe(true);
     expect(writes[0].body).toMatchObject({
       name: "trial",
       type: "self_hosted",
-      domain: `trial.${WORKERS_SUBDOMAIN}.workers.dev`,
       destinations: [{ type: "worker", worker_id: "tag-trial" }],
       policies: [{ id: "pol-mine", precedence: 1 }],
       oauth_configuration: { enabled: true },
     });
+    expect(writes[0].body).not.toHaveProperty("domain");
     expect(text()).toContain("CF_ACCESS_AUD=aud-new");
     const [file] = backups();
     expect(readBackup(file)).toMatchObject({ created: true, app: { id: "app-new" } });
+  });
+
+  it("the fake Cloudflare enforces the domain rule for each destination type", () => {
+    for (const type of ["worker", "preview_worker"]) {
+      const destinations = [{ type, worker_id: "tag-trial" }];
+      expect(
+        invalidAppBody({ type: "self_hosted", domain: "trial.example.workers.dev", destinations })?.errors[0].code,
+      ).toBe(12130);
+      expect(invalidAppBody({ type: "self_hosted", destinations })).toBeUndefined();
+    }
+    const publicDestinations = [{ type: "public", uri: "ynab.example.com" }];
+    expect(invalidAppBody({ type: "self_hosted", destinations: publicDestinations })).toBeDefined();
+    expect(
+      invalidAppBody({ type: "self_hosted", domain: "ynab.example.com", destinations: publicDestinations }),
+    ).toBeUndefined();
   });
 
   it("creates a self-hosted app on the custom domain for --hostname", async () => {
