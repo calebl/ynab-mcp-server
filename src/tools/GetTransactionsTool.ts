@@ -24,7 +24,7 @@ export const inputSchema = {
   maxAmount: z.number().nonnegative().optional().describe("Largest amount to include, ignoring sign, in currency units"),
   direction: z.enum(["outflow", "inflow", "any"]).optional().describe("Only money going out, coming in, or both. Defaults to 'any'."),
   totalsOnly: z.boolean().optional().describe("Return only the totals, without transaction rows (default: false)"),
-  limit: z.number().int().positive().max(1000).optional().describe("Maximum number of transactions to return (default: 100). Totals always cover every match."),
+  limit: z.number().int().positive().max(1000).optional().describe("Maximum number of transactions to return, newest first (default: 100). Totals always cover every match."),
 };
 
 interface GetTransactionsInput {
@@ -246,8 +246,10 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
       };
     }
 
-    // Apply limit
-    const transactions = matches
+    // Newest first, so the limit keeps the most recent rows. The sort is stable,
+    // so rows on the same date keep the order YNAB returned them in.
+    const transactions = [...matches]
+      .sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? 1 : -1))
       .slice(0, limit)
       .map((txn) => ({
         id: txn.id,

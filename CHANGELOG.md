@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `npm run cf-access` (`scripts/cloudflare-access.mjs`) sets up Cloudflare Access sign-in for the Worker through the Cloudflare API: `inspect` shows the current setup, `apply` creates or updates the Access application with an Allow policy for one email and Managed OAuth limited to the given redirect URIs, and `rollback` undoes an `apply` from the backup it saved. `apply` and `rollback` only print their requests unless given `--yes`. It runs from a checkout and is not part of the npm package. DEPLOY.md also documents Worker-level Access, which protects the `workers.dev` address without a custom domain. See [DEPLOY.md](./DEPLOY.md#setup-script).
 
+### Fixed
+- `ynab_get_transactions` returns transactions newest first, so `limit` (default 100) keeps the most recent rows. The tool used to apply `limit` to the order YNAB returned without sorting, so when that order is oldest first a call without `sinceDate` returned the plan's oldest transactions.
+
 ## [0.8.0] - 2026-11-02
 
 ### Added
