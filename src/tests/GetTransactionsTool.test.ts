@@ -523,6 +523,21 @@ describe('GetTransactionsTool search', () => {
     expect(response.total_available).toBe(4);
   });
 
+  it('should keep rows on the same date in the order YNAB returned them', async () => {
+    mockApi.transactions.getTransactions.mockResolvedValue({
+      data: {
+        transactions: [
+          txn({ id: 'early', date: '2026-01-01', amount: -1000 }),
+          txn({ id: 'same-a', date: '2026-02-01', amount: -2000 }),
+          txn({ id: 'same-b', date: '2026-02-01', amount: -3000 }),
+          txn({ id: 'same-c', date: '2026-02-01', amount: -4000 }),
+        ],
+      },
+    });
+    const response = await run({});
+    expect(response.transactions.map((t: any) => t.id)).toEqual(['same-a', 'same-b', 'same-c', 'early']);
+  });
+
   it('should not treat explicit defaults as a search', async () => {
     const response = await run({ direction: 'any', totalsOnly: false });
     expect(Object.keys(response)).toEqual(['transactions', 'transaction_count', 'total_available']);

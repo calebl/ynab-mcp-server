@@ -246,8 +246,8 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
       };
     }
 
-    // Newest first, so the limit keeps the most recent rows whatever order YNAB
-    // returned them in (unsorted, an oldest-first listing kept the oldest history).
+    // Newest first, so the limit keeps the most recent rows. The sort is stable,
+    // so rows on the same date keep the order YNAB returned them in.
     const transactions = [...matches]
       .sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? 1 : -1))
       .slice(0, limit)
