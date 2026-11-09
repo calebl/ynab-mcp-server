@@ -35,7 +35,8 @@
   },
   "type": "module",
   "bin": {
-    "ynab-mcp-server": "./dist/index.js"
+    "ynab-mcp-server": "./dist/index.js",
+    "ynab-mcp-server-http": "./dist/http.js"
   },
   "files": [
     "dist"

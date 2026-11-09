@@ -2,7 +2,7 @@
 import { createRequire } from "node:module";
 import * as ynab from "ynab";
 
-import { createHttpServer } from "./httpServer.js";
+import { createHttpServer, isLoopbackAddress } from "./httpServer.js";
 import { isReadOnly } from "./registry.js";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -13,18 +13,32 @@ if (!token) {
   process.exit(1);
 }
 
-const host = process.env.HOST || "127.0.0.1";
+// Namespaced rather than HOST: some shells (tcsh) export HOST as the machine's
+// hostname, which would silently move the bind off loopback.
+const host = process.env.YNAB_MCP_HOST || "127.0.0.1";
 const port = Number(process.env.PORT || 3000);
 const readOnly = isReadOnly(process.env.YNAB_READ_ONLY);
+const allowedOrigins = (process.env.YNAB_MCP_ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 const server = createHttpServer({
   api: new ynab.API(token),
   readOnly,
   version,
+  allowedOrigins,
 });
 
 server.listen(port, host, () => {
   console.error(`YNAB MCP server on http://${host}:${port}/mcp${readOnly ? " (read-only)" : ""}`);
+  if (!isLoopbackAddress(host) && !readOnly) {
+    console.error(
+      `Warning: listening on ${host} with write tools enabled and no authentication. ` +
+        "Anyone who can reach this port can change your YNAB plan. Keep it on a private network " +
+        "or behind an authenticating proxy, or set YNAB_READ_ONLY=true."
+    );
+  }
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
