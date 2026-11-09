@@ -17,11 +17,42 @@ export interface HttpServerOptions {
   readOnly?: boolean;
   version: string;
   /**
-   * Browser origins allowed to call /mcp, compared exactly (e.g.
-   * "https://app.example.com"). A request carrying any other Origin header is
-   * refused. Empty by default: gateways and server-side clients send no Origin.
+   * Browser origins allowed to call /mcp (e.g. "https://app.example.com").
+   * Each entry is normalised to its origin, so a trailing slash or path is
+   * ignored. A request carrying any other Origin header is refused. Empty by
+   * default: gateways and server-side clients send no Origin.
    */
   allowedOrigins?: string[];
+  /**
+   * Extra Host hostnames accepted while listening on a loopback address, for
+   * a reverse proxy on the same machine that forwards the client's Host
+   * (e.g. "mcp.example.com"). A port in an entry is ignored. Has no effect
+   * when listening on a non-loopback address, where Host is not checked.
+   */
+  allowedHosts?: string[];
+}
+
+/** An allowed-origin entry as browsers send it: scheme, host and port only. */
+export function normalizeOrigin(entry: string): string {
+  let origin: string;
+  try {
+    origin = new URL(entry).origin;
+  } catch {
+    throw new TypeError(`Invalid allowed origin: ${entry}`);
+  }
+  if (origin === "null") throw new TypeError(`Invalid allowed origin: ${entry}`);
+  return origin;
+}
+
+/** An allowed-host entry as the Host check compares it: the hostname only, lower-cased. */
+export function normalizeHostname(entry: string): string {
+  try {
+    const { hostname } = new URL(`http://${entry}`);
+    if (hostname) return hostname;
+  } catch {
+    // fall through
+  }
+  throw new TypeError(`Invalid allowed host: ${entry}`);
 }
 
 class BodyTooLargeError extends Error {}
@@ -105,11 +136,12 @@ function sendBodyTooLarge(req: IncomingMessage, res: ServerResponse) {
  * the configured YNAB token. To stop web pages reaching it through DNS
  * rebinding, /mcp refuses any request with an Origin header that is not in
  * allowedOrigins and, while listening on a loopback address, any request whose
- * Host is not localhost, 127.0.0.1 or [::1].
+ * Host is not localhost, 127.0.0.1, [::1] or one of allowedHosts.
  */
 export function createHttpServer(options: HttpServerOptions): Server {
   const { api, readOnly = false, version } = options;
-  const allowedOrigins = new Set(options.allowedOrigins ?? []);
+  const allowedOrigins = new Set((options.allowedOrigins ?? []).map(normalizeOrigin));
+  const allowedHostnames = new Set([...LOOPBACK_HOSTNAMES, ...(options.allowedHosts ?? []).map(normalizeHostname)]);
 
   /** The reason to refuse a request that may come from a browser, or undefined to allow it. */
   function rebindingCheck(req: IncomingMessage): string | undefined {
@@ -126,7 +158,7 @@ export function createHttpServer(options: HttpServerOptions): Server {
       } catch {
         return "Invalid Host header";
       }
-      if (!LOOPBACK_HOSTNAMES.has(hostname)) return `Host not allowed: ${hostname}`;
+      if (!allowedHostnames.has(hostname)) return `Host not allowed: ${hostname}`;
     }
     return undefined;
   }

@@ -5,7 +5,14 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import * as ynab from "ynab";
 
-import { createHttpServer, isLoopbackAddress, MAX_BODY_BYTES, type HttpServerOptions } from "../httpServer.js";
+import {
+  createHttpServer,
+  isLoopbackAddress,
+  MAX_BODY_BYTES,
+  normalizeHostname,
+  normalizeOrigin,
+  type HttpServerOptions,
+} from "../httpServer.js";
 import { tools } from "../registry.js";
 
 let server: Server | undefined;
@@ -36,8 +43,11 @@ const deleteCall = JSON.stringify({
   params: { name: "ynab_delete_transaction", arguments: { planId: "plan-1", transactionId: "txn-1" } },
 });
 
-/** A raw POST to /mcp, so tests control Host and Origin exactly. */
-function post(port: number, headers: Record<string, string>, body: string | Buffer) {
+/**
+ * A raw POST to /mcp, so tests control Host and Origin exactly. With
+ * `chunked`, the body goes out in 64 KiB chunks with no Content-Length.
+ */
+function post(port: number, headers: Record<string, string>, body: string | Buffer, { chunked = false } = {}) {
   return new Promise<{ status: number; body: string }>((resolve, reject) => {
     const req = httpRequest(
       {
@@ -58,7 +68,19 @@ function post(port: number, headers: Record<string, string>, body: string | Buff
       }
     );
     req.on("error", reject);
-    req.end(body);
+    if (!chunked) return void req.end(body);
+    const buffer = Buffer.from(body);
+    const step = 64 * 1024;
+    // Stop writing once the response arrives: the server discards the rest.
+    let answered = false;
+    req.on("response", () => (answered = true));
+    const writeFrom = (offset: number): void => {
+      if (answered || offset >= buffer.length) return void req.end();
+      const more = req.write(buffer.subarray(offset, offset + step));
+      if (more) setImmediate(() => writeFrom(offset + step));
+      else req.once("drain", () => writeFrom(offset + step));
+    };
+    writeFrom(0);
   });
 }
 
@@ -183,6 +205,49 @@ describe("streamable HTTP server", () => {
       expect(other.status).toBe(403);
     });
 
+    it("accepts an allowed Host on loopback, for a reverse proxy that forwards Host", async () => {
+      const { api, port } = await start({ allowedHosts: ["MCP.example.com:443"] });
+      const deleteTransaction = vi
+        .spyOn(api.transactions, "deleteTransaction")
+        .mockResolvedValue({ data: { transaction: { id: "txn-1" } } } as unknown as ynab.TransactionResponse);
+
+      const proxied = await post(port, { host: "mcp.example.com" }, deleteCall);
+      const other = await post(port, { host: `attacker.example:${port}` }, deleteCall);
+
+      expect(proxied.status).toBe(200);
+      expect(other.status).toBe(403);
+      expect(deleteTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it("matches an allowed Origin written with a trailing slash or path", async () => {
+      const { api, port } = await start({ allowedOrigins: ["https://app.example.com/", "https://b.example.com/x"] });
+      vi.spyOn(api.transactions, "deleteTransaction").mockResolvedValue({
+        data: { transaction: { id: "txn-1" } },
+      } as unknown as ynab.TransactionResponse);
+
+      for (const origin of ["https://app.example.com", "https://b.example.com"]) {
+        const response = await post(port, { host: `127.0.0.1:${port}`, origin }, deleteCall);
+        expect(response.status).toBe(200);
+      }
+    });
+
+    it("refuses to start with an allowed origin or host it cannot parse", () => {
+      const api = new ynab.API("test-token");
+      expect(() => createHttpServer({ api, version: "test", allowedOrigins: ["app.example.com"] })).toThrow(
+        "Invalid allowed origin: app.example.com"
+      );
+      expect(() => createHttpServer({ api, version: "test", allowedHosts: ["bad host"] })).toThrow(
+        "Invalid allowed host: bad host"
+      );
+    });
+
+    it("normalises allowed origins and hosts", () => {
+      expect(normalizeOrigin("https://App.Example.com:443/path")).toBe("https://app.example.com");
+      expect(normalizeOrigin("http://localhost:5173/")).toBe("http://localhost:5173");
+      expect(normalizeHostname("MCP.Example.com:8443")).toBe("mcp.example.com");
+      expect(normalizeHostname("[::1]")).toBe("[::1]");
+    });
+
     it("does not check Host when listening on a non-loopback address", async () => {
       const { api, port } = await start({}, "0.0.0.0");
       vi.spyOn(api.transactions, "deleteTransaction").mockResolvedValue({
@@ -210,6 +275,20 @@ describe("streamable HTTP server", () => {
     const body = Buffer.alloc(MAX_BODY_BYTES * 2, "a");
 
     const response = await post(port, { host: `127.0.0.1:${port}` }, body);
+
+    expect(response.status).toBe(413);
+    expect(JSON.parse(response.body).error.message).toBe("Request body too large");
+    expect(deleteTransaction).not.toHaveBeenCalled();
+  });
+
+  it("answers a chunked body that crosses the limit with a 413 rather than a reset", async () => {
+    const { api, port } = await start();
+    const deleteTransaction = vi.spyOn(api.transactions, "deleteTransaction");
+    const body = Buffer.alloc(MAX_BODY_BYTES * 2, "a");
+
+    const response = await post(port, { host: `127.0.0.1:${port}`, "transfer-encoding": "chunked" }, body, {
+      chunked: true,
+    });
 
     expect(response.status).toBe(413);
     expect(JSON.parse(response.body).error.message).toBe("Request body too large");

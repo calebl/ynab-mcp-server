@@ -18,17 +18,25 @@ if (!token) {
 const host = process.env.YNAB_MCP_HOST || "127.0.0.1";
 const port = Number(process.env.PORT || 3000);
 const readOnly = isReadOnly(process.env.YNAB_READ_ONLY);
-const allowedOrigins = (process.env.YNAB_MCP_ALLOWED_ORIGINS ?? "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const list = (value: string | undefined) =>
+  (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 
-const server = createHttpServer({
-  api: new ynab.API(token),
-  readOnly,
-  version,
-  allowedOrigins,
-});
+let server: ReturnType<typeof createHttpServer>;
+try {
+  server = createHttpServer({
+    api: new ynab.API(token),
+    readOnly,
+    version,
+    allowedOrigins: list(process.env.YNAB_MCP_ALLOWED_ORIGINS),
+    allowedHosts: list(process.env.YNAB_MCP_ALLOWED_HOSTS),
+  });
+} catch (error) {
+  console.error(`${error instanceof Error ? error.message : error}; refusing to start`);
+  process.exit(1);
+}
 
 server.listen(port, host, () => {
   console.error(`YNAB MCP server on http://${host}:${port}/mcp${readOnly ? " (read-only)" : ""}`);
