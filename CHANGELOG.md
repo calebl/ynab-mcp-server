@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-11-09
+## [0.9.0] - 2026-11-10
 
 ### Added
 - A streamable-HTTP entry point for self-hosting: `npm run start:http`, or the `ynab-mcp-server-http` command, serves the same tools as the stdio server, statelessly, at `POST /mcp`, with `GET /healthz` beside it, on `YNAB_MCP_HOST`/`PORT` (default `127.0.0.1:3000`). One YNAB client is shared across requests. It has no authentication of its own, so run it on a private network or behind an authenticating proxy; it warns at startup when bound to a non-loopback address with the write tools on. Against DNS rebinding, `/mcp` refuses requests whose `Origin` is not in `YNAB_MCP_ALLOWED_ORIGINS` (empty by default) and, on a loopback address, requests whose `Host` is not `localhost`, `127.0.0.1`, `[::1]` or listed in `YNAB_MCP_ALLOWED_HOSTS` (for a reverse proxy on the same machine that forwards `Host`). Allowed origins are compared by scheme, host and port, so a trailing slash in an entry is ignored. See [Self-hosted: streamable HTTP](./README.md#self-hosted-streamable-http).
