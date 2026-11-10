@@ -56,7 +56,10 @@ Environment variables:
 | `TYPESAFE_API_KEY` | no | Operator-owned TypeSafe credential. Required, but not sufficient, to enable category suggestions. |
 | `YNAB_AI_CATEGORIZATION` | no | Set to `"true"` together with `TYPESAFE_API_KEY` to expose the opt-in suggestion tool. |
 | `YNAB_AI_TYPICAL_PAYEES` | no | Set to `"true"` to send each category's most frequent payee names from the last 12 months with each model request. Off by default because it discloses aggregated payee history to TypeSafe. |
-| `YNAB_READ_ONLY` | no | Set to `"true"` (case-insensitive; surrounding whitespace is ignored) to remove tools that write to YNAB, in both the stdio server and the Worker. |
+| `YNAB_READ_ONLY` | no | Set to `"true"` (case-insensitive; surrounding whitespace is ignored) to remove tools that write to YNAB, in the stdio server, the HTTP server and the Worker. |
+| `YNAB_MCP_HOST`, `PORT` | no | HTTP server only. Address and port to listen on; default `127.0.0.1` and `3000`. |
+| `YNAB_MCP_ALLOWED_ORIGINS` | no | HTTP server only. Comma-separated browser origins allowed to call `/mcp` (e.g. `https://app.example.com`). Each entry is reduced to scheme, host and port, so a trailing slash is ignored. Empty by default, which refuses every request that carries an `Origin` header. |
+| `YNAB_MCP_ALLOWED_HOSTS` | no | HTTP server only. Comma-separated extra `Host` hostnames accepted while listening on a loopback address, for a reverse proxy on the same machine that forwards the client's `Host` (e.g. `mcp.example.com`). |
 | `ALLOWED_GITHUB_LOGIN` | no | Worker only. The single GitHub login allowed through [GitHub sign-in](./DEPLOY.md#github-sign-in). Required for GitHub sign-in. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | no | Worker only. The GitHub OAuth app's credentials. Required for GitHub sign-in. |
 | `ALLOWED_REDIRECT_URIS` | no | Worker only. Exact OAuth callback URIs that GitHub sign-in may deliver grants to. See [Restricting redirects](./DEPLOY.md#restricting-redirects-optional). Must be unset with Cloudflare Access. |
@@ -80,6 +83,60 @@ Environment variables:
   }
 }
 ```
+
+### Self-hosted: streamable HTTP
+
+To run the server in a container or behind your own reverse proxy or MCP
+gateway, start the HTTP entry point instead of the stdio one.
+
+> **It does no authentication of its own.** Anyone who can reach `/mcp` uses
+> your YNAB token with every tool you expose, including the write tools
+> unless `YNAB_READ_ONLY` is set. It listens on `127.0.0.1` unless you set
+> `YNAB_MCP_HOST`; only widen that on a private network or behind a proxy
+> that authenticates callers. For a hosted endpoint with sign-in built in,
+> use the Worker below.
+
+On this machine only:
+
+```sh
+npm run build
+YNAB_API_TOKEN=your-token npm run start:http
+```
+
+Outside a checkout, name the package as well as the command, so npm never
+looks up a package called `ynab-mcp-server-http`:
+
+```sh
+YNAB_API_TOKEN=your-token npx --package ynab-mcp-server ynab-mcp-server-http
+```
+
+In a container, where it must listen on every interface, start read-only
+unless whatever sits in front of it authenticates callers:
+
+```sh
+YNAB_API_TOKEN=your-token YNAB_READ_ONLY=true YNAB_MCP_HOST=0.0.0.0 PORT=3000 node dist/http.js
+```
+
+It serves stateless [streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http)
+at `POST /mcp` and a health check at `GET /healthz`, with the same tools and
+environment variables as the stdio server. It holds one YNAB client for the
+life of the process, so the plan-settings cache is shared across requests.
+Bound to a non-loopback address with the write tools on, it prints a warning
+at startup.
+
+To stop a web page reaching it through DNS rebinding, `/mcp` refuses with a
+403 any request that carries an `Origin` header not listed in
+`YNAB_MCP_ALLOWED_ORIGINS`. Browsers always send `Origin` on a POST;
+gateways and server-side MCP clients do not, so they are unaffected. While it
+listens on a loopback address it also refuses any request whose `Host` is not
+`localhost`, `127.0.0.1` or `[::1]`.
+
+A reverse proxy on the same machine usually forwards the client's `Host`
+(Caddy and Traefik by default, nginx with `proxy_set_header Host $host`), which
+that check refuses with `403 Host not allowed`. Either have the proxy send the
+upstream address as `Host` (Caddy: `header_up Host {upstream_hostport}`;
+nginx's default `$proxy_host` already does), or list the public hostname in
+`YNAB_MCP_ALLOWED_HOSTS`.
 
 ### Remote: phone and claude.ai
 
