@@ -139,7 +139,7 @@ upstream address as `Host` (Caddy: `header_up Host {upstream_hostport}`;
 nginx's default `$proxy_host` already does), or list the public hostname in
 `YNAB_MCP_ALLOWED_HOSTS`.
 
-### Remote: phone and claude.ai
+### Remote: Cloudflare Worker
 
 The stdio server above cannot be reached from a phone. To use these tools from
 claude.ai, the Claude mobile app, or another MCP client that supports remote
@@ -200,27 +200,17 @@ set can create and delete transactions—an unauthenticated endpoint would grant
 access to those plans to anyone who found the URL. Each sign-in admits one
 account:
 
-- **Cloudflare Access.** The Worker is chosen to use Access when the
-  `CF_ACCESS_*` settings are set; with only some of them set, or with
-  `ALLOWED_REDIRECT_URIS` set too, it answers every request with a 500 rather
-  than falling back to GitHub. It answers only `/mcp`, and only with a valid
-  Access token for `CF_ACCESS_ALLOWED_EMAIL`. Any other identity gets a 403,
-  even one the Access policy allowed, and so does a service token, which
-  carries no email. The Access application's allowed redirect URIs decide
-  which clients can connect. This mode has been tested with claude.ai in a
-  browser and the Claude mobile app; others have reported claude.ai failing to
-  connect through Access, and other clients haven't been tested (see
-  [Cloudflare Access](./DEPLOY.md#cloudflare-access)).
-- **GitHub.** Any GitHub account other than `ALLOWED_GITHUB_LOGIN` is refused.
-  Because clients register themselves, every permitted sign-in shows an
-  approval page naming the client and the exact address the grant will be sent
-  to; approve only a sign-in you just started. To restrict which clients can
-  connect at all, set `ALLOWED_REDIRECT_URIS` to their exact callback URIs
-  (loopback redirects for local clients stay allowed). Any MCP client that
-  supports remote servers with OAuth can connect, for example Claude
-  (claude.ai, desktop, and mobile), ChatGPT connectors, Claude Code, or the MCP
-  Inspector. See [Approving MCP clients](./DEPLOY.md#approving-mcp-clients) for
-  example callback URIs.
+- **Cloudflare Access** admits only `CF_ACCESS_ALLOWED_EMAIL`; the Access
+  application's allowed redirect URIs decide which clients can connect. See
+  [Cloudflare Access](./DEPLOY.md#cloudflare-access) for its configuration and
+  client compatibility notes.
+- **GitHub** admits only `ALLOWED_GITHUB_LOGIN`. Each sign-in shows an approval
+  page naming the client and callback address, and `ALLOWED_REDIRECT_URIS` can
+  restrict clients to exact callbacks. See
+  [Approving MCP clients](./DEPLOY.md#approving-mcp-clients).
+
+Any MCP client that supports remote servers with OAuth can connect, for
+example Claude, ChatGPT connectors, Claude Code, or the MCP Inspector.
 
 ## Why not YNAB OAuth?
 
