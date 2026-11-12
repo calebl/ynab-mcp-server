@@ -19,9 +19,10 @@ It runs two ways from one codebase:
 
 - **Local (stdio)** — a child process of Claude Code or Claude Desktop on your
   own machine. Simplest, but only works on that machine while it is running.
-- **Remote (Cloudflare Worker)** — deployed behind GitHub sign-in and added to
-  claude.ai as a custom connector, so it works from the web and the mobile app
-  with your computer switched off. See [DEPLOY.md](./DEPLOY.md).
+- **Remote (Cloudflare Worker)** — deployed behind a sign-in of your choice,
+  Cloudflare Access or GitHub, and added to any MCP client that supports remote
+  servers, such as claude.ai as a custom connector, so it works from the web
+  and your phone with your computer switched off. See [DEPLOY.md](./DEPLOY.md).
 
 Both entry points register the shared tools from `src/registry.ts`. The Worker
 can also run an optional scheduled auto-budget service that records what it
@@ -141,48 +142,85 @@ nginx's default `$proxy_host` already does), or list the public hostname in
 ### Remote: phone and claude.ai
 
 The stdio server above cannot be reached from a phone. To use these tools from
-claude.ai or the Claude mobile app, deploy `src/worker/` to Cloudflare Workers
-and add it as a custom connector. [DEPLOY.md](./DEPLOY.md) has the full walk
-through; the shape of it:
+claude.ai, the Claude mobile app, or another MCP client that supports remote
+servers, deploy `src/worker/` to Cloudflare Workers and add its `/mcp` URL to
+the client. The Worker is not tied to Claude. [DEPLOY.md](./DEPLOY.md) has the
+full walk through; the shape of it:
 
 1. Copy `wrangler.example.jsonc` to the git-ignored `wrangler.jsonc`, remove
    the optional placeholder `AUTOBUDGET_DB` block unless you are configuring
-   the [auto-budget service](./DEPLOY.md#auto-budget-service-optional), run
-   `npx wrangler login`, then create the `OAUTH_KV` namespace
+   the [auto-budget service](./DEPLOY.md#auto-budget-service-optional), and
+   run `npx wrangler login`
+2. Set up one of the two sign-ins below
+3. Use `npx wrangler secret put` for `YNAB_API_TOKEN`, and optionally
+   `YNAB_PLAN_ID`. `TYPESAFE_API_KEY` is optional too, needed only for
+   [category suggestions](./DEPLOY.md#3-set-deployment-values-and-secrets)
+4. Run `npm run deploy`
+5. Add `https://<host>/mcp` to your MCP client, for example as a custom
+   connector in claude.ai, and complete the sign-in it opens
+
+#### Sign-in: Cloudflare Access
+
+For a Cloudflare account that uses Access. Access signs the client in at
+Cloudflare's edge, so no GitHub OAuth app or `OAUTH_KV` namespace is needed.
+Full steps: [Cloudflare Access](./DEPLOY.md#cloudflare-access).
+
+1. Remove the `kv_namespaces` block from `wrangler.jsonc`, and deploy once
+   so the Worker exists
+2. Create an Access application for the Worker with an Allow policy for your
+   email and Managed OAuth on, listing each client's callback URI, with
+   `npm run cf-access` ([setup script](./DEPLOY.md#setup-script)) or in the
+   dashboard
+3. Use `npx wrangler secret put` for `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`,
+   and `CF_ACCESS_ALLOWED_EMAIL`, and leave `ALLOWED_REDIRECT_URIS` unset
+
+#### Sign-in: GitHub
+
+The Worker runs its own OAuth flow with GitHub as the identity provider.
+Full steps: [GitHub sign-in](./DEPLOY.md#github-sign-in).
+
+1. Create the `OAUTH_KV` namespace and put its ID in `wrangler.jsonc`
 2. `npm run deploy` once to learn your `*.workers.dev` hostname
 3. Create a GitHub OAuth app whose callback is `https://<host>/callback`
-4. Use `npx wrangler secret put` for `ALLOWED_GITHUB_LOGIN`, `YNAB_API_TOKEN`,
-   `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `TYPESAFE_API_KEY`
-5. Run `npm run deploy` again
-6. Add `https://<host>/mcp` as a custom connector in claude.ai
+4. Use `npx wrangler secret put` for `ALLOWED_GITHUB_LOGIN`,
+   `GITHUB_CLIENT_ID`, and `GITHUB_CLIENT_SECRET`
 
-The YNAB token stays a Worker secret and never reaches the client. GitHub sign-in
+#### Who may connect
+
+The YNAB token stays a Worker secret and never reaches the client. The sign-in
 controls **who may connect** to the remote Worker; the YNAB Personal Access
 Token controls **which YNAB account it reaches**. They answer different
 questions, and neither substitutes for the other. The Worker uses one
-server-wide YNAB token, so anyone admitted through the GitHub gate reaches the
+server-wide YNAB token, so anyone admitted through the sign-in reaches the
 deployer's YNAB account, money, and every plan available to that token—not
 their own YNAB account.
 `ynab_list_plans` lists all of those plans, and a caller-supplied `planId`
-overrides the optional `YNAB_PLAN_ID` default. Any GitHub account other than
-`ALLOWED_GITHUB_LOGIN` is refused. This matters because the tool set can create
-and delete transactions—an unauthenticated endpoint would grant access to those
-plans to anyone who found the URL.
+overrides the optional `YNAB_PLAN_ID` default. This matters because the tool
+set can create and delete transactions—an unauthenticated endpoint would grant
+access to those plans to anyone who found the URL. Each sign-in admits one
+account:
 
-The Worker is not tied to Claude. Any MCP client that supports remote servers
-with OAuth can connect, for example Claude (claude.ai, desktop, and mobile),
-ChatGPT connectors, Claude Code, or the MCP Inspector. Because clients register
-themselves, every permitted sign-in shows an approval page naming the client
-and the exact address the grant will be sent to; approve only a sign-in you
-just started. To restrict which clients can connect at all, set
-`ALLOWED_REDIRECT_URIS` to their exact callback URIs (loopback redirects for
-local clients stay allowed). See
-[Approving MCP clients](./DEPLOY.md#approving-mcp-clients) for example callback
-URIs.
-
-To sign in through Cloudflare Access instead of GitHub, see
-[Cloudflare Access](./DEPLOY.md#cloudflare-access),
-which also lists the MCP clients tested with it.
+- **Cloudflare Access.** The Worker is chosen to use Access when the
+  `CF_ACCESS_*` settings are set; with only some of them set, or with
+  `ALLOWED_REDIRECT_URIS` set too, it answers every request with a 500 rather
+  than falling back to GitHub. It answers only `/mcp`, and only with a valid
+  Access token for `CF_ACCESS_ALLOWED_EMAIL`. Any other identity gets a 403,
+  even one the Access policy allowed, and so does a service token, which
+  carries no email. The Access application's allowed redirect URIs decide
+  which clients can connect. This mode has been tested with claude.ai in a
+  browser and the Claude mobile app; others have reported claude.ai failing to
+  connect through Access, and other clients haven't been tested (see
+  [Cloudflare Access](./DEPLOY.md#cloudflare-access)).
+- **GitHub.** Any GitHub account other than `ALLOWED_GITHUB_LOGIN` is refused.
+  Because clients register themselves, every permitted sign-in shows an
+  approval page naming the client and the exact address the grant will be sent
+  to; approve only a sign-in you just started. To restrict which clients can
+  connect at all, set `ALLOWED_REDIRECT_URIS` to their exact callback URIs
+  (loopback redirects for local clients stay allowed). Any MCP client that
+  supports remote servers with OAuth can connect, for example Claude
+  (claude.ai, desktop, and mobile), ChatGPT connectors, Claude Code, or the MCP
+  Inspector. See [Approving MCP clients](./DEPLOY.md#approving-mcp-clients) for
+  example callback URIs.
 
 ## Why not YNAB OAuth?
 
