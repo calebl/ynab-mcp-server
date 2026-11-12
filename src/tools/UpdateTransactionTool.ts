@@ -93,7 +93,8 @@ export async function execute(input: UpdateTransactionInput, api: ynab.API) {
       transactionUpdate.approved = input.approved;
     }
     if (input.flagColor !== undefined) {
-      transactionUpdate.flag_color = input.flagColor;
+      // YNAB clears a flag with null and rejects an empty string.
+      transactionUpdate.flag_color = input.flagColor === "" ? null : input.flagColor;
     }
 
     let matchedSplitCategories: (string | undefined)[] | undefined;

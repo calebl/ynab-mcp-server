@@ -424,7 +424,7 @@ describe('CreateTransactionTool', () => {
       expect(mockApi.transactions.createTransaction).toHaveBeenCalledWith(
         'test-budget-id',
         expect.objectContaining({
-          transaction: expect.objectContaining({ flag_color: '' }),
+          transaction: expect.objectContaining({ flag_color: null }),
         })
       );
     });

@@ -123,7 +123,8 @@ export async function execute(input: CreateTransactionInput, api: ynab.API) {
         memo: input.memo,
         cleared: mapClearedStatus(input.cleared),
         approved: input.approved ?? false,
-        flag_color: input.flagColor,
+        // YNAB clears a flag with null and rejects an empty string.
+        flag_color: input.flagColor === "" ? null : input.flagColor,
         ...(split && { subtransactions: split.subtransactions }),
       }
     };

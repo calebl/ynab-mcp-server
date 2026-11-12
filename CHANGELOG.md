@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `ynab_update_transaction` and `ynab_create_transaction` clear the flag when `flagColor` is an empty string, as documented. They used to send `flag_color: ""`, which YNAB rejects; they now send `null`.
+
 ## [0.9.0] - 2026-11-10
 
 ### Added
