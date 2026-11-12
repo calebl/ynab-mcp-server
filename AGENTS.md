@@ -23,6 +23,8 @@ npm run test:coverage # Run tests with coverage report
 
 ALWAYS use conventional commits format (Refer to https://www.conventionalcommits.org/en/v1.0.0/) when creating git commit messages.
 
+Put temporary probes, scratch tests and generated output under `/tmp` or a gitignored directory, and make sure `git status` is clean of them before reporting work done.
+
 ## Architecture Overview
 
 This is a **Model Context Protocol (MCP) server** that provides AI tools for interacting with YNAB (You Need A Budget) plans. Built with `@modelcontextprotocol/sdk`.
