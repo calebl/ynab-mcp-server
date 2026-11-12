@@ -3,7 +3,7 @@
 The stdio server in `src/index.ts` only works on the machine it runs on. To use
 these tools from claude.ai, the Claude mobile app, or another MCP client that
 supports remote servers, deploy the Worker in `src/worker/` to Cloudflare and
-add it as a custom connector.
+add its `/mcp` URL to the client.
 
 The Worker holds the YNAB token server-side and puts either
 [GitHub sign-in](#github-sign-in) or [Cloudflare Access](#cloudflare-access)
@@ -271,15 +271,15 @@ npx wrangler secret put YNAB_PLAN_ID
 `YNAB_BUDGET_ID` is deprecated but still accepted as an alias; there is no
 removal date. Use `YNAB_PLAN_ID` for new deployments.
 
-Set the operator-owned TypeSafe credential as a Worker secret:
+Category suggestions are optional. To enable them, set the operator-owned
+TypeSafe credential as a Worker secret:
 
 ```bash
 npx wrangler secret put TYPESAFE_API_KEY
 ```
 
-Category suggestions remain off unless you also add
-`"YNAB_AI_CATEGORIZATION": "true"` under `vars` in `wrangler.jsonc`. Both
-settings are required to expose `ynab_suggest_categories`; the key never
+Then add `"YNAB_AI_CATEGORIZATION": "true"` under `vars` in `wrangler.jsonc`.
+Both settings are required to expose `ynab_suggest_categories`; the key never
 belongs in `wrangler.jsonc` or a tool argument.
 
 Optionally, add `"YNAB_AI_TYPICAL_PAYEES": "true"` under `vars` to send each
