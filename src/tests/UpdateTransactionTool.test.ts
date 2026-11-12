@@ -146,7 +146,7 @@ describe('UpdateTransactionTool', () => {
         'txn-1',
         {
           transaction: {
-            flag_color: '',
+            flag_color: null,
           },
         }
       );
