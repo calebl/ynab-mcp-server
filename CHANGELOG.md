@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Updated the locked `@hono/node-server` from 2.1.5 to 2.1.8 in response to GHSA-jpvv-r467-5p4w (a backslash in the request path is parsed as a path separator) and GHSA-qv5m-9pm6-hqp3 (unhandled `ECONNRESET` on the socket during an asynchronous WebSocket upgrade). Neither server was exposed. The stdio server (`src/index.ts`) never loads `@hono/node-server`, and the Worker bundle does not include it. The streamable-HTTP entry (`src/http.ts`) loads it through the SDK's Streamable HTTP server transport, which uses only its request-to-`Request` conversion. That entry routes on the exact raw path (`/mcp`, `/healthz`) before the transport sees a request, so a path with a backslash gets a 404. It runs on `node:http` with no WebSocket upgrade handling.
+
 ## [0.9.0] - 2026-11-12
 
 ### Added
