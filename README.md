@@ -389,6 +389,7 @@ than money movement.
 | `ynab_create_transaction` | Creates a transaction. Needs `date`, `amount`, an account (`accountId` or `accountName`) and a payee (`payeeId` or `payeeName`); category optional as `categoryId` or `categoryName`, or `subtransactions` to split it. |
 | `ynab_update_transaction` | Updates any subset of an existing transaction's fields, or splits an unsplit one with `subtransactions`. |
 | `ynab_delete_transaction` | Deletes a transaction. Not undoable. |
+| `ynab_manage_scheduled_transaction` | Creates, updates or deletes a scheduled transaction with `action`. Create needs `date`, `amount` and an account (`accountId` or `accountName`), with optional `frequency` (default `never`), payee, category, `memo` and `flagColor`; update needs `scheduledTransactionId` and changes only the fields given; delete needs `scheduledTransactionId` and is not undoable. YNAB only accepts a date in the future, at most 5 years ahead, and does not support split scheduled transactions here. |
 | `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call, or un-approves them with `approved: false`. |
 | `ynab_apply_category_suggestions` | Applies up to 25 explicit category suggestions with refetch and stale-data checks, dry-run support, and a pre-write undo manifest. Never auto-applies or approves transactions. |
 | `ynab_update_category_budget` | Sets the total budgeted amount for one category in a month. Not an increment; use `ynab_move_money` to move money between categories. |
@@ -439,7 +440,9 @@ text content, so a failed write is never mistaken for a successful one.
 Every tool advertises MCP annotations (`readOnlyHint`, `destructiveHint`,
 `idempotentHint`, `openWorldHint`) alongside its schema. Tools that change
 neither YNAB nor the Worker's service state are `readOnlyHint: true`; among the
-YNAB writing tools, only `ynab_delete_transaction` sets `destructiveHint: true`.
+YNAB writing tools, only `ynab_delete_transaction` and
+`ynab_manage_scheduled_transaction` (whose `delete` action cannot be undone) set
+`destructiveHint: true`.
 A client may use these hints to decide which calls need a confirmation prompt.
 
 #### `cleared` and `flagColor`
