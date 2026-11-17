@@ -174,6 +174,18 @@ describe("ManageScheduledTransactionTool", () => {
       expect(result.message).toBe("Scheduled transaction updated successfully");
     });
 
+    it("preserves a payee name when the existing schedule has no payee id", async () => {
+      mockApi.scheduledTransactions.getScheduledTransactionById.mockResolvedValue({
+        data: { scheduled_transaction: { ...scheduled, payee_id: null, payee_name: "Audible" } },
+      });
+
+      await run({ action: "update", scheduledTransactionId: "st-1", accountId: "acct-checking" });
+
+      const sent = mockApi.scheduledTransactions.updateScheduledTransaction.mock.calls[0][2].scheduled_transaction;
+      expect(sent.payee_id).toBeNull();
+      expect(sent.payee_name).toBe("Audible");
+    });
+
     it("applies only the given fields", async () => {
       await run({
         action: "update",

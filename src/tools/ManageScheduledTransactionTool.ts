@@ -138,6 +138,7 @@ function currentFields(existing: ynab.ScheduledTransactionDetail): ynab.SaveSche
     date: existing.date_next,
     amount: existing.amount,
     payee_id: existing.payee_id ?? null,
+    ...(existing.payee_id ? {} : { payee_name: existing.payee_name ?? null }),
     category_id: existing.category_id ?? null,
     memo: existing.memo ?? null,
     flag_color: existing.flag_color ?? null,

@@ -399,12 +399,12 @@ than money movement.
 
 #### Names instead of IDs
 
-`ynab_create_transaction` accepts `accountName` and `categoryName` and matches
-them loosely against the plan, so "ally checking" finds *Ally Checking*.
-Closed accounts and hidden categories are never matched. If a name is ambiguous
-or unrecognised the call fails and names the near misses rather than guessing,
-and successful calls echo back `matchedAccount` / `matchedCategory` so a wrong
-guess is visible.
+`ynab_create_transaction` and `ynab_manage_scheduled_transaction` accept
+`accountName` and `categoryName` and match them loosely against the plan, so
+"ally checking" finds *Ally Checking*. Closed accounts and hidden categories are
+never matched. If a name is ambiguous or unrecognised the call fails and names
+the near misses rather than guessing, and successful calls echo back
+`matchedAccount` / `matchedCategory` so a wrong guess is visible.
 
 #### Split transactions
 
@@ -448,9 +448,10 @@ A client may use these hints to decide which calls need a confirmation prompt.
 #### `cleared` and `flagColor`
 
 `ynab_create_transaction` and `ynab_update_transaction` accept `cleared` as
-one of `cleared`, `uncleared`, or `reconciled`, and `flagColor` as one of
-`red`, `orange`, `yellow`, `green`, `blue`, `purple`, or `""` to clear an
-existing flag.
+one of `cleared`, `uncleared`, or `reconciled`. They and
+`ynab_manage_scheduled_transaction` accept `flagColor` as one of `red`,
+`orange`, `yellow`, `green`, `blue`, `purple`, or `""` to clear an existing
+flag.
 
 ## Development
 
