@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, Mock } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, Mock } from "vitest";
 import type * as ynab from "ynab";
 import * as ManageScheduledTransactionTool from "../tools/ManageScheduledTransactionTool";
 import { registerAll, type ToolRegistrar } from "../registry.js";
@@ -40,6 +40,8 @@ describe("ManageScheduledTransactionTool", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-15T12:00:00Z"));
     mockApi = {
       scheduledTransactions: {
         createScheduledTransaction: vi.fn().mockResolvedValue({ data: { scheduled_transaction: scheduled } }),
@@ -73,6 +75,10 @@ describe("ManageScheduledTransactionTool", () => {
         getPlanSettingsById: vi.fn().mockRejectedValue(new Error("no settings in test")),
       },
     };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   const run = (input: Record<string, unknown>) =>
@@ -172,6 +178,38 @@ describe("ManageScheduledTransactionTool", () => {
       expect(result.success).toBe(true);
       expect(result.matchedAccount).toBe("Ally Checking");
       expect(result.message).toBe("Scheduled transaction updated successfully");
+    });
+
+    it("refuses an overdue update without a new date", async () => {
+      mockApi.scheduledTransactions.getScheduledTransactionById.mockResolvedValue({
+        data: { scheduled_transaction: { ...scheduled, date_next: "2026-06-14" } },
+      });
+
+      const result = parse(await run({ action: "update", scheduledTransactionId: "st-1", memo: "new memo" }));
+
+      expect(result).toEqual({
+        success: false,
+        error: "This scheduled transaction is overdue; provide a new future date to update it.",
+      });
+      expect(mockApi.scheduledTransactions.updateScheduledTransaction).not.toHaveBeenCalled();
+    });
+
+    it("updates an overdue schedule when given a new future date", async () => {
+      mockApi.scheduledTransactions.getScheduledTransactionById.mockResolvedValue({
+        data: { scheduled_transaction: { ...scheduled, date_next: "2026-06-14" } },
+      });
+
+      const result = parse(await run({
+        action: "update",
+        scheduledTransactionId: "st-1",
+        date: "2026-06-16",
+        memo: "new memo",
+      }));
+
+      expect(result.success).toBe(true);
+      expect(mockApi.scheduledTransactions.updateScheduledTransaction).toHaveBeenCalledWith("plan-1", "st-1", {
+        scheduled_transaction: expect.objectContaining({ date: "2026-06-16", memo: "new memo" }),
+      });
     });
 
     it("preserves a payee name when the existing schedule has no payee id", async () => {

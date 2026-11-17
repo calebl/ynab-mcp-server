@@ -5,6 +5,7 @@ import { getErrorMessage } from "./errorUtils.js";
 import { getDecimalDigits, toDollars, toMilliunits } from "./money.js";
 import { resolveName } from "./match.js";
 import { loadCategories } from "./splits.js";
+import { todayUtc } from "./dates.js";
 
 const FREQUENCIES = [
   "never",
@@ -26,7 +27,7 @@ type Frequency = typeof FREQUENCIES[number];
 type FlagColor = "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "";
 
 export const name = "ynab_manage_scheduled_transaction";
-export const description = "Creates, updates or deletes a scheduled (recurring or future) transaction. action \"create\" needs date, amount and an account (accountId or accountName); a payee and category are optional. action \"update\" needs scheduledTransactionId and changes only the fields you give, e.g. accountName to move a subscription to the account it is really charged to. action \"delete\" needs scheduledTransactionId and cannot be undone. Account and category names are fuzzy-matched against the plan. YNAB only accepts a date in the future and no more than 5 years ahead, and does not support creating or editing split scheduled transactions. Use ynab_list_scheduled_transactions to find ids.";
+export const description = "Creates, updates or deletes a scheduled (recurring or future) transaction. action \"create\" needs date, amount and an account (accountId or accountName); a payee and category are optional. action \"update\" needs scheduledTransactionId and changes only the fields you give, e.g. accountName to move a subscription to the account it is really charged to. An overdue scheduled transaction must be given a new future date when updated. action \"delete\" needs scheduledTransactionId and cannot be undone. Account and category names are fuzzy-matched against the plan. YNAB only accepts a date in the future and no more than 5 years ahead, and does not support creating or editing split scheduled transactions. Use ynab_list_scheduled_transactions to find ids.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
@@ -200,6 +201,9 @@ async function update(input: ManageScheduledTransactionInput, planId: string, ap
   }
 
   const existing = (await api.scheduledTransactions.getScheduledTransactionById(planId, id)).data.scheduled_transaction;
+  if (input.date === undefined && existing.date_next < todayUtc()) {
+    throw new Error("This scheduled transaction is overdue; provide a new future date to update it.");
+  }
   if (existing.subtransactions?.some((sub) => !sub.deleted)) {
     throw new Error("This scheduled transaction is split, and YNAB does not support editing split scheduled transactions through the API. Edit it in YNAB instead.");
   }
