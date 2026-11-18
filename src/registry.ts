@@ -14,6 +14,7 @@ import * as DeleteTransactionTool from "./tools/DeleteTransactionTool.js";
 import * as ListCategoriesTool from "./tools/ListCategoriesTool.js";
 import * as ListAccountsTool from "./tools/ListAccountsTool.js";
 import * as ListScheduledTransactionsTool from "./tools/ListScheduledTransactionsTool.js";
+import * as ManageScheduledTransactionTool from "./tools/ManageScheduledTransactionTool.js";
 import * as ImportTransactionsTool from "./tools/ImportTransactionsTool.js";
 import * as ListMonthsTool from "./tools/ListMonthsTool.js";
 import * as MoveMoneyTool from "./tools/MoveMoneyTool.js";
@@ -80,6 +81,7 @@ export const tools: ToolEntry[] = [
   { title: "List Categories", module: ListCategoriesTool, writes: false },
   { title: "List Accounts", module: ListAccountsTool, writes: false },
   { title: "List Scheduled Transactions", module: ListScheduledTransactionsTool, writes: false },
+  { title: "Manage Scheduled Transaction", module: ManageScheduledTransactionTool, writes: true, destructive: true },
   { title: "Import Transactions", module: ImportTransactionsTool, writes: true },
   { title: "List Months", module: ListMonthsTool, writes: false },
   { title: "Move Money", module: MoveMoneyTool, writes: true },
