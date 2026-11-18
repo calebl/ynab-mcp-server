@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-18
+
 ### Added
+- `ynab_get_transactions` returns `import_payee_name` and `import_payee_name_original`, which appear only on imported transactions. `import_payee_name` is the payee name YNAB used at import, before payee rename rules, and `import_payee_name_original` is the original text from the bank statement.
 - `ynab_manage_scheduled_transaction` creates, updates or deletes a scheduled transaction, chosen with `action`. It covers the account (`accountId` or a fuzzy-matched `accountName`), `date`, `frequency`, `amount`, payee, category (`categoryId` or `categoryName`), `memo` and `flagColor`. An update changes only the fields given, so moving a recurring charge to another account is one call with `scheduledTransactionId` and `accountName`. It is a write tool, so read-only mode omits it, and it is marked destructive because `delete` cannot be undone. Creating or editing split scheduled transactions is refused, since the YNAB API does not support it. `ynab_list_scheduled_transactions` stays the way to find ids.
 
 ### Security
