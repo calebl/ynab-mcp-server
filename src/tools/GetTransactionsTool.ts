@@ -72,6 +72,8 @@ interface TransactionData {
   transfer_transaction_id?: string | null;
   matched_transaction_id?: string | null;
   import_id?: string | null;
+  import_payee_name?: string | null;
+  import_payee_name_original?: string | null;
   subtransactions?: ynab.SubTransaction[];
   /** Set on the hybrid rows that the category and payee listings return. */
   type?: string;
@@ -266,6 +268,9 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
         transfer_transaction_id: txn.transfer_transaction_id,
         matched_transaction_id: txn.matched_transaction_id,
         import_id: txn.import_id,
+        // The payee as imported: YNAB's cleaned-up name and the bank's raw text.
+        import_payee_name: txn.import_payee_name,
+        import_payee_name_original: txn.import_payee_name_original,
         // A split leg listed as its own row; the id ties it back to the whole transaction.
         ...(txn.type === "subtransaction" ? { parent_transaction_id: txn.parent_transaction_id } : {}),
         // Present only on splits, whose parent row is categorised "Split".

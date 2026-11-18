@@ -124,6 +124,37 @@ describe('GetTransactionsTool', () => {
       expect(split.subtransactions[1].category_name).toBe('Groceries');
     });
 
+    it('should return the payee names a transaction was imported with', async () => {
+      mockApi.transactions.getTransactions.mockResolvedValue({
+        data: {
+          transactions: [
+            {
+              ...mockTransactionsData[0],
+              import_id: 'YNAB:-25990:2024-01-15:1',
+              import_payee_name: 'Amazon',
+              import_payee_name_original: 'AMZN Mktp US*2K4AB1CD2',
+            },
+            mockTransactionsData[1],
+          ],
+        },
+      });
+
+      const result = await GetTransactionsTool.execute(
+        { budgetId: 'test-budget-id' },
+        mockApi as any
+      );
+
+      const [imported, manual] = JSON.parse(result.content[0].text).transactions
+        .sort((a: any, b: any) => a.id.localeCompare(b.id));
+      expect(imported).toMatchObject({
+        import_payee_name: 'Amazon',
+        import_payee_name_original: 'AMZN Mktp US*2K4AB1CD2',
+      });
+      // A transaction entered by hand has no import data, so the fields drop out.
+      expect(manual).not.toHaveProperty('import_payee_name');
+      expect(manual).not.toHaveProperty('import_payee_name_original');
+    });
+
     it('should omit subtransactions on ordinary transactions', async () => {
       mockApi.transactions.getTransactions.mockResolvedValue({
         data: { transactions: mockTransactionsData },
