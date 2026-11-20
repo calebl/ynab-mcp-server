@@ -89,6 +89,14 @@ describe('ReconcileAccountTool', () => {
       expect(schema.safeParse({ accountId: 'a', statementBalance: 1 }).success).toBe(true);
     });
 
+    it('rejects impossible calendar dates such as 2026-02-30', () => {
+      const schema = z.object(ReconcileAccountTool.inputSchema);
+
+      expect(schema.safeParse({ accountId: 'a', statementBalance: 1, adjustmentDate: '2026-02-30' }).success).toBe(false);
+      expect(schema.safeParse({ accountId: 'a', statementBalance: 1, adjustmentDate: '2026-13-01' }).success).toBe(false);
+      expect(schema.safeParse({ accountId: 'a', statementBalance: 1, adjustmentDate: '2026-02-28' }).success).toBe(true);
+    });
+
     it('reads the account and all of its history and computes the difference', async () => {
       const response = await run({ statementBalance: 1000 });
 
@@ -236,6 +244,7 @@ describe('ReconcileAccountTool', () => {
           payee_name: 'Reconciliation Balance Adjustment',
           cleared: 'cleared',
           approved: true,
+          import_id: 'RC:990000:1000000',
         },
       });
       expect(patchedIds()).toEqual(['t-cleared', 'adj-1']);
@@ -260,6 +269,52 @@ describe('ReconcileAccountTool', () => {
       expect(mockApi.transactions.createTransaction.mock.calls[0][1].transaction.date).toBe('2026-09-30');
     });
 
+    it('rejects a second write for the same account while one is in flight', async () => {
+      let release!: (v: unknown) => void;
+      mockApi.transactions.createTransaction.mockReturnValue(new Promise((r) => { release = r; }));
+      resolvePatch(['t-cleared', 'adj-1']);
+
+      const first = run({ dryRun: false, statementBalance: 1000, createAdjustment: true });
+      await vi.waitFor(() => expect(mockApi.transactions.createTransaction).toHaveBeenCalled());
+      const second = await run({ dryRun: false, statementBalance: 1000, createAdjustment: true });
+
+      expect(second.success).toBe(false);
+      expect(second.error).toContain('already in progress');
+      expect(mockApi.transactions.createTransaction).toHaveBeenCalledTimes(1);
+
+      release({ data: { transaction: adjustment } });
+      expect((await first).success).toBe(true);
+      const third = await run({ dryRun: false, statementBalance: 990 });
+      expect(third.error).toBeUndefined();
+    });
+
+    it('ties the import_id to the reconciled balance and stops when YNAB reports it as a duplicate', async () => {
+      mockApi.transactions.createTransaction.mockResolvedValue({ data: { transaction: undefined, duplicate_import_ids: ['x'] } });
+
+      const result = await run({ dryRun: false, statementBalance: 1000, createAdjustment: true, adjustmentDate: '2026-09-30' });
+
+      expect(mockApi.transactions.createTransaction.mock.calls[0][1].transaction.import_id).toBe('RC:990000:1000000');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('already exists');
+      expect(mockApi.transactions.updateTransactions).not.toHaveBeenCalled();
+    });
+
+    it('rejects a concurrent write that names the same plan differently', async () => {
+      let release!: (v: unknown) => void;
+      mockApi.transactions.createTransaction.mockReturnValue(new Promise((r) => { release = r; }));
+      resolvePatch(['t-cleared', 'adj-1']);
+
+      const first = run({ dryRun: false, statementBalance: 1000, createAdjustment: true, planId: 'last-used' });
+      await vi.waitFor(() => expect(mockApi.transactions.createTransaction).toHaveBeenCalled());
+      const second = await run({ dryRun: false, statementBalance: 1000, createAdjustment: true, planId: 'real-plan-id' });
+
+      expect(second.error).toContain('already in progress');
+      expect(mockApi.transactions.createTransaction).toHaveBeenCalledTimes(1);
+
+      release({ data: { transaction: adjustment } });
+      await first;
+    });
+
     it('does not reconcile anything when creating the adjustment fails', async () => {
       mockApi.transactions.createTransaction.mockRejectedValue(new Error('boom'));
 
@@ -267,7 +322,8 @@ describe('ReconcileAccountTool', () => {
 
       expect(response.success).toBe(false);
       expect(response.error).toContain('boom');
-      expect(response.error).toContain('Nothing was changed');
+      expect(response.error).toContain('unknown');
+      expect(response.error).not.toContain('Nothing was changed');
       expect(mockApi.transactions.updateTransactions).not.toHaveBeenCalled();
     });
 

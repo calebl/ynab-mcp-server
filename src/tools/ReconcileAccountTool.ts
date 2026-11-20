@@ -3,10 +3,23 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { getErrorMessage, toolError } from "./errorUtils.js";
 import { formatAmount, getDecimalDigits, toDollars, toMilliunits } from "./money.js";
+import { addDays } from "./dates.js";
 
 const ADJUSTMENT_PAYEE_NAME = "Reconciliation Balance Adjustment";
 /** getTransactionsByAccount defaults since_date to one year ago; this reaches all history. */
 const ALL_HISTORY_SINCE_DATE = "1970-01-01";
+
+/** Rejects dates that match the pattern but do not exist, such as 2026-02-30. */
+function isRealDate(date: string): boolean {
+  return !Number.isNaN(Date.parse(`${date}T00:00:00Z`)) && addDays(date, 0) === date;
+}
+
+/**
+ * Accounts with a write in flight in this process; stops concurrent calls from creating duplicate adjustments.
+ * Across processes (Worker instances) the adjustment's deterministic import_id makes YNAB reject the duplicate.
+ * Keyed by account ID alone: it is a UUID, so it is the same however the plan was named (`last-used`, `default` or its ID).
+ */
+const inFlight = new Set<string>();
 
 export const name = "ynab_reconcile_account";
 export const description = "Reconciles an account against a bank statement balance. Defaults to a dry run that changes nothing: it reports the difference between the statement and YNAB's cleared balance and the cleared transactions that would be marked reconciled. With dryRun false and a matching balance it marks them reconciled. On a mismatch it changes nothing unless createAdjustment is true, in which case it first records one 'Reconciliation Balance Adjustment' transaction for the difference.";
@@ -17,7 +30,7 @@ export const inputSchema = {
   statementBalance: z.number().describe("The ending balance on the bank statement in dollars, using YNAB's sign: money owed on a credit card or loan is negative (e.g. -523.10)"),
   dryRun: z.boolean().optional().describe("Preview without changing anything (default: true). Set to false to apply."),
   createAdjustment: z.boolean().optional().describe("If the statement and cleared balance differ, create one 'Reconciliation Balance Adjustment' transaction for the difference before reconciling (default: false). Without it a mismatch changes nothing."),
-  adjustmentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Date for the adjustment transaction in ISO format (e.g. 2024-03-31). Defaults to today (UTC); must not be in the future."),
+  adjustmentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isRealDate, "Not a real calendar date").optional().describe("Date for the adjustment transaction in ISO format (e.g. 2024-03-31). Defaults to today (UTC); must not be in the future."),
 };
 
 interface ReconcileAccountInput {
@@ -61,9 +74,18 @@ async function markReconciled(api: ynab.API, planId: string, ids: string[]) {
 }
 
 export async function execute(input: ReconcileAccountInput, api: ynab.API) {
+  let key: string | undefined;
   try {
     const planId = resolvePlanId(input);
     const dryRun = input.dryRun ?? true;
+    if (!dryRun) {
+      key = input.accountId;
+      if (inFlight.has(key)) {
+        key = undefined;
+        return toolError("A reconciliation of this account is already in progress. Wait for it to finish, then run a dry run to see the current state.");
+      }
+      inFlight.add(key);
+    }
     const today = new Date().toISOString().slice(0, 10);
     const adjustmentDate = input.adjustmentDate ?? today;
 
@@ -85,6 +107,9 @@ export async function execute(input: ReconcileAccountInput, api: ynab.API) {
     const differenceMilliunits = statementMilliunits - account.cleared_balance;
     const adjustmentNeeded = differenceMilliunits !== 0;
 
+    if (adjustmentNeeded && !isRealDate(adjustmentDate)) {
+      return toolError(`adjustmentDate ${adjustmentDate} is not a real calendar date.`);
+    }
     if (adjustmentNeeded && adjustmentDate > today) {
       return toolError(`adjustmentDate ${adjustmentDate} is after today (${today}); YNAB does not accept future-dated transactions.`);
     }
@@ -154,13 +179,19 @@ export async function execute(input: ReconcileAccountInput, api: ynab.API) {
           payee_name: ADJUSTMENT_PAYEE_NAME,
           cleared: ynab.TransactionClearedStatus.Cleared,
           approved: true,
+          // Tied to the balance being reconciled: an overlapping call in another process or Worker instance reads the same
+          // state and gets the same ID, so YNAB rejects its duplicate; a later adjustment sees a new cleared balance.
+          import_id: `RC:${account.cleared_balance}:${statementMilliunits}`,
         },
       });
+      if (!created.data.transaction && created.data.duplicate_import_ids?.length) {
+        return toolError(`This adjustment (${fmt(differenceMilliunits, digits)} for this balance) already exists, probably from an overlapping call. Nothing more was changed. Run a dry run to see the current state.`);
+      }
       if (!created.data.transaction) throw new Error("no transaction data returned");
       adjustment = created.data.transaction;
     } catch (error) {
       console.error("Error creating reconciliation adjustment:", error);
-      return toolError(`Creating the adjustment transaction failed: ${getErrorMessage(error)}. Nothing was changed.`);
+      return toolError(`Creating the adjustment transaction failed: ${getErrorMessage(error)}. Whether the adjustment was created is unknown. Check the account in YNAB for a '${ADJUSTMENT_PAYEE_NAME}' transaction, or run a dry run to see the current difference, before retrying.`);
     }
 
     try {
@@ -188,5 +219,7 @@ export async function execute(input: ReconcileAccountInput, api: ynab.API) {
   } catch (error) {
     console.error("Error reconciling account:", error);
     return toolError(getErrorMessage(error));
+  } finally {
+    if (key) inFlight.delete(key);
   }
 }
