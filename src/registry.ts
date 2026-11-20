@@ -26,6 +26,8 @@ import * as BalanceForecastTool from "./tools/BalanceForecastTool.js";
 import * as DetectRecurringTool from "./tools/DetectRecurringTool.js";
 import * as SuggestCategoriesTool from "./tools/SuggestCategoriesTool.js";
 import * as ApplyCategorySuggestionsTool from "./tools/ApplyCategorySuggestionsTool.js";
+import * as CreateCategoryTool from "./tools/CreateCategoryTool.js";
+import * as UpdateCategoryTool from "./tools/UpdateCategoryTool.js";
 import { getErrorMessage, toolError } from "./tools/errorUtils.js";
 import { configuredPlanId, describeMissingPlan } from "./tools/planId.js";
 
@@ -68,11 +70,19 @@ const refineCreateTransaction = (schema: z.ZodObject<z.ZodRawShape>) =>
       path: ["payeeId"],
     });
 
+const requireIdOrName = (idField: string, nameField: string) => (schema: z.ZodObject<z.ZodRawShape>) =>
+  schema.refine((data) => Boolean((data as Record<string, unknown>)[idField] || (data as Record<string, unknown>)[nameField]), {
+    message: `Either ${idField} or ${nameField} must be provided`,
+    path: [idField],
+  });
+
 export const tools: ToolEntry[] = [
   { title: "List Plans", module: ListPlansTool, writes: false },
   { title: "Plan Summary", module: PlanSummaryTool, writes: false },
   { title: "Create Transaction", module: CreateTransactionTool, writes: true, refine: refineCreateTransaction },
   { title: "Update Category Budget", module: UpdateCategoryBudgetTool, writes: true, idempotent: true },
+  { title: "Create Category", module: CreateCategoryTool, writes: true, refine: requireIdOrName("categoryGroupId", "categoryGroupName") },
+  { title: "Update Category", module: UpdateCategoryTool, writes: true, refine: requireIdOrName("categoryId", "categoryName") },
   { title: "Update Transaction", module: UpdateTransactionTool, writes: true, idempotent: true },
   { title: "Bulk Approve Transactions", module: BulkApproveTransactionsTool, writes: true, idempotent: true },
   { title: "List Payees", module: ListPayeesTool, writes: false },

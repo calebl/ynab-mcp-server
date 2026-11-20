@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `ynab_create_category` creates a category in a group given as `categoryGroupId` or `categoryGroupName`, with an optional `note`, `goalTarget` (in dollars; YNAB makes it a "needed for spending" target) and `goalTargetDate`. A group id wins over a name. Names match exactly first, ignoring case, spacing and leading emoji, then loosely, but only between names whose letters are all a-z, so names in other scripts never match on their Latin leftovers. With `createGroupIfMissing: true`, only exact names count and the group is created when none has that name; a name that matches a hidden group, an internal group or Credit Card Payments, or several groups, is reported instead, and an unknown group id is always an error. A category name already used in the group is refused, which guards against accidental repeats but not against concurrent calls. If the group is created but the category is not, the error includes `createdGroup` so it can be reused. Inputs are validated before anything is read or written: blank names, group names over 50 characters, dates that aren't on the calendar, and negative or non-finite targets are rejected.
+- `ynab_update_category` renames a category, moves it to another existing group (never creating one), or changes its note or target. The category is found by `categoryId` or `categoryName`, hidden categories included; internal and credit card payment categories are refused. Only the fields passed are sent, `note: ""` clears the note, a rename or move that would duplicate a name in the target group is refused, and the response shows the category `before` and `after`. Both tools are write tools, so `YNAB_READ_ONLY` removes them. YNAB's API can't hide, delete or reorder categories.
+
 ## [0.10.0] - 2026-11-18
 
 ### Added
