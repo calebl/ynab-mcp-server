@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
 import * as ynab from 'ynab';
+import { z } from 'zod';
 import * as ListAccountsTool from '../tools/ListAccountsTool';
 
 vi.mock('ynab');
@@ -90,7 +91,7 @@ describe('ListAccountsTool', () => {
         mockApi as any
       );
 
-      expect(mockApi.accounts.getAccounts).toHaveBeenCalledWith('test-budget-id');
+      expect(mockApi.accounts.getAccounts).toHaveBeenCalledWith('test-budget-id', undefined);
 
       const response = JSON.parse(result.content[0].text);
       expect(response.account_count).toBe(2); // Excludes closed and deleted
@@ -158,7 +159,7 @@ describe('ListAccountsTool', () => {
 
       await ListAccountsTool.execute({}, mockApi as any);
 
-      expect(mockApi.accounts.getAccounts).toHaveBeenCalledWith('test-budget-id');
+      expect(mockApi.accounts.getAccounts).toHaveBeenCalledWith('test-budget-id', undefined);
     });
 
     it('should return error when no plan ID is available', async () => {
@@ -210,6 +211,53 @@ describe('ListAccountsTool', () => {
     it('should have input schema fields', () => {
       expect(ListAccountsTool.inputSchema).toHaveProperty('budgetId');
       expect(ListAccountsTool.inputSchema).toHaveProperty('includeClosedAccounts');
+    });
+  });
+
+  describe('delta sync', () => {
+    const rows = [
+      { id: 'a1', name: 'a1', type: 'checking', on_budget: true, closed: false, deleted: false, balance: 0, cleared_balance: 0, uncleared_balance: 0, transfer_payee_id: 't' },
+      { id: 'a2', name: 'a2', type: 'checking', on_budget: true, closed: false, deleted: true, balance: 0, cleared_balance: 0, uncleared_balance: 0, transfer_payee_id: 't' },
+    ];
+    const run = (input: Record<string, unknown>) => {
+      mockApi.accounts.getAccounts.mockResolvedValue({ data: { accounts: rows, server_knowledge: 42 } });
+      return ListAccountsTool.execute({ budgetId: 'test-budget-id', ...input }, mockApi as any);
+    };
+
+    it.each([[5], [0]])('passes lastKnowledgeOfServer %s to the SDK and keeps deleted rows', async (value) => {
+      const response = JSON.parse((await run({ lastKnowledgeOfServer: value })).content[0].text);
+      expect(mockApi.accounts.getAccounts).toHaveBeenCalledWith('test-budget-id', value);
+      expect(response.server_knowledge).toBe(42);
+      expect(response.accounts.map((r: any) => r.deleted)).toEqual([false, true]);
+      expect(response.account_count).toBe(2);
+    });
+
+    it('passes undefined and drops deleted rows when omitted', async () => {
+      const response = JSON.parse((await run({})).content[0].text);
+      expect(mockApi.accounts.getAccounts).toHaveBeenCalledWith('test-budget-id', undefined);
+      expect(response.accounts).toHaveLength(1);
+      expect(response.accounts[0].deleted).toBe(false);
+      expect(response.server_knowledge).toBe(42);
+    });
+
+    it('rejects negative and fractional values', () => {
+      const schema = z.object(ListAccountsTool.inputSchema);
+      expect(schema.safeParse({ lastKnowledgeOfServer: -1 }).success).toBe(false);
+      expect(schema.safeParse({ lastKnowledgeOfServer: 1.5 }).success).toBe(false);
+      expect(schema.safeParse({ lastKnowledgeOfServer: 0 }).success).toBe(true);
+    });
+
+    it('documents the parameter in the description', () => {
+      for (const text of ['lastKnowledgeOfServer', 'server_knowledge', 'deleted: true']) {
+        expect(ListAccountsTool.description).toContain(text);
+      }
+    });
+
+    it('returns closed accounts in delta mode without includeClosedAccounts', async () => {
+      mockApi.accounts.getAccounts.mockResolvedValue({ data: { accounts: [{ id: 'a3', name: 'a3', type: 'checking', on_budget: true, closed: true, deleted: false, balance: 0, cleared_balance: 0, uncleared_balance: 0, transfer_payee_id: 't' }], server_knowledge: 1 } });
+      const response = JSON.parse((await ListAccountsTool.execute({ budgetId: 'test-budget-id', lastKnowledgeOfServer: 1 }, mockApi as any)).content[0].text);
+      expect(response.accounts).toHaveLength(1);
+      expect(ListAccountsTool.description).toContain('includeClosedAccounts is ignored');
     });
   });
 });

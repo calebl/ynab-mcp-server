@@ -252,13 +252,17 @@ happens in `src/tools/money.ts`.
 | --- | --- |
 | `ynab_list_plans` | Every plan on the account. Run this first to find a plan ID. |
 | `ynab_plan_summary` | A month at a glance: income, budgeted, activity, Ready to Assign, plus categories split into `overspent`, `underfunded` (goal not yet met) and `positive_balance`. Hidden and deleted categories are excluded. `budgetVsActuals: true` adds a `budget_vs_actuals` block: `budgeted`, `activity`, `balance`, `variance` (budgeted plus activity) and `percent_used` (null when nothing was assigned) per category, subtotalled per category group and in `totals`. Credit Card Payments is listed as its own group but left out of `totals`, since its activity is card spending moving in minus payments going out. YNAB's internal Inflow: Ready to Assign category (whose activity is the month's income) is skipped; other internal categories, such as Uncategorized, are listed and counted when they have activity. |
-| `ynab_list_accounts` | Accounts with balances. `includeClosedAccounts` to see closed ones. |
+| `ynab_list_accounts` | Accounts with balances. `includeClosedAccounts` to see closed ones. `lastKnowledgeOfServer` for delta sync. |
 | `ynab_list_categories` | Categories grouped by category group, with goal info. |
-| `ynab_list_payees` | Payees, for resolving payee IDs. |
+| `ynab_list_payees` | Payees, for resolving payee IDs. `lastKnowledgeOfServer` for delta sync. |
 | `ynab_list_months` | Every plan month since the plan began, with raw income, budgeted, activity, Ready to Assign, age-of-money and note fields. For recent income versus spending, use `ynab_cash_flow`. |
-| `ynab_list_scheduled_transactions` | The scheduled transactions set up in YNAB. For recurring charges found in transaction history, see `ynab_detect_recurring`; for a projected balance, `ynab_balance_forecast`. |
+| `ynab_list_scheduled_transactions` | The scheduled transactions set up in YNAB. For recurring charges found in transaction history, see `ynab_detect_recurring`; for a projected balance, `ynab_balance_forecast`. `lastKnowledgeOfServer` for delta sync. |
 | `ynab_get_transactions` | Transactions optionally filtered to `sinceDate`–`untilDate`, by `type` (`all`/`uncategorized`/`unapproved`), and by at most one of `accountId`, `categoryId` or `payeeId` (the first in that order wins). To search, add `payeeContains`, `memoContains` (case-insensitive), `minAmount`/`maxAmount` (ignoring sign) or `direction` (`outflow`/`inflow`/`any`); any search option or `untilDate` adds a `totals` block (`count`, `inflow`, `outflow`, `net`) over every match, including transfers between accounts, and `totalsOnly: true` returns only that. Without `categoryId` or `payeeId`, splits are matched leg by leg and the totals count only the matching legs; with them, rows are matched as YNAB returns them, so a split's parent row in the payee listing counts at its full amount. Imported rows also carry `import_payee_name` (YNAB's cleaned-up payee) and `import_payee_name_original` (the bank's raw text). Rows come back newest first; `limit` defaults to 100, keeps the most recent rows, and does not affect the totals. |
 | `ynab_suggest_categories` | Opt-in, read-only category previews for unapproved, uncategorized ordinary outflows. Deleted and categorized rows are dropped in default mode; approved, reconciled, balance-adjustment, transfer, split, and inflow rows are skipped as applicable. |
+
+#### Delta sync
+
+`ynab_list_accounts`, `ynab_list_payees` and `ynab_list_scheduled_transactions` return `server_knowledge`. Pass it back as `lastKnowledgeOfServer` to get only what changed since; in that mode deleted rows come back with `deleted: true` (and closed accounts regardless of `includeClosedAccounts`), so apply them as removals.
 
 ### Category suggestions (optional)
 

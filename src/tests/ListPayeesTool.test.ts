@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
 import * as ynab from 'ynab';
+import { z } from 'zod';
 import * as ListPayeesTool from '../tools/ListPayeesTool';
 
 vi.mock('ynab');
@@ -64,7 +65,7 @@ describe('ListPayeesTool', () => {
         mockApi as any
       );
 
-      expect(mockApi.payees.getPayees).toHaveBeenCalledWith('test-budget-id');
+      expect(mockApi.payees.getPayees).toHaveBeenCalledWith('test-budget-id', undefined);
 
       const response = JSON.parse(result.content[0].text);
       expect(response.payees).toHaveLength(3); // Excludes deleted
@@ -108,7 +109,7 @@ describe('ListPayeesTool', () => {
 
       await ListPayeesTool.execute({}, mockApi as any);
 
-      expect(mockApi.payees.getPayees).toHaveBeenCalledWith('test-budget-id');
+      expect(mockApi.payees.getPayees).toHaveBeenCalledWith('test-budget-id', undefined);
     });
 
     it('should handle empty payee list', async () => {
@@ -182,6 +183,46 @@ describe('ListPayeesTool', () => {
 
     it('should have optional budgetId in input schema', () => {
       expect(ListPayeesTool.inputSchema).toHaveProperty('budgetId');
+    });
+  });
+
+  describe('delta sync', () => {
+    const rows = [
+      { id: 'p1', name: 'Shop', transfer_account_id: null, deleted: false },
+      { id: 'p2', name: 'Old', transfer_account_id: null, deleted: true },
+    ];
+    const run = (input: Record<string, unknown>) => {
+      mockApi.payees.getPayees.mockResolvedValue({ data: { payees: rows, server_knowledge: 42 } });
+      return ListPayeesTool.execute({ budgetId: 'test-budget-id', ...input }, mockApi as any);
+    };
+
+    it.each([[5], [0]])('passes lastKnowledgeOfServer %s to the SDK and keeps deleted rows', async (value) => {
+      const response = JSON.parse((await run({ lastKnowledgeOfServer: value })).content[0].text);
+      expect(mockApi.payees.getPayees).toHaveBeenCalledWith('test-budget-id', value);
+      expect(response.server_knowledge).toBe(42);
+      expect(response.payees.map((r: any) => r.deleted)).toEqual([false, true]);
+      expect(response.payee_count).toBe(2);
+    });
+
+    it('passes undefined and drops deleted rows when omitted', async () => {
+      const response = JSON.parse((await run({})).content[0].text);
+      expect(mockApi.payees.getPayees).toHaveBeenCalledWith('test-budget-id', undefined);
+      expect(response.payees).toHaveLength(1);
+      expect(response.payees[0].deleted).toBe(false);
+      expect(response.server_knowledge).toBe(42);
+    });
+
+    it('rejects negative and fractional values', () => {
+      const schema = z.object(ListPayeesTool.inputSchema);
+      expect(schema.safeParse({ lastKnowledgeOfServer: -1 }).success).toBe(false);
+      expect(schema.safeParse({ lastKnowledgeOfServer: 1.5 }).success).toBe(false);
+      expect(schema.safeParse({ lastKnowledgeOfServer: 0 }).success).toBe(true);
+    });
+
+    it('documents the parameter in the description', () => {
+      for (const text of ['lastKnowledgeOfServer', 'server_knowledge', 'deleted: true']) {
+        expect(ListPayeesTool.description).toContain(text);
+      }
     });
   });
 });
