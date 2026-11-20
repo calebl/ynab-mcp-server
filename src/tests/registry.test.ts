@@ -135,7 +135,7 @@ describe("tool registration", () => {
       idempotentHint: false,
       openWorldHint: true,
     });
-    for (const name of ["ynab_get_category", "ynab_get_month_category", "ynab_get_month", "ynab_get_plan_settings", "ynab_get_user"]) {
+    for (const name of ["ynab_get_category", "ynab_get_month_category", "ynab_get_month", "ynab_goal_summary", "ynab_get_plan_settings", "ynab_get_user"]) {
       expect(registered.get(name)?.config.annotations.readOnlyHint, name).toBe(true);
     }
   });

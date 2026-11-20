@@ -251,6 +251,7 @@ happens in `src/tools/money.ts`.
 | `ynab_get_category` | One category by ID (hidden included) with its goal fields. |
 | `ynab_get_month_category` | One category's values for a given month (`month`: ISO date or `current`). |
 | `ynab_get_month` | One month's totals and all its non-deleted categories (`month`: ISO date or `current`). |
+| `ynab_goal_summary` | Goal totals for a month: goal count, total target, total under-funded, average completion, per-goal-type breakdown and the under-funded categories, largest first (`month`, `includeHidden`). |
 | `ynab_get_plan_settings` | The plan's date and currency formats. |
 | `ynab_get_user` | The authenticated user's ID. |
 | `ynab_list_scheduled_transactions` | The scheduled transactions set up in YNAB. For recurring charges found in transaction history, see `ynab_detect_recurring`; for a projected balance, `ynab_balance_forecast`. |
