@@ -20,6 +20,7 @@ import * as ListMonthsTool from "./tools/ListMonthsTool.js";
 import * as GetCategoryTool from "./tools/GetCategoryTool.js";
 import * as GetMonthCategoryTool from "./tools/GetMonthCategoryTool.js";
 import * as GetMonthTool from "./tools/GetMonthTool.js";
+import * as GoalSummaryTool from "./tools/GoalSummaryTool.js";
 import * as GetUserTool from "./tools/GetUserTool.js";
 import * as MoveMoneyTool from "./tools/MoveMoneyTool.js";
 import * as AutoAssignTool from "./tools/AutoAssignTool.js";
@@ -101,6 +102,7 @@ export const tools: ToolEntry[] = [
   { title: "Get Category", module: GetCategoryTool, writes: false },
   { title: "Get Month Category", module: GetMonthCategoryTool, writes: false },
   { title: "Get Month", module: GetMonthTool, writes: false },
+  { title: "Goal Summary", module: GoalSummaryTool, writes: false },
   { title: "Get User", module: GetUserTool, writes: false },
   { title: "Move Money", module: MoveMoneyTool, writes: true },
   { title: "Auto Assign", module: AutoAssignTool, writes: true },
