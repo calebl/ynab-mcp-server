@@ -48,9 +48,23 @@ describe('CreateCategoryTool', () => {
     expect(response).toMatchObject({ success: true, category: { name: 'Shopping', category_group_name: 'Wants' }, createdGroup: null });
   });
 
-  it('creates a category in a group given loosely by name', async () => {
-    const response = await run({ categoryGroupName: 'want' });
+  it('creates a category in a hidden group given by id', async () => {
+    const response = await run({ categoryGroupId: 'g-archive' });
+    expect(mockApi.categories.createCategory).toHaveBeenCalledWith('plan-1', { category: { name: 'Shopping', category_group_id: 'g-archive' } });
+    expect(response.success).toBe(true);
+  });
+
+  it('creates a category in a group given by exact name, ignoring case', async () => {
+    const response = await run({ categoryGroupName: 'wants' });
     expect(response.category.category_group_id).toBe('g-wants');
+  });
+
+  it('writes nothing for a near-miss group name and returns the closest names', async () => {
+    const response = await run({ categoryGroupName: 'want' });
+    expect(response.success).toBe(false);
+    expect(response.error).toContain('Closest: Wants');
+    expect(mockApi.categories.createCategory).not.toHaveBeenCalled();
+    expect(mockApi.categories.createCategoryGroup).not.toHaveBeenCalled();
   });
 
   it('creates the group when createGroupIfMissing is set and no group has that name', async () => {
@@ -66,7 +80,7 @@ describe('CreateCategoryTool', () => {
 
   it.each([
     ['an invalid id', { categoryGroupId: 'missing' }, 'No category group with id'],
-    ['a hidden group name', { categoryGroupName: 'Archive' }, 'is hidden'],
+    ['a hidden group name', { categoryGroupName: 'Archive' }, 'is hidden; use its id (found in the YNAB app) to use it anyway'],
     ['a reserved group name', { categoryGroupName: 'Credit Card Payments' }, 'credit card accounts'],
     ['an internal group id', { categoryGroupId: 'g-internal' }, 'internal to YNAB'],
   ])('never creates a group for %s', async (_label, input, error) => {
@@ -86,7 +100,7 @@ describe('CreateCategoryTool', () => {
 
   it('reports a missing group without createGroupIfMissing', async () => {
     const response = await run({ categoryGroupName: 'Zzz' });
-    expect(response).toMatchObject({ success: false, error: 'No category group matching "Zzz"' });
+    expect(response).toMatchObject({ success: false, error: 'No category group named "Zzz" (names must match exactly).' });
   });
 
   it('refuses a name already used in the group', async () => {

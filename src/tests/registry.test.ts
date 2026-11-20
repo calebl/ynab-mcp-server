@@ -135,6 +135,9 @@ describe("tool registration", () => {
       idempotentHint: false,
       openWorldHint: true,
     });
+    for (const name of ["ynab_get_category", "ynab_get_month_category", "ynab_get_month", "ynab_get_plan_settings", "ynab_get_user"]) {
+      expect(registered.get(name)?.config.annotations.readOnlyHint, name).toBe(true);
+    }
   });
 
   it("rejects ynab_create_transaction input missing both accountId and accountName", () => {
@@ -572,7 +575,7 @@ describe("removed aliases", () => {
     });
 
     expect(result.isError).toBeUndefined();
-    expect(api.transactions.getTransactions).toHaveBeenCalledWith("plan-1", "2024-01-01", undefined, "unapproved");
+    expect(api.transactions.getTransactions).toHaveBeenCalledWith("plan-1", "2024-01-01", undefined, "unapproved", undefined);
     const body = JSON.parse(result.content[0].text);
     expect(body.transaction_count).toBe(150);
     expect(body.transactions[0]).toMatchObject({

@@ -18,11 +18,11 @@ export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   categoryId: z.string().optional().describe("The id of the category to change (optional if categoryName is provided; wins if both are given)"),
-  categoryName: z.string().optional().describe("The name of the category to change, matched exactly first, then loosely. Optional if categoryId is provided."),
+  categoryName: z.string().optional().describe("The name of the category to change, matched exactly (ignoring case and a leading emoji); on a miss nothing changes and the closest names are returned. Optional if categoryId is provided."),
   name: z.string().optional().describe("The category's new name (optional)"),
   note: z.string().optional().describe("The category's new note; an empty string clears it (optional)"),
   categoryGroupId: z.string().optional().describe("The id of the group to move the category into (optional)"),
-  categoryGroupName: z.string().optional().describe("The name of the group to move the category into, matched exactly first, then loosely (optional; ignored if categoryGroupId is provided)"),
+  categoryGroupName: z.string().optional().describe("The name of the group to move the category into, matched exactly (optional; ignored if categoryGroupId is provided)"),
   goalTarget: z.number().optional().describe("New target amount in dollars, zero or more (optional)"),
   goalTargetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("New target date in ISO format (e.g. 2027-03-01), optional"),
 };
@@ -80,8 +80,10 @@ export async function execute(input: UpdateCategoryInput, api: ynab.API) {
       targetGroup = group.item;
       if (targetGroup.id !== category.category_group_id) patch.category_group_id = targetGroup.id;
     }
+    // Only a new name or a new group can create a clash; a note or target edit leaves existing twins alone.
     const finalName = newName ?? category.name;
-    const clash = targetGroup.categories.find((other) => other.id !== category.id && exactKey(other.name) === exactKey(finalName));
+    const nameOrGroupChanges = newName !== undefined || targetGroup.id !== category.category_group_id;
+    const clash = nameOrGroupChanges && targetGroup.categories.find((other) => other.id !== category.id && exactKey(other.name) === exactKey(finalName));
     if (clash) throw new Error(`The group "${targetGroup.name}" already has a category named "${clash.name}" (id ${clash.id})`);
 
     if (newName !== undefined) patch.name = newName;
