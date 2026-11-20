@@ -5,15 +5,17 @@ import { getErrorMessage } from "./errorUtils.js";
 import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_list_scheduled_transactions";
-export const description = "Lists the scheduled transactions set up in YNAB. To find recurring charges in transaction history, including ones that are not scheduled, use ynab_detect_recurring. For a projected balance, use ynab_balance_forecast.";
+export const description = "Lists the scheduled transactions set up in YNAB. To find recurring charges in transaction history, including ones that are not scheduled, use ynab_detect_recurring. For a projected balance, use ynab_balance_forecast. Pass lastKnowledgeOfServer (the server_knowledge from an earlier call) to get only rows changed since; deleted rows then come back with deleted: true.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
+  lastKnowledgeOfServer: z.number().int().nonnegative().optional().describe("Delta sync: the server_knowledge value from an earlier response of this tool. Only rows changed since then are returned, deleted rows included with deleted: true."),
 };
 
 interface ListScheduledTransactionsInput {
   planId?: string;
   budgetId?: string;
+  lastKnowledgeOfServer?: number;
 }
 
 
@@ -23,13 +25,15 @@ export async function execute(input: ListScheduledTransactionsInput, api: ynab.A
 
     console.error(`Listing scheduled transactions for budget ${budgetId}`);
     const [response, decimalDigits] = await Promise.all([
-      api.scheduledTransactions.getScheduledTransactions(budgetId),
+      api.scheduledTransactions.getScheduledTransactions(budgetId, input.lastKnowledgeOfServer),
       getDecimalDigits(api, budgetId),
     ]);
 
+    // Delta mode keeps deleted rows so callers can apply the removal
+    const delta = input.lastKnowledgeOfServer !== undefined;
     // Filter and format scheduled transactions
     const scheduledTransactions = response.data.scheduled_transactions
-      .filter((txn) => !txn.deleted)
+      .filter((txn) => delta || !txn.deleted)
       .map((txn) => ({
         id: txn.id,
         date_first: txn.date_first,
@@ -45,6 +49,7 @@ export async function execute(input: ListScheduledTransactionsInput, api: ynab.A
         category_id: txn.category_id,
         category_name: txn.category_name,
         transfer_account_id: txn.transfer_account_id,
+        deleted: txn.deleted,
       }));
 
     return {
@@ -53,6 +58,7 @@ export async function execute(input: ListScheduledTransactionsInput, api: ynab.A
         text: JSON.stringify({
           scheduled_transactions: scheduledTransactions,
           count: scheduledTransactions.length,
+          server_knowledge: response.data.server_knowledge,
         }, null, 2),
       }],
     };

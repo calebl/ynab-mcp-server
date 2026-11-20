@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Delta sync: `ynab_list_accounts`, `ynab_list_payees` and `ynab_list_scheduled_transactions` accept `lastKnowledgeOfServer` and return `server_knowledge`; rows carry `deleted`, and delta responses include deleted rows flagged `deleted: true`.
+
 ## [0.10.0] - 2026-11-18
 
 ### Added
