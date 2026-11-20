@@ -5,15 +5,17 @@ import { getErrorMessage } from "./errorUtils.js";
 import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_list_months";
-export const description = "Lists every plan month since the plan began, with raw summary fields: income, budgeted, activity, Ready to Assign, age of money and the month note. For income-versus-spending questions over recent months, use ynab_cash_flow instead.";
+export const description = "Lists every plan month since the plan began, with raw summary fields: income, budgeted, activity, Ready to Assign, age of money and the month note. For income-versus-spending questions over recent months, use ynab_cash_flow instead. Pass lastKnowledgeOfServer for only months changed since an earlier server_knowledge.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
+  lastKnowledgeOfServer: z.number().int().nonnegative().optional().describe("Delta sync: the server_knowledge value from an earlier response of this tool, or 0 for a first full sync (every row). Only rows changed since then are returned, deleted rows included with deleted: true."),
 };
 
 interface ListMonthsInput {
   planId?: string;
   budgetId?: string;
+  lastKnowledgeOfServer?: number;
 }
 
 
@@ -23,7 +25,7 @@ export async function execute(input: ListMonthsInput, api: ynab.API) {
 
     console.error(`Listing months for budget ${budgetId}`);
     const [response, decimalDigits] = await Promise.all([
-      api.months.getPlanMonths(budgetId),
+      api.months.getPlanMonths(budgetId, input.lastKnowledgeOfServer),
       getDecimalDigits(api, budgetId),
     ]);
 
@@ -36,6 +38,7 @@ export async function execute(input: ListMonthsInput, api: ynab.API) {
       activity: toDollars(month.activity, decimalDigits),
       to_be_budgeted: toDollars(month.to_be_budgeted, decimalDigits),
       age_of_money: month.age_of_money,
+      deleted: month.deleted,
     }));
 
     return {
@@ -44,6 +47,7 @@ export async function execute(input: ListMonthsInput, api: ynab.API) {
         text: JSON.stringify({
           months,
           month_count: months.length,
+          server_knowledge: response.data.server_knowledge,
         }, null, 2),
       }],
     };
