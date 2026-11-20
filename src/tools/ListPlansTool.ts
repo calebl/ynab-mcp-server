@@ -16,10 +16,16 @@ export async function execute(_input: Record<string, unknown>, api: ynab.API) {
     const plansResponse = await api.plans.getPlans();
     console.error(`Found ${plansResponse.data.plans.length} plans`);
 
-    const plans = plansResponse.data.plans.map((plan) => ({
-      id: plan.id,
-      name: plan.name,
-    }));
+    const plans = plansResponse.data.plans.map((plan) => {
+      const { id, name, last_modified_on, first_month, last_month, date_format, currency_format } = plan;
+      // Optional metadata that YNAB leaves out (or returns as null) is omitted rather than emitted.
+      const optional = { last_modified_on, first_month, last_month, date_format, currency_format };
+      return {
+        id,
+        name,
+        ...Object.fromEntries(Object.entries(optional).filter(([, value]) => value != null)),
+      };
+    });
 
     return {
       content: [{ type: "text" as const, text: JSON.stringify(plans, null, 2) }]

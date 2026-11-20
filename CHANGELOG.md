@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `ynab_list_plans` returns each plan's `last_modified_on`, `first_month`, `last_month`, `date_format` and `currency_format` alongside `id` and `name`. A field YNAB does not return for a plan is omitted.
+
 ## [0.10.0] - 2026-11-18
 
 ### Added
