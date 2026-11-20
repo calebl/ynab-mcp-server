@@ -8,6 +8,7 @@ describe('ListScheduledTransactionsTool', () => {
   let mockApi: {
     scheduledTransactions: {
       getScheduledTransactions: Mock;
+      getScheduledTransactionById: Mock;
     };
   };
 
@@ -17,6 +18,7 @@ describe('ListScheduledTransactionsTool', () => {
     mockApi = {
       scheduledTransactions: {
         getScheduledTransactions: vi.fn(),
+        getScheduledTransactionById: vi.fn(),
       },
     };
 
@@ -175,6 +177,59 @@ describe('ListScheduledTransactionsTool', () => {
       );
     });
 
+    it('should fetch a single scheduled transaction by ID', async () => {
+      mockApi.scheduledTransactions.getScheduledTransactionById.mockResolvedValue({
+        data: { scheduled_transaction: mockScheduledTransactionsData.data.scheduled_transactions[0] },
+      });
+
+      const result = await ListScheduledTransactionsTool.execute(
+        { budgetId: 'test-budget-id', scheduledTransactionId: 'scheduled-1' },
+        mockApi as any
+      );
+
+      expect(mockApi.scheduledTransactions.getScheduledTransactionById).toHaveBeenCalledWith(
+        'test-budget-id',
+        'scheduled-1'
+      );
+      expect(mockApi.scheduledTransactions.getScheduledTransactions).not.toHaveBeenCalled();
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.count).toBe(1);
+      expect(response.scheduled_transactions[0].id).toBe('scheduled-1');
+      expect(response.scheduled_transactions[0].amount).toBe(-1500);
+      expect(response.scheduled_transactions[0].payee_name).toBe('Landlord');
+    });
+
+    it('should return no rows when the scheduled transaction is deleted', async () => {
+      mockApi.scheduledTransactions.getScheduledTransactionById.mockResolvedValue({
+        data: { scheduled_transaction: mockScheduledTransactionsData.data.scheduled_transactions[2] },
+      });
+
+      const result = await ListScheduledTransactionsTool.execute(
+        { budgetId: 'test-budget-id', scheduledTransactionId: 'scheduled-deleted' },
+        mockApi as any
+      );
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.scheduled_transactions).toEqual([]);
+      expect(response.count).toBe(0);
+    });
+
+    it('should handle API error when fetching by ID', async () => {
+      mockApi.scheduledTransactions.getScheduledTransactionById.mockRejectedValue(
+        new Error('API Error')
+      );
+
+      const result = await ListScheduledTransactionsTool.execute(
+        { budgetId: 'test-budget-id', scheduledTransactionId: 'missing' },
+        mockApi as any
+      );
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.success).toBe(false);
+      expect(response.error).toBe('API Error');
+    });
+
     it('should return error when no plan ID is available', async () => {
       delete process.env.YNAB_PLAN_ID;
       delete process.env.YNAB_BUDGET_ID;
@@ -221,10 +276,12 @@ describe('ListScheduledTransactionsTool', () => {
     it('should have correct name and description', () => {
       expect(ListScheduledTransactionsTool.name).toBe('ynab_list_scheduled_transactions');
       expect(ListScheduledTransactionsTool.description).toContain('scheduled');
+      expect(ListScheduledTransactionsTool.description).toContain('scheduledTransactionId');
     });
 
     it('should have optional budgetId in input schema', () => {
       expect(ListScheduledTransactionsTool.inputSchema).toHaveProperty('budgetId');
+      expect(ListScheduledTransactionsTool.inputSchema).toHaveProperty('scheduledTransactionId');
     });
   });
 });
