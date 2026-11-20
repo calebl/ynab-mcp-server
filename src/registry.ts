@@ -17,6 +17,12 @@ import * as ListScheduledTransactionsTool from "./tools/ListScheduledTransaction
 import * as ManageScheduledTransactionTool from "./tools/ManageScheduledTransactionTool.js";
 import * as ImportTransactionsTool from "./tools/ImportTransactionsTool.js";
 import * as ListMonthsTool from "./tools/ListMonthsTool.js";
+import * as GetCategoryTool from "./tools/GetCategoryTool.js";
+import * as GetMonthCategoryTool from "./tools/GetMonthCategoryTool.js";
+import * as GetMonthTool from "./tools/GetMonthTool.js";
+import * as GoalSummaryTool from "./tools/GoalSummaryTool.js";
+import * as GetPlanSettingsTool from "./tools/GetPlanSettingsTool.js";
+import * as GetUserTool from "./tools/GetUserTool.js";
 import * as MoveMoneyTool from "./tools/MoveMoneyTool.js";
 import * as AutoAssignTool from "./tools/AutoAssignTool.js";
 import * as SpendingByCategoryTool from "./tools/SpendingByCategoryTool.js";
@@ -26,6 +32,8 @@ import * as BalanceForecastTool from "./tools/BalanceForecastTool.js";
 import * as DetectRecurringTool from "./tools/DetectRecurringTool.js";
 import * as SuggestCategoriesTool from "./tools/SuggestCategoriesTool.js";
 import * as ApplyCategorySuggestionsTool from "./tools/ApplyCategorySuggestionsTool.js";
+import * as CreateCategoryTool from "./tools/CreateCategoryTool.js";
+import * as UpdateCategoryTool from "./tools/UpdateCategoryTool.js";
 import { getErrorMessage, toolError } from "./tools/errorUtils.js";
 import { configuredPlanId, describeMissingPlan } from "./tools/planId.js";
 
@@ -68,11 +76,19 @@ const refineCreateTransaction = (schema: z.ZodObject<z.ZodRawShape>) =>
       path: ["payeeId"],
     });
 
+const requireIdOrName = (idField: string, nameField: string) => (schema: z.ZodObject<z.ZodRawShape>) =>
+  schema.refine((data) => Boolean((data as Record<string, unknown>)[idField] || (data as Record<string, unknown>)[nameField]), {
+    message: `Either ${idField} or ${nameField} must be provided`,
+    path: [idField],
+  });
+
 export const tools: ToolEntry[] = [
   { title: "List Plans", module: ListPlansTool, writes: false },
   { title: "Plan Summary", module: PlanSummaryTool, writes: false },
   { title: "Create Transaction", module: CreateTransactionTool, writes: true, refine: refineCreateTransaction },
   { title: "Update Category Budget", module: UpdateCategoryBudgetTool, writes: true, idempotent: true },
+  { title: "Create Category", module: CreateCategoryTool, writes: true, refine: requireIdOrName("categoryGroupId", "categoryGroupName") },
+  { title: "Update Category", module: UpdateCategoryTool, writes: true, refine: requireIdOrName("categoryId", "categoryName") },
   { title: "Update Transaction", module: UpdateTransactionTool, writes: true, idempotent: true },
   { title: "Bulk Approve Transactions", module: BulkApproveTransactionsTool, writes: true, idempotent: true },
   { title: "List Payees", module: ListPayeesTool, writes: false },
@@ -84,6 +100,12 @@ export const tools: ToolEntry[] = [
   { title: "Manage Scheduled Transaction", module: ManageScheduledTransactionTool, writes: true, destructive: true },
   { title: "Import Transactions", module: ImportTransactionsTool, writes: true },
   { title: "List Months", module: ListMonthsTool, writes: false },
+  { title: "Get Category", module: GetCategoryTool, writes: false },
+  { title: "Get Month Category", module: GetMonthCategoryTool, writes: false },
+  { title: "Get Month", module: GetMonthTool, writes: false },
+  { title: "Goal Summary", module: GoalSummaryTool, writes: false },
+  { title: "Get Plan Settings", module: GetPlanSettingsTool, writes: false },
+  { title: "Get User", module: GetUserTool, writes: false },
   { title: "Move Money", module: MoveMoneyTool, writes: true },
   { title: "Auto Assign", module: AutoAssignTool, writes: true },
   { title: "Spending By Category", module: SpendingByCategoryTool, writes: false },

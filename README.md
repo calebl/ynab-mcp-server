@@ -245,12 +245,32 @@ happens in `src/tools/money.ts`.
 | `ynab_list_plans` | Every plan on the account. Run this first to find a plan ID. |
 | `ynab_plan_summary` | A month at a glance: income, budgeted, activity, Ready to Assign, plus categories split into `overspent`, `underfunded` (goal not yet met) and `positive_balance`. Hidden and deleted categories are excluded. `budgetVsActuals: true` adds a `budget_vs_actuals` block: `budgeted`, `activity`, `balance`, `variance` (budgeted plus activity) and `percent_used` (null when nothing was assigned) per category, subtotalled per category group and in `totals`. Credit Card Payments is listed as its own group but left out of `totals`, since its activity is card spending moving in minus payments going out. YNAB's internal Inflow: Ready to Assign category (whose activity is the month's income) is skipped; other internal categories, such as Uncategorized, are listed and counted when they have activity. |
 | `ynab_list_accounts` | Accounts with balances. `includeClosedAccounts` to see closed ones. |
-| `ynab_list_categories` | Categories grouped by category group, with goal info. |
+| `ynab_list_categories` | Categories grouped by category group, with goal info (type, target, target date, percentage complete, underfunded, cadence). `month` for that month's numbers, `includeHidden` for hidden ones, `lastKnowledgeOfServer` for delta sync. |
 | `ynab_list_payees` | Payees, for resolving payee IDs. |
-| `ynab_list_months` | Every plan month since the plan began, with raw income, budgeted, activity, Ready to Assign, age-of-money and note fields. For recent income versus spending, use `ynab_cash_flow`. |
+| `ynab_list_months` | Every plan month since the plan began, with raw income, budgeted, activity, Ready to Assign, age-of-money and note fields. For recent income versus spending, use `ynab_cash_flow`. `lastKnowledgeOfServer` for delta sync. |
+| `ynab_get_category` | One category by ID (hidden included) with its goal fields. |
+| `ynab_get_month_category` | One category's values for a given month (`month`: ISO date or `current`). |
+| `ynab_get_month` | One month's totals and all its non-deleted categories (`month`: ISO date or `current`). |
+| `ynab_goal_summary` | Goal totals for a month: goal count, total target, total under-funded, average completion, per-goal-type breakdown and the under-funded categories, largest first (`month`, `includeHidden`). |
+| `ynab_get_plan_settings` | The plan's date and currency formats. |
+| `ynab_get_user` | The authenticated user's ID. |
 | `ynab_list_scheduled_transactions` | The scheduled transactions set up in YNAB. For recurring charges found in transaction history, see `ynab_detect_recurring`; for a projected balance, `ynab_balance_forecast`. |
-| `ynab_get_transactions` | Transactions optionally filtered to `sinceDate`–`untilDate`, by `type` (`all`/`uncategorized`/`unapproved`), and by at most one of `accountId`, `categoryId` or `payeeId` (the first in that order wins). To search, add `payeeContains`, `memoContains` (case-insensitive), `minAmount`/`maxAmount` (ignoring sign) or `direction` (`outflow`/`inflow`/`any`); any search option or `untilDate` adds a `totals` block (`count`, `inflow`, `outflow`, `net`) over every match, including transfers between accounts, and `totalsOnly: true` returns only that. Without `categoryId` or `payeeId`, splits are matched leg by leg and the totals count only the matching legs; with them, rows are matched as YNAB returns them, so a split's parent row in the payee listing counts at its full amount. Imported rows also carry `import_payee_name` (YNAB's cleaned-up payee) and `import_payee_name_original` (the bank's raw text). Rows come back newest first; `limit` defaults to 100, keeps the most recent rows, and does not affect the totals. |
+| `ynab_get_transactions` | Transactions optionally filtered to `sinceDate`–`untilDate`, by `type` (`all`/`uncategorized`/`unapproved`), and by at most one of `accountId`, `categoryId` or `payeeId` (the first in that order wins). To search, add `payeeContains`, `memoContains` (case-insensitive), `minAmount`/`maxAmount` (ignoring sign) or `direction` (`outflow`/`inflow`/`any`); any search option or `untilDate` adds a `totals` block (`count`, `inflow`, `outflow`, `net`) over every match, including transfers between accounts, and `totalsOnly: true` returns only that. Without `categoryId` or `payeeId`, splits are matched leg by leg and the totals count only the matching legs; with them, rows are matched as YNAB returns them, so a split's parent row in the payee listing counts at its full amount. Every row carries `account_id`, `category_id` and `payee_id` alongside the names. Imported rows also carry `import_payee_name` (YNAB's cleaned-up payee) and `import_payee_name_original` (the bank's raw text). Rows come back newest first; `limit` defaults to 100, keeps the most recent rows, and does not affect the totals. `lastKnowledgeOfServer` for delta sync. |
 | `ynab_suggest_categories` | Opt-in, read-only category previews for unapproved, uncategorized ordinary outflows. Deleted and categorized rows are dropped in default mode; approved, reconciled, balance-adjustment, transfer, split, and inflow rows are skipped as applicable. |
+
+#### Delta sync
+
+`ynab_list_categories`, `ynab_list_months` and `ynab_get_transactions` return
+`server_knowledge`. Pass it back as `lastKnowledgeOfServer` to get only what
+changed since. To start, make the first call with `lastKnowledgeOfServer: 0`,
+which returns every row (for `ynab_get_transactions`, regardless of `limit`),
+and store the `server_knowledge` it returns; in that mode deleted rows are returned with `deleted: true` (and
+hidden categories regardless of `includeHidden`) so you can apply removals.
+`ynab_get_transactions` in this mode returns every changed row (`limit` is
+ignored) and rejects `sinceDate`, `accountId`, `categoryId`, `payeeId`, a `type` other than `all` and search options (`untilDate`, `payeeContains`,
+`memoContains`, `minAmount`, `maxAmount`, `direction`, `totalsOnly`), so the
+result always matches the `server_knowledge` it reports. Omit them and
+filter the changed rows locally by the `account_id`, `category_id` and `payee_id` each row carries.
 
 ### Category suggestions (optional)
 
@@ -393,9 +413,13 @@ than money movement.
 | `ynab_bulk_approve_transactions` | Approves an array of transaction IDs in one API call, or un-approves them with `approved: false`. |
 | `ynab_apply_category_suggestions` | Applies up to 25 explicit category suggestions with refetch and stale-data checks, dry-run support, and a pre-write undo manifest. Never auto-applies or approves transactions. |
 | `ynab_update_category_budget` | Sets the total budgeted amount for one category in a month. Not an increment; use `ynab_move_money` to move money between categories. |
+| `ynab_create_category` | Creates a category in a group given as `categoryGroupId` or `categoryGroupName`, with an optional `note`, `goalTarget` and `goalTargetDate`. Group names match exactly (case, spacing and a leading emoji ignored); a miss writes nothing and returns the closest names. `createGroupIfMissing: true` creates the group when no group has that name. Refuses a name already used in the group, and never uses a hidden, internal or ambiguous group found by name. |
+| `ynab_update_category` | Renames a category, moves it to another existing group, or changes its note or target. Finds it by `categoryId` or `categoryName` (exact match; a miss changes nothing and returns the closest names), hidden categories included; only the fields passed change, and `note: ""` clears the note. |
 | `ynab_import_transactions` | Triggers an import from linked institutions, the same as hitting Import in the YNAB app. |
 | `ynab_move_money` | Moves budgeted money between two categories in a month, for covering overspending. |
 | `ynab_auto_assign` | Spreads Ready to Assign over categories with unmet monthly goals, largest shortfall first. `dryRun` to preview, `maxTotal` to cap it. |
+
+YNAB's API cannot hide, delete or reorder categories or groups, so those still happen in the YNAB app.
 
 #### Names instead of IDs
 
