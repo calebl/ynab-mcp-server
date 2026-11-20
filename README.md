@@ -447,7 +447,8 @@ A client may use these hints to decide which calls need a confirmation prompt.
 
 #### `cleared` and `flagColor`
 
-`ynab_create_transaction` and `ynab_update_transaction` accept `cleared` as
+`ynab_create_transaction`, `ynab_update_transaction` and
+`ynab_bulk_update_transactions` accept `cleared` as
 one of `cleared`, `uncleared`, or `reconciled`. They and
 `ynab_manage_scheduled_transaction` accept `flagColor` as one of `red`,
 `orange`, `yellow`, `green`, `blue`, `purple`, or `""` to clear an existing
