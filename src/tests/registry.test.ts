@@ -2,7 +2,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type * as ynab from "ynab";
 
-import { registerAll, tools, type ToolRegistrar } from "../registry.js";
+import { isReadOnly, registerAll, tools, type ToolRegistrar } from "../registry.js";
+
+describe("isReadOnly", () => {
+  it.each([undefined, "", "  ", "true", "TRUE", " true ", "no", "0", "off"])("is read-only for %j", (value) => {
+    expect(isReadOnly(value)).toBe(true);
+  });
+
+  it.each(["false", "FALSE", "False", " false ", "\tfalse\n"])("enables writes only for %j", (value) => {
+    expect(isReadOnly(value)).toBe(false);
+  });
+});
 
 interface RegisteredTool {
   config: Record<string, any>;

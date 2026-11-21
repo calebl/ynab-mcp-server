@@ -10,6 +10,8 @@ const env: WorkerEnv = {
   GITHUB_CLIENT_ID: "id",
   GITHUB_CLIENT_SECRET: "secret",
   ALLOWED_GITHUB_LOGIN: "someone",
+  // Write tools are opt-in; most tests here exercise the full tool list.
+  YNAB_READ_ONLY: "false",
 };
 
 /** Sends one JSON-RPC message to the Worker's /mcp handler. */
@@ -183,6 +185,19 @@ describe("worker MCP handler", () => {
     expect(names).not.toContain("ynab_budget_summary");
     expect(names).not.toContain("ynab_create_transaction");
     expect(names).not.toContain("ynab_delete_transaction");
+  });
+
+  it.each([undefined, "", "TRUE", " true ", "no"])("hides write tools when YNAB_READ_ONLY is %j", async (value) => {
+    const response = await call({ jsonrpc: "2.0", id: 7, method: "tools/list" }, { YNAB_READ_ONLY: value });
+    const names = (await readResult(response)).result.tools.map((t: { name: string }) => t.name);
+    expect(names).toContain("ynab_plan_summary");
+    for (const tool of tools.filter((t) => t.writes)) expect(names).not.toContain(tool.module.name);
+  });
+
+  it.each(["false", "FALSE", " false "])("serves write tools when YNAB_READ_ONLY is %j", async (value) => {
+    const response = await call({ jsonrpc: "2.0", id: 8, method: "tools/list" }, { YNAB_READ_ONLY: value });
+    const names = (await readResult(response)).result.tools.map((t: { name: string }) => t.name);
+    for (const tool of tools.filter((t) => t.writes)) expect(names).toContain(tool.module.name);
   });
 
   it("serves the auto-budget tools only with their database bound, read-only mode included", async () => {

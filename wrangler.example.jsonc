@@ -39,6 +39,8 @@
 	"vars": {
 		// Deployment-specific values and credentials are set with
 		// `wrangler secret put`, never committed here.
+		// Write tools are opt-in: "false" serves them. Remove this line, or set
+		// any other value such as "true", to keep the Worker read-only.
 		"YNAB_READ_ONLY": "false",
 		// Optional: exact OAuth redirect URIs (comma- or space-separated) that MCP
 		// clients may receive grants at; loopback redirects are always allowed.
