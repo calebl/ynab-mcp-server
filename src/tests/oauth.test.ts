@@ -390,13 +390,22 @@ describe("Worker OAuth flow", () => {
       expect(response.headers.get("set-cookie")).toMatch(/HttpOnly; SameSite=Lax/);
     });
 
-    it("says when the server is read-only", async () => {
-      const env = makeEnv({ YNAB_READ_ONLY: "true" });
+    it.each([{}, { YNAB_READ_ONLY: "true" }])("says when the server is read-only (%j)", async (overrides) => {
+      const env = makeEnv(overrides);
       const clientId = await register(env, CLAUDE_CB);
 
       const { page } = await approvalFrom(await authorize(env, clientId, CLAUDE_CB));
 
       expect(page).toContain("read-only access");
+    });
+
+    it("says when write tools are enabled", async () => {
+      const env = makeEnv({ YNAB_READ_ONLY: "false" });
+      const clientId = await register(env, CLAUDE_CB);
+
+      const { page } = await approvalFrom(await authorize(env, clientId, CLAUDE_CB));
+
+      expect(page).toContain("read and write access");
     });
   });
 

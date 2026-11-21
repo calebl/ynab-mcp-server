@@ -33,22 +33,23 @@ afterEach(() => {
 });
 
 describe("stdio entry", () => {
-  it("registers write tools when YNAB_READ_ONLY is unset", async () => {
-    vi.stubEnv("YNAB_READ_ONLY", undefined);
-    const names = await loadStdioEntry();
-    expect(names).toContain("ynab_delete_transaction");
-  });
+  it.each([undefined, "", "true", "TRUE", " true ", "no"])(
+    "registers no write tools when YNAB_READ_ONLY is %j",
+    async (value) => {
+      vi.stubEnv("YNAB_READ_ONLY", value);
+      const names = await loadStdioEntry();
+      expect(names).toContain("ynab_list_plans");
+      for (const name of writeTools) expect(names).not.toContain(name);
+      await vi.waitFor(() =>
+        expect(console.error).toHaveBeenCalledWith("YNAB MCP server running on stdio (read-only)"),
+      );
+    },
+  );
 
-  it.each(["true", "TRUE", " true "])("registers no write tools when YNAB_READ_ONLY is %j", async (value) => {
+  it.each(["false", "FALSE", " false "])("registers write tools when YNAB_READ_ONLY is %j", async (value) => {
     vi.stubEnv("YNAB_READ_ONLY", value);
     const names = await loadStdioEntry();
-    expect(names).toContain("ynab_list_plans");
-    for (const name of writeTools) expect(names).not.toContain(name);
-  });
-
-  it("keeps write tools when YNAB_READ_ONLY is false", async () => {
-    vi.stubEnv("YNAB_READ_ONLY", "false");
-    const names = await loadStdioEntry();
-    expect(names).toContain("ynab_delete_transaction");
+    for (const name of writeTools) expect(names).toContain(name);
+    await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith("YNAB MCP server running on stdio"));
   });
 });

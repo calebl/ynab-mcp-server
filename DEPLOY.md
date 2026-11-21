@@ -528,7 +528,8 @@ can see, and Pushover alerts you once.
 ### How it behaves
 
 - **YNAB_READ_ONLY is a hard stop.** This phase supports only shadow mode, and
-  `YNAB_READ_ONLY=true` prevents later write stages from changing that.
+  read-only mode (any `YNAB_READ_ONLY` value other than `"false"`, including
+  unset) prevents later write stages from changing that.
 - **Pause from any MCP client.** `ynab_autobudget_pause` stops every scheduled
   run until you resume it with `paused: false`. It changes only the service's
   own state, so it stays available in read-only mode.
@@ -578,9 +579,12 @@ client. They are not part of the npm package, which has no D1 database.
 
 ## Read-only mode
 
-To expose no tools that write to YNAB, set `YNAB_READ_ONLY` to `"true"` in
-`wrangler.jsonc` and redeploy. The YNAB write tools disappear from `tools/list`
-entirely rather than failing when called. The
+The Worker is read-only unless you opt in. The `wrangler.example.jsonc`
+template keeps it read-only with `YNAB_READ_ONLY` set to `"true"`. Tools that
+write to YNAB are served only when you change that value to `"false"`
+(case-insensitive; surrounding whitespace is ignored) and redeploy. Unset,
+empty or any other value also hides them. The YNAB write tools disappear from
+`tools/list` entirely rather than failing when called. The
 TypeSafe preview is registered as read-only and remains available in this mode
 only when both its feature flag and secret are configured. The auto-budget
 service stays in shadow mode, and its tools stay available.

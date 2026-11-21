@@ -44,7 +44,7 @@ server.listen(port, host, () => {
     console.error(
       `Warning: listening on ${host} with write tools enabled and no authentication. ` +
         "Anyone who can reach this port can change your YNAB plan. Keep it on a private network " +
-        "or behind an authenticating proxy, or set YNAB_READ_ONLY=true."
+        "or behind an authenticating proxy, or unset YNAB_READ_ONLY to serve read-only."
     );
   }
 });
