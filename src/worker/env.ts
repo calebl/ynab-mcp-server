@@ -26,7 +26,7 @@ export interface WorkerEnv {
    * allowed. May be a plain var or a secret. GitHub sign-in only.
    */
   ALLOWED_REDIRECT_URIS?: string;
-  /** Set to "true" to omit tools that write to YNAB. */
+  /** Set to "false" to expose tools that write to YNAB; all other values omit them. */
   YNAB_READ_ONLY?: string;
   /** TypeSafe API credential for the optional category suggestion preview. */
   TYPESAFE_API_KEY?: string;
