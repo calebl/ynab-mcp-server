@@ -579,12 +579,12 @@ client. They are not part of the npm package, which has no D1 database.
 
 ## Read-only mode
 
-The Worker is read-only unless you opt in. Tools that write to YNAB are served
-only when `YNAB_READ_ONLY` is `"false"` (case-insensitive; surrounding whitespace
-is ignored), as in `wrangler.example.jsonc`. Unset, empty or any other value,
-such as `"true"`, hides them; change it in `wrangler.jsonc` and redeploy. The
-YNAB write tools disappear from `tools/list` entirely rather than failing when
-called. The
+The Worker is read-only unless you opt in. The `wrangler.example.jsonc`
+template keeps it read-only with `YNAB_READ_ONLY` set to `"true"`. Tools that
+write to YNAB are served only when you change that value to `"false"`
+(case-insensitive; surrounding whitespace is ignored) and redeploy. Unset,
+empty or any other value also hides them. The YNAB write tools disappear from
+`tools/list` entirely rather than failing when called. The
 TypeSafe preview is registered as read-only and remains available in this mode
 only when both its feature flag and secret are configured. The auto-budget
 service stays in shadow mode, and its tools stay available.

@@ -78,16 +78,19 @@ Environment variables:
       "args": ["/absolute/path/to/ynab-mcp-server/dist/index.js"],
       "env": {
         "YNAB_API_TOKEN": "your-token",
-        "YNAB_PLAN_ID": "your-plan-id",
-        "YNAB_READ_ONLY": "false"
+        "YNAB_PLAN_ID": "your-plan-id"
       }
     }
   }
 }
 ```
 
-The server is read-only by default. `"YNAB_READ_ONLY": "false"` opts in to the
-tools that write to YNAB; leave it out to keep them off.
+The server is read-only by default. To enable tools that write to YNAB, add
+this entry to `env` explicitly:
+
+```json
+"YNAB_READ_ONLY": "false"
+```
 
 ### Self-hosted: streamable HTTP
 
