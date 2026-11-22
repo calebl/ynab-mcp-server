@@ -27,7 +27,7 @@ function transaction(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeApi(currentTransaction: ReturnType<typeof transaction>) {
+function makeApi(currentTransaction: ReturnType<typeof transaction>, payees: any[] = []) {
   return {
     transactions: {
       getTransactionById: vi.fn().mockResolvedValue({
@@ -57,15 +57,20 @@ function makeApi(currentTransaction: ReturnType<typeof transaction>) {
         },
       }),
     },
+    payees: {
+      getPayees: vi.fn().mockResolvedValue({
+        data: { payees },
+      }),
+    },
   };
 }
 
 async function execute(
   currentTransaction: ReturnType<typeof transaction>,
   expectedFingerprint: string,
-  options: { dryRun?: boolean; updatedTransaction?: ReturnType<typeof transaction> } = {},
+  options: { dryRun?: boolean; updatedTransaction?: ReturnType<typeof transaction>; payees?: any[] } = {},
 ) {
-  const api = makeApi(currentTransaction);
+  const api = makeApi(currentTransaction, options.payees);
   if (options.updatedTransaction) {
     api.transactions.updateTransactions.mockResolvedValue({
       data: { transactions: [options.updatedTransaction] },
@@ -152,6 +157,9 @@ describe("ApplyCategorySuggestionsTool", () => {
     ["approved", { approved: true }, "approved"],
     ["reconciled", { cleared: "reconciled" }, "reconciled"],
     ["deleted", { deleted: true }, "deleted"],
+    ["starting balance", { payee_name: "Starting Balance" }, "balance_adjustment"],
+    ["manual balance adjustment", { payee_name: "Manual Balance Adjustment" }, "balance_adjustment"],
+    ["reconciliation balance adjustment", { payee_name: "Reconciliation Balance Adjustment" }, "balance_adjustment"],
   ])("rejects a %s transaction refetched before apply", async (_state, overrides, reason) => {
     const currentTransaction = transaction(overrides);
     const expectedFingerprint = await contentFingerprint(currentTransaction as ynab.TransactionDetail);
@@ -161,6 +169,21 @@ describe("ApplyCategorySuggestionsTool", () => {
       transaction_id: "txn-1",
       status: "rejected",
       reason,
+    })]);
+    expect(api.transactions.updateTransactions).not.toHaveBeenCalled();
+  });
+
+  it("rejects a transfer identified through its payee's transfer_account_id", async () => {
+    const currentTransaction = transaction({ payee_id: "transfer-payee", transfer_account_id: null });
+    const expectedFingerprint = await contentFingerprint(currentTransaction as ynab.TransactionDetail);
+    const { api, output } = await execute(currentTransaction, expectedFingerprint, {
+      payees: [{ id: "transfer-payee", name: "Transfer : Savings", transfer_account_id: "acct-savings", deleted: false }],
+    });
+
+    expect(output.rows).toEqual([expect.objectContaining({
+      transaction_id: "txn-1",
+      status: "rejected",
+      reason: "transfer",
     })]);
     expect(api.transactions.updateTransactions).not.toHaveBeenCalled();
   });
