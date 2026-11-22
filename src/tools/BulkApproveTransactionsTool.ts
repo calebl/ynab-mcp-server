@@ -5,7 +5,7 @@ import { getErrorMessage } from "./errorUtils.js";
 import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_bulk_approve_transactions";
-export const description = "Approves (or, with approved: false, un-approves) one or more transactions in a single API call.";
+export const description = "Deprecated: use ynab_bulk_update_transactions with approved instead; this tool will be removed in the following release. Approves (or, with approved: false, un-approves) one or more transactions in a single API call.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),

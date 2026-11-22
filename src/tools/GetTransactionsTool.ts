@@ -8,16 +8,18 @@ import { mapSubtransactions } from "./splits.js";
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 export const name = "ynab_get_transactions";
-export const description = "Gets transactions from a plan, optionally between a start and end date and by type (all, uncategorized or unapproved). Filter by at most one of account, category or payee: they cannot be combined, and if several are given only the first in that order is applied. To search, add payee or memo text, an amount range or a direction. Any search option (or untilDate) adds inflow, outflow and net totals over every match; the totals include transfers between accounts, such as credit card payments. totalsOnly returns just the totals (e.g. categoryId with a year's dates and totalsOnly). Without categoryId or payeeId, split transactions are matched leg by leg and the totals count only the matching legs. With categoryId or payeeId, rows are matched as YNAB returns them, so a split's parent row in the payee listing counts at its full amount.";
+export const description = "Gets transactions from a plan, optionally between a start and end date and by type (all, uncategorized or unapproved). Filter by at most one of account, category or payee: they cannot be combined, and if several are given only the first in that order is applied. month (a plan month) cannot be combined with any of them. Pass transactionId to get just that one transaction: it overrides every other filter, which are all ignored, and a missing or deleted transaction is an error. To search, add payee or memo text, an amount range or a direction. Any search option (or untilDate) adds inflow, outflow and net totals over every match; the totals include transfers between accounts, such as credit card payments. totalsOnly returns just the totals (e.g. categoryId with a year's dates and totalsOnly). Without categoryId or payeeId, split transactions are matched leg by leg and the totals count only the matching legs. With categoryId or payeeId, rows are matched as YNAB returns them, so a split's parent row in the payee listing counts at its full amount.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   sinceDate: isoDate.optional().describe("Only return transactions on or after this date (ISO format: 2024-01-01)"),
   untilDate: isoDate.optional().describe("Only return transactions on or before this date (ISO format: 2024-12-31)"),
+  month: z.string().regex(/^(current|\d{4}-\d{2}-01)$/).optional().describe("Only return transactions in this plan month: the first day of the month (e.g. 2024-03-01) or 'current'. Cannot be combined with accountId, categoryId or payeeId; can be combined with sinceDate/untilDate."),
   type: z.enum(["all", "uncategorized", "unapproved"]).optional().describe("Filter by transaction type. Defaults to 'all'."),
   accountId: z.string().optional().describe("Filter to only transactions in this account"),
   categoryId: z.string().optional().describe("Filter to only transactions in this category"),
   payeeId: z.string().optional().describe("Filter to only transactions with this payee"),
+  transactionId: z.string().optional().describe("Return only this transaction. Overrides every other filter (accountId, categoryId, payeeId, month, sinceDate, untilDate, type, search options, limit), which are ignored."),
   payeeContains: z.string().min(1).optional().describe("Only transactions whose payee name contains this text (case-insensitive)"),
   memoContains: z.string().min(1).optional().describe("Only transactions whose memo contains this text (case-insensitive)"),
   minAmount: z.number().nonnegative().optional().describe("Smallest amount to include, ignoring sign, in currency units (e.g. 25.50)"),
@@ -32,6 +34,8 @@ interface GetTransactionsInput {
   budgetId?: string;
   sinceDate?: string;
   untilDate?: string;
+  month?: string;
+  transactionId?: string;
   type?: "all" | "uncategorized" | "unapproved";
   accountId?: string;
   categoryId?: string;
@@ -64,6 +68,9 @@ interface TransactionData {
   memo?: string | null;
   approved: boolean;
   cleared: string;
+  account_id: string;
+  payee_id?: string | null;
+  category_id?: string | null;
   account_name?: string | null;
   payee_name?: string | null;
   category_name?: string | null;
@@ -146,9 +153,59 @@ function matchingLegAmounts(txn: TransactionData, filters: SearchFilters): numbe
   return legs.filter((leg) => legMatches(leg, filters)).map((leg) => leg.amount);
 }
 
+function mapTransaction(txn: TransactionData, decimalDigits: number) {
+  return {
+    id: txn.id,
+    date: txn.date,
+    amount: toDollars(txn.amount, decimalDigits),
+    memo: txn.memo,
+    approved: txn.approved,
+    cleared: txn.cleared,
+    account_id: txn.account_id,
+    account_name: txn.account_name,
+    payee_id: txn.payee_id,
+    payee_name: txn.payee_name,
+    category_id: txn.category_id,
+    category_name: txn.category_name,
+    flag_color: txn.flag_color,
+    transfer_account_id: txn.transfer_account_id,
+    transfer_transaction_id: txn.transfer_transaction_id,
+    matched_transaction_id: txn.matched_transaction_id,
+    import_id: txn.import_id,
+    // The payee as imported: YNAB's cleaned-up name and the bank's raw text.
+    import_payee_name: txn.import_payee_name,
+    import_payee_name_original: txn.import_payee_name_original,
+    // A split leg listed as its own row; the id ties it back to the whole transaction.
+    ...(txn.type === "subtransaction" ? { parent_transaction_id: txn.parent_transaction_id } : {}),
+    // Present only on splits, whose parent row is categorised "Split".
+    subtransactions: mapSubtransactions(txn.subtransactions, decimalDigits),
+  };
+}
+
 export async function execute(input: GetTransactionsInput, api: ynab.API) {
   try {
     const budgetId = resolvePlanId(input);
+    if (input.transactionId) {
+      const [response, decimalDigits] = await Promise.all([
+        api.transactions.getTransactionById(budgetId, input.transactionId).catch((error: unknown) => {
+          // YNAB answers an unknown id with a bare 404; name the id the caller asked for.
+          if ((error as { error?: { id?: string } })?.error?.id === "404") {
+            throw new Error(`Transaction not found: ${input.transactionId}`);
+          }
+          throw error;
+        }),
+        getDecimalDigits(api, budgetId),
+      ]);
+      const txn = response.data.transaction;
+      if (!txn || txn.deleted) throw new Error(`Transaction not found: ${input.transactionId}`);
+      const row = mapTransaction(txn, decimalDigits);
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({ transactions: [row], transaction_count: 1, total_available: 1 }, null, 2),
+        }],
+      };
+    }
     const limit = input.limit || 100;
     if (input.minAmount !== undefined && input.maxAmount !== undefined && input.minAmount > input.maxAmount) {
       throw new Error("minAmount is larger than maxAmount");
@@ -160,8 +217,21 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
     const decimalDigitsLookup = getDecimalDigits(api, budgetId);
     let rawTransactions: TransactionData[];
 
+    if (input.month !== undefined && (input.accountId || input.categoryId || input.payeeId)) {
+      throw new Error("month cannot be combined with accountId, categoryId, or payeeId");
+    }
+
     // Use the appropriate API method based on filters
-    if (input.accountId) {
+    if (input.month) {
+      const response = await api.transactions.getTransactionsByMonth(
+        budgetId,
+        input.month,
+        input.sinceDate,
+        input.untilDate,
+        mapTransactionType(input.type) as ynab.GetTransactionsByMonthTypeEnum
+      );
+      rawTransactions = response.data.transactions;
+    } else if (input.accountId) {
       const response = await api.transactions.getTransactionsByAccount(
         budgetId,
         input.accountId,
@@ -253,29 +323,7 @@ export async function execute(input: GetTransactionsInput, api: ynab.API) {
     const transactions = [...matches]
       .sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? 1 : -1))
       .slice(0, limit)
-      .map((txn) => ({
-        id: txn.id,
-        date: txn.date,
-        amount: toDollars(txn.amount, decimalDigits),
-        memo: txn.memo,
-        approved: txn.approved,
-        cleared: txn.cleared,
-        account_name: txn.account_name,
-        payee_name: txn.payee_name,
-        category_name: txn.category_name,
-        flag_color: txn.flag_color,
-        transfer_account_id: txn.transfer_account_id,
-        transfer_transaction_id: txn.transfer_transaction_id,
-        matched_transaction_id: txn.matched_transaction_id,
-        import_id: txn.import_id,
-        // The payee as imported: YNAB's cleaned-up name and the bank's raw text.
-        import_payee_name: txn.import_payee_name,
-        import_payee_name_original: txn.import_payee_name_original,
-        // A split leg listed as its own row; the id ties it back to the whole transaction.
-        ...(txn.type === "subtransaction" ? { parent_transaction_id: txn.parent_transaction_id } : {}),
-        // Present only on splits, whose parent row is categorised "Split".
-        subtransactions: mapSubtransactions(txn.subtransactions, decimalDigits),
-      }));
+      .map((txn) => mapTransaction(txn, decimalDigits));
 
     return {
       content: [{

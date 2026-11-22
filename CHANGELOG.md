@@ -9,11 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `ynab_list_plans` returns each plan's `last_modified_on`, `first_month`, `last_month`, `date_format` and `currency_format` alongside `id` and `name`. A field YNAB does not return for a plan is omitted.
-- `ynab_list_scheduled_transactions` accepts an optional `scheduledTransactionId` and then returns only that scheduled transaction, in the same row shape.
+- `ynab_list_scheduled_transactions` accepts an optional `scheduledTransactionId` and then returns only that scheduled transaction, in the same row shape, and an optional `accountId` to list only that account's scheduled transactions (ignored when `scheduledTransactionId` is given).
+- `ynab_get_transactions` accepts `transactionId` to return just that one transaction, ignoring every other filter.
+- `ynab_bulk_update_transactions` updates up to 500 transactions in one API call and reports which were saved. It rejects, per item, a category change on a split transaction.
 
 ### Changed
 
+- `ynab_get_transactions` accepts `month` and returns `account_id`, `payee_id` and `category_id` on each row.
 - **Upgrade step: set `YNAB_READ_ONLY=false` to keep the write tools.** The server is now read-only unless you opt in. The stdio server, the HTTP server and the Worker register tools that write to YNAB only when `YNAB_READ_ONLY` is `"false"` (case-insensitive; surrounding whitespace is ignored). Unset, empty or any other value leaves them out of the tool list, so after upgrading they do not appear until you set it. Previously write tools were on unless `YNAB_READ_ONLY` was `"true"`. The HTTP server's startup warning about write tools on a non-loopback address and the Worker's sign-in page follow the new default. The Worker's `wrangler.example.jsonc` keeps the safe read-only default.
+
+### Deprecated
+
+- `ynab_bulk_approve_transactions` is deprecated in favour of `ynab_bulk_update_transactions` with `approved`, and will be removed in the following release.
 
 ## [0.10.0] - 2026-11-18
 
