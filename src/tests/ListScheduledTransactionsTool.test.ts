@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
 import * as ynab from 'ynab';
+import { z } from 'zod';
 import * as ListScheduledTransactionsTool from '../tools/ListScheduledTransactionsTool';
 
 vi.mock('ynab');
@@ -96,7 +97,8 @@ describe('ListScheduledTransactionsTool', () => {
       );
 
       expect(mockApi.scheduledTransactions.getScheduledTransactions).toHaveBeenCalledWith(
-        'test-budget-id'
+        'test-budget-id',
+        undefined
       );
 
       const response = JSON.parse(result.content[0].text);
@@ -171,7 +173,8 @@ describe('ListScheduledTransactionsTool', () => {
       await ListScheduledTransactionsTool.execute({}, mockApi as any);
 
       expect(mockApi.scheduledTransactions.getScheduledTransactions).toHaveBeenCalledWith(
-        'test-budget-id'
+        'test-budget-id',
+        undefined
       );
     });
 
@@ -225,6 +228,46 @@ describe('ListScheduledTransactionsTool', () => {
 
     it('should have optional budgetId in input schema', () => {
       expect(ListScheduledTransactionsTool.inputSchema).toHaveProperty('budgetId');
+    });
+  });
+
+  describe('delta sync', () => {
+    const rows = [
+      { id: 's1', date_first: '2024-01-01', date_next: '2024-02-01', frequency: 'monthly', amount: -1000, memo: null, flag_color: null, account_id: 'a1', account_name: 'Checking', payee_id: 'p1', payee_name: 'Shop', category_id: 'c1', category_name: 'Bills', transfer_account_id: null, deleted: false },
+      { id: 's2', date_first: '2024-01-01', date_next: '2024-02-01', frequency: 'monthly', amount: -1000, memo: null, flag_color: null, account_id: 'a1', account_name: 'Checking', payee_id: 'p1', payee_name: 'Shop', category_id: 'c1', category_name: 'Bills', transfer_account_id: null, deleted: true },
+    ];
+    const run = (input: Record<string, unknown>) => {
+      mockApi.scheduledTransactions.getScheduledTransactions.mockResolvedValue({ data: { scheduled_transactions: rows, server_knowledge: 42 } });
+      return ListScheduledTransactionsTool.execute({ budgetId: 'test-budget-id', ...input }, mockApi as any);
+    };
+
+    it.each([[5], [0]])('passes lastKnowledgeOfServer %s to the SDK and keeps deleted rows', async (value) => {
+      const response = JSON.parse((await run({ lastKnowledgeOfServer: value })).content[0].text);
+      expect(mockApi.scheduledTransactions.getScheduledTransactions).toHaveBeenCalledWith('test-budget-id', value);
+      expect(response.server_knowledge).toBe(42);
+      expect(response.scheduled_transactions.map((r: any) => r.deleted)).toEqual([false, true]);
+      expect(response.count).toBe(2);
+    });
+
+    it('passes undefined and drops deleted rows when omitted', async () => {
+      const response = JSON.parse((await run({})).content[0].text);
+      expect(mockApi.scheduledTransactions.getScheduledTransactions).toHaveBeenCalledWith('test-budget-id', undefined);
+      expect(response.scheduled_transactions).toHaveLength(1);
+      expect(response.scheduled_transactions[0].deleted).toBe(false);
+      expect(response.server_knowledge).toBe(42);
+    });
+
+    it('rejects negative and fractional values', () => {
+      const schema = z.object(ListScheduledTransactionsTool.inputSchema);
+      expect(schema.safeParse({ lastKnowledgeOfServer: -1 }).success).toBe(false);
+      expect(schema.safeParse({ lastKnowledgeOfServer: 1.5 }).success).toBe(false);
+      expect(schema.safeParse({ lastKnowledgeOfServer: 0 }).success).toBe(true);
+    });
+
+    it('documents the parameter in the description', () => {
+      for (const text of ['lastKnowledgeOfServer', 'server_knowledge', 'deleted: true']) {
+        expect(ListScheduledTransactionsTool.description).toContain(text);
+      }
     });
   });
 });
