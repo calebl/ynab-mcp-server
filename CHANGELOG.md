@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `ynab_list_plans` returns each plan's `last_modified_on`, `first_month`, `last_month`, `date_format` and `currency_format` alongside `id` and `name`. A field YNAB does not return for a plan is omitted.
+
 ### Changed
 
 - **Upgrade step: set `YNAB_READ_ONLY=false` to keep the write tools.** The server is now read-only unless you opt in. The stdio server, the HTTP server and the Worker register tools that write to YNAB only when `YNAB_READ_ONLY` is `"false"` (case-insensitive; surrounding whitespace is ignored). Unset, empty or any other value leaves them out of the tool list, so after upgrading they do not appear until you set it. Previously write tools were on unless `YNAB_READ_ONLY` was `"true"`. The HTTP server's startup warning about write tools on a non-loopback address and the Worker's sign-in page follow the new default. The Worker's `wrangler.example.jsonc` keeps the safe read-only default.

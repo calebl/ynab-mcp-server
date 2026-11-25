@@ -102,9 +102,7 @@ describe('ListPlansTool', () => {
         content: [{
           type: "text",
           text: JSON.stringify([
-            { id: 'budget-1', name: 'My Personal Budget' },
-            { id: 'budget-2', name: 'Family Budget' },
-            { id: 'budget-3', name: 'Business Budget' },
+            ...mockBudgetsData,
           ], null, 2)
         }]
       };
@@ -144,12 +142,32 @@ describe('ListPlansTool', () => {
         content: [{
           type: "text",
           text: JSON.stringify([
-            { id: 'budget-1', name: 'My Personal Budget' },
+            mockBudgetsData[0],
           ], null, 2)
         }]
       };
 
       expect(result).toEqual(expectedResult);
+    });
+
+    it('should omit metadata that YNAB leaves out or returns as null', async () => {
+      mockApi.plans.getPlans.mockResolvedValue({
+        data: {
+          plans: [
+            { id: 'bare', name: 'Bare', accounts: [{ id: 'a1', name: 'Checking' }], extra: 'x' },
+            { id: 'partial', name: 'Partial', first_month: '2023-01-01', last_month: null },
+            { id: 'nulls', name: 'Nulls', date_format: null, currency_format: null, first_month: null, last_month: null, last_modified_on: null },
+          ],
+        },
+      });
+
+      const result = await ListPlansTool.execute({}, mockApi as any);
+
+      expect(JSON.parse(result.content[0].text)).toEqual([
+        { id: 'bare', name: 'Bare' },
+        { id: 'partial', name: 'Partial', first_month: '2023-01-01' },
+        { id: 'nulls', name: 'Nulls' },
+      ]);
     });
 
     it('should return error message when YNAB API token is not set', async () => {
@@ -239,8 +257,7 @@ describe('ListPlansTool', () => {
         content: [{
           type: "text",
           text: JSON.stringify([
-            { id: 'budget-special-1', name: 'Budget with "Quotes" & Symbols!' },
-            { id: 'budget-special-2', name: 'émojis 🎯 & ünîcødé' },
+            ...specialBudgets,
           ], null, 2)
         }]
       };
