@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `ynab_list_plans` returns each plan's `last_modified_on`, `first_month`, `last_month`, `date_format` and `currency_format` alongside `id` and `name`. A field YNAB does not return for a plan is omitted.
+- `ynab_list_scheduled_transactions` accepts an optional `scheduledTransactionId` and then returns only that scheduled transaction, in the same row shape.
 
 ### Changed
 
