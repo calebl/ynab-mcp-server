@@ -19,14 +19,14 @@ interface RegisteredTool {
   callback: (input: any) => Promise<any>;
 }
 
-function register(api: ynab.API = {} as ynab.API) {
+function register(api: ynab.API = {} as ynab.API, options?: Parameters<typeof registerAll>[2]) {
   const registered = new Map<string, RegisteredTool>();
   const server: ToolRegistrar = {
     registerTool(name, config, callback) {
       registered.set(name, { config, callback });
     },
   };
-  registerAll(server, api);
+  registerAll(server, api, options);
   return registered;
 }
 
@@ -128,12 +128,18 @@ describe("tool registration", () => {
     expect(registered.get("ynab_create_transaction")?.config.annotations.destructiveHint).toBe(false);
     expect(registered.get("ynab_update_transaction")?.config.annotations.idempotentHint).toBe(true);
     expect(registered.get("ynab_bulk_approve_transactions")?.config.annotations.idempotentHint).toBe(true);
+    expect(registered.get("ynab_bulk_update_transactions")?.config.annotations.idempotentHint).toBe(true);
+    expect(registered.get("ynab_bulk_update_transactions")?.config.annotations.readOnlyHint).toBe(false);
     expect(registered.get("ynab_update_category_budget")?.config.annotations.idempotentHint).toBe(true);
     expect(registered.get("ynab_create_transaction")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_move_money")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_auto_assign")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_import_transactions")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_balance_forecast")?.config.annotations.readOnlyHint).toBe(true);
+    for (const name of ["ynab_create_category", "ynab_update_category"]) {
+      expect(registered.get(name)?.config.annotations.readOnlyHint, name).toBe(false);
+      expect(registered.get(name)?.config.annotations.idempotentHint, name).toBe(false);
+    }
     expect(registered.get("ynab_detect_recurring")?.config.annotations).toEqual({
       title: "Detect Recurring",
       readOnlyHint: true,
@@ -141,6 +147,16 @@ describe("tool registration", () => {
       idempotentHint: false,
       openWorldHint: true,
     });
+    for (const name of ["ynab_get_category", "ynab_get_month_category", "ynab_get_month", "ynab_get_user"]) {
+      expect(registered.get(name)?.config.annotations.readOnlyHint, name).toBe(true);
+    }
+  });
+
+  it("does not register the bulk update tool in read-only mode", () => {
+    const registered = register({} as ynab.API, { readOnly: true });
+    expect(registered.has("ynab_get_transactions")).toBe(true);
+    expect(registered.has("ynab_list_scheduled_transactions")).toBe(true);
+    expect(registered.has("ynab_bulk_update_transactions")).toBe(false);
   });
 
   it("rejects ynab_create_transaction input missing both accountId and accountName", () => {
@@ -169,6 +185,46 @@ describe("tool registration", () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.issues.some((issue) => issue.message === "Either payeeId or payeeName must be provided")).toBe(true);
+  });
+
+  it.each([
+    ["ynab_create_category", { name: "Shopping" }, "Either categoryGroupId or categoryGroupName must be provided"],
+    ["ynab_update_category", { name: "Shopping" }, "Either categoryId or categoryName must be provided"],
+  ])("rejects %s input without an id or a name to find", (tool, input, message) => {
+    const registered = register();
+    const schema = registered.get(tool)!.config.inputSchema as z.ZodType;
+
+    const result = schema.safeParse(input);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.some((issue) => issue.message === message)).toBe(true);
+  });
+
+  const categoryReadTools = ["ynab_get_category", "ynab_get_month_category", "ynab_get_month", "ynab_get_user", "ynab_list_categories", "ynab_list_months"];
+
+  function registerWithEnv(value: string | undefined) {
+    const registered = new Map<string, Record<string, any>>();
+    registerAll(
+      { registerTool: (name, config) => { registered.set(name, config); } },
+      {} as ynab.API,
+      { readOnly: isReadOnly(value) },
+    );
+    return registered;
+  }
+
+  it.each([undefined, "", "true"])("leaves the category write tools out when YNAB_READ_ONLY is %j", (value) => {
+    const registered = registerWithEnv(value);
+    expect(registered.has("ynab_create_category")).toBe(false);
+    expect(registered.has("ynab_update_category")).toBe(false);
+    for (const name of categoryReadTools) expect(registered.has(name), name).toBe(true);
+  });
+
+  it("registers the category write tools when YNAB_READ_ONLY is false", () => {
+    const registered = registerWithEnv("false");
+    for (const name of ["ynab_create_category", "ynab_update_category"]) {
+      expect(registered.get(name)?.annotations.readOnlyHint, name).toBe(false);
+    }
+    for (const name of categoryReadTools) expect(registered.has(name), name).toBe(true);
   });
 
   it("passes null optional inputs to tools as omissions", async () => {
@@ -557,7 +613,7 @@ describe("removed aliases", () => {
     });
 
     expect(result.isError).toBeUndefined();
-    expect(api.transactions.getTransactions).toHaveBeenCalledWith("plan-1", "2024-01-01", undefined, "unapproved");
+    expect(api.transactions.getTransactions).toHaveBeenCalledWith("plan-1", "2024-01-01", undefined, "unapproved", undefined);
     const body = JSON.parse(result.content[0].text);
     expect(body.transaction_count).toBe(150);
     expect(body.transactions[0]).toMatchObject({

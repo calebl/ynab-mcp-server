@@ -12,6 +12,8 @@ describe('GetTransactionsTool', () => {
       getTransactionsByAccount: Mock;
       getTransactionsByCategory: Mock;
       getTransactionsByPayee: Mock;
+      getTransactionsByMonth: Mock;
+      getTransactionById: Mock;
     };
   };
 
@@ -24,6 +26,8 @@ describe('GetTransactionsTool', () => {
         getTransactionsByAccount: vi.fn(),
         getTransactionsByCategory: vi.fn(),
         getTransactionsByPayee: vi.fn(),
+        getTransactionsByMonth: vi.fn(),
+        getTransactionById: vi.fn(),
       },
     };
 
@@ -183,6 +187,7 @@ describe('GetTransactionsTool', () => {
         'test-budget-id',
         undefined,
         undefined,
+        undefined,
         undefined
       );
 
@@ -292,6 +297,7 @@ describe('GetTransactionsTool', () => {
         'test-budget-id',
         '2024-01-01',
         undefined,
+        undefined,
         undefined
       );
     });
@@ -313,7 +319,8 @@ describe('GetTransactionsTool', () => {
         'test-budget-id',
         undefined,
         undefined,
-        ynab.GetTransactionsTypeEnum.Unapproved
+        ynab.GetTransactionsTypeEnum.Unapproved,
+        undefined
       );
     });
 
@@ -334,7 +341,8 @@ describe('GetTransactionsTool', () => {
         'test-budget-id',
         undefined,
         undefined,
-        ynab.GetTransactionsTypeEnum.Uncategorized
+        ynab.GetTransactionsTypeEnum.Uncategorized,
+        undefined
       );
     });
 
@@ -439,12 +447,323 @@ describe('GetTransactionsTool', () => {
       expect(response.success).toBe(false);
       expect(response.error).toBe('API Error');
     });
+
+    describe('delta sync', () => {
+      it('passes lastKnowledgeOfServer 0 and 42 to getTransactions in the last slot (REQ-008)', async () => {
+        mockApi.transactions.getTransactions.mockResolvedValue({ data: { transactions: [], server_knowledge: 1 } });
+
+        await GetTransactionsTool.execute({ lastKnowledgeOfServer: 0 }, mockApi as any);
+        expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith('test-budget-id', undefined, undefined, undefined, 0);
+
+        await GetTransactionsTool.execute({ lastKnowledgeOfServer: 42 }, mockApi as any);
+        expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith('test-budget-id', undefined, undefined, undefined, 42);
+      });
+
+      it('returns server_knowledge from the response (REQ-009)', async () => {
+        mockApi.transactions.getTransactions.mockResolvedValue({
+          data: { transactions: mockTransactionsData, server_knowledge: 99 },
+        });
+
+        const result = await GetTransactionsTool.execute({}, mockApi as any);
+
+        expect(JSON.parse(result.content[0].text).server_knowledge).toBe(99);
+      });
+
+      it('keeps deleted rows with deleted: true in delta mode and still drops them by default (REQ-010, REQ-011)', async () => {
+        mockApi.transactions.getTransactions.mockResolvedValue({
+          data: { transactions: mockTransactionsData, server_knowledge: 99 },
+        });
+
+        const delta = JSON.parse((await GetTransactionsTool.execute({ lastKnowledgeOfServer: 42 }, mockApi as any)).content[0].text);
+        expect(delta.transactions.find((t: any) => t.id === 'txn-deleted').deleted).toBe(true);
+        expect(delta.transactions.find((t: any) => t.id === 'txn-1').deleted).toBe(false);
+
+        const normal = JSON.parse((await GetTransactionsTool.execute({}, mockApi as any)).content[0].text);
+        expect(normal.transactions.map((t: any) => t.id)).not.toContain('txn-deleted');
+      });
+
+      it('ignores limit in delta mode so the result is complete', async () => {
+        mockApi.transactions.getTransactions.mockResolvedValue({
+          data: { transactions: mockTransactionsData, server_knowledge: 99 },
+        });
+
+        const result = await GetTransactionsTool.execute({ lastKnowledgeOfServer: 42, limit: 2 }, mockApi as any);
+        const response = JSON.parse(result.content[0].text);
+
+        expect(response.transaction_count).toBe(3);
+        expect(response.total_available).toBe(3);
+      });
+
+      it.each([
+        { memoContains: 'x' }, { payeeContains: 'x' }, { minAmount: 1 }, { maxAmount: 1 },
+        { direction: 'outflow' }, { untilDate: '2024-12-31' }, { totalsOnly: true },
+        { type: 'unapproved' }, { type: 'uncategorized' }, { sinceDate: '2024-01-01' }, { month: '2024-01-01' },
+        { accountId: 'a1' }, { categoryId: 'c1' }, { payeeId: 'p1' },
+      ])('rejects a delta request combined with sinceDate, ids, search options or type %j', async (search) => {
+        const result = await GetTransactionsTool.execute({ lastKnowledgeOfServer: 42, ...search } as any, mockApi as any);
+        const response = JSON.parse(result.content[0].text);
+
+        expect(response.success).toBe(false);
+        expect(response.error).toContain('cannot be combined with sinceDate, month, search options');
+        expect(response.error).toContain('Omit them');
+        for (const method of Object.values(mockApi.transactions)) expect(method).not.toHaveBeenCalled();
+      });
+
+      it('gives the full REQ-018 error text', async () => {
+        const result = await GetTransactionsTool.execute({ lastKnowledgeOfServer: 42, sinceDate: '2024-01-01' } as any, mockApi as any);
+
+        expect(JSON.parse(result.content[0].text).error).toBe(
+          'lastKnowledgeOfServer cannot be combined with sinceDate, month, search options, a type other than all or an account, category or payee filter (sinceDate, month, type, untilDate, payeeContains, memoContains, minAmount, maxAmount, direction, totalsOnly, accountId, categoryId, payeeId). Omit them to get every changed row, then filter locally by the account_id, category_id and payee_id on each row.'
+        );
+      });
+
+      it('allows a delta request without sinceDate and returns rows of any date', async () => {
+        mockApi.transactions.getTransactions.mockResolvedValue({
+          data: { transactions: mockTransactionsData, server_knowledge: 99 },
+        });
+        const result = await GetTransactionsTool.execute({ lastKnowledgeOfServer: 0 } as any, mockApi as any);
+        const response = JSON.parse(result.content[0].text);
+        expect(response.success).not.toBe(false);
+        expect(response.server_knowledge).toBe(99);
+        expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith('test-budget-id', undefined, undefined, undefined, 0);
+      });
+
+      it("allows a delta request with type 'all'", async () => {
+        mockApi.transactions.getTransactions.mockResolvedValue({
+          data: { transactions: mockTransactionsData, server_knowledge: 99 },
+        });
+        const result = await GetTransactionsTool.execute({ lastKnowledgeOfServer: 42, type: 'all' } as any, mockApi as any);
+        expect(JSON.parse(result.content[0].text).success).not.toBe(false);
+      });
+
+      it('explains server_knowledge in the description (REQ-012)', () => {
+        expect(GetTransactionsTool.description).toContain('server_knowledge');
+        expect(GetTransactionsTool.description).toContain('limit is ignored');
+        expect(GetTransactionsTool.description).toContain('first call with lastKnowledgeOfServer: 0');
+        expect(GetTransactionsTool.description).toContain('use lastKnowledgeOfServer: 0 to get every row');
+      });
+    });
+  });
+
+  describe('untilDate, month, transactionId and ID fields', () => {
+    const row = (overrides: Record<string, unknown>) => ({
+      id: 'txn-1',
+      date: '2024-01-15',
+      amount: -25990,
+      memo: null,
+      approved: true,
+      cleared: 'cleared',
+      account_id: 'acct-1',
+      account_name: 'Checking',
+      payee_id: 'payee-1',
+      payee_name: 'Amazon',
+      category_id: 'cat-1',
+      category_name: 'Shopping',
+      flag_color: null,
+      transfer_account_id: null,
+      import_id: 'YNAB:-25990:2024-01-15:1',
+      deleted: false,
+      ...overrides,
+    });
+
+    it('should return account, payee, category and import IDs on each row', async () => {
+      mockApi.transactions.getTransactions.mockResolvedValue({
+        data: { transactions: [row({}), row({ id: 'txn-2', import_id: null })] },
+      });
+
+      const result = await GetTransactionsTool.execute({}, mockApi as any);
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.transactions[0]).toMatchObject({
+        account_id: 'acct-1',
+        payee_id: 'payee-1',
+        category_id: 'cat-1',
+        import_id: 'YNAB:-25990:2024-01-15:1',
+      });
+      expect(response.transactions[1].import_id).toBeNull();
+    });
+
+    it('should pass untilDate before type to getTransactions', async () => {
+      mockApi.transactions.getTransactions.mockResolvedValue({ data: { transactions: [] } });
+
+      await GetTransactionsTool.execute(
+        { sinceDate: '2024-01-01', untilDate: '2024-01-31', type: 'unapproved' },
+        mockApi as any
+      );
+
+      expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith(
+        'test-budget-id',
+        '2024-01-01',
+        '2024-01-31',
+        ynab.GetTransactionsTypeEnum.Unapproved,
+        undefined
+      );
+    });
+
+    it.each([
+      { key: 'accountId', method: 'getTransactionsByAccount' },
+      { key: 'categoryId', method: 'getTransactionsByCategory' },
+      { key: 'payeeId', method: 'getTransactionsByPayee' },
+    ] as const)('should pass untilDate in its slot for $key', async ({ key, method }) => {
+      mockApi.transactions[method].mockResolvedValue({ data: { transactions: [] } });
+
+      await GetTransactionsTool.execute({ [key]: 'id-1', untilDate: '2024-01-31' }, mockApi as any);
+
+      expect(mockApi.transactions[method]).toHaveBeenCalledWith(
+        'test-budget-id',
+        'id-1',
+        undefined,
+        '2024-01-31',
+        undefined
+      );
+    });
+
+    it('should list a plan month with getTransactionsByMonth', async () => {
+      mockApi.transactions.getTransactionsByMonth.mockResolvedValue({ data: { transactions: [row({})] } });
+
+      const result = await GetTransactionsTool.execute(
+        { month: '2024-03-01', sinceDate: '2024-03-05', untilDate: '2024-03-20', type: 'uncategorized' },
+        mockApi as any
+      );
+
+      expect(mockApi.transactions.getTransactionsByMonth).toHaveBeenCalledWith(
+        'test-budget-id',
+        '2024-03-01',
+        '2024-03-05',
+        '2024-03-20',
+        ynab.GetTransactionsByMonthTypeEnum.Uncategorized
+      );
+      expect(mockApi.transactions.getTransactions).not.toHaveBeenCalled();
+      expect(JSON.parse(result.content[0].text).transactions).toHaveLength(1);
+    });
+
+    it.each(['accountId', 'categoryId', 'payeeId'])(
+      'should refuse month combined with %s without calling YNAB',
+      async (key) => {
+        const result = await GetTransactionsTool.execute(
+          { month: 'current', [key]: 'id-1' },
+          mockApi as any
+        );
+
+        const response = JSON.parse(result.content[0].text);
+        expect(response.success).toBe(false);
+        expect(response.error).toBe('month cannot be combined with accountId, categoryId, or payeeId');
+        for (const method of Object.values(mockApi.transactions)) {
+          expect(method).not.toHaveBeenCalled();
+        }
+      }
+    );
+
+    describe('transactionId', () => {
+      const listMethods = ['getTransactions', 'getTransactionsByAccount', 'getTransactionsByCategory', 'getTransactionsByPayee', 'getTransactionsByMonth'] as const;
+      const expectNoListCalls = () => {
+        for (const m of listMethods) expect(mockApi.transactions[m]).not.toHaveBeenCalled();
+      };
+      const run = async (input: Record<string, unknown>) =>
+        JSON.parse((await GetTransactionsTool.execute(input, mockApi as any)).content[0].text);
+
+      it('should return one ordinary row by id', async () => {
+        mockApi.transactions.getTransactionById.mockResolvedValue({ data: { transaction: row({}) } });
+        const response = await run({ transactionId: 'txn-1' });
+        expect(mockApi.transactions.getTransactionById).toHaveBeenCalledTimes(1);
+        expect(mockApi.transactions.getTransactionById).toHaveBeenCalledWith('test-budget-id', 'txn-1');
+        expectNoListCalls();
+        expect(response.success).toBeUndefined();
+        expect(response.transaction_count).toBe(1);
+        expect(response.total_available).toBe(1);
+        expect(response).not.toHaveProperty('totals');
+        expect(response.transactions[0]).toMatchObject({
+          id: 'txn-1', amount: -25.99, account_id: 'acct-1', payee_id: 'payee-1',
+          category_id: 'cat-1', import_id: 'YNAB:-25990:2024-01-15:1',
+        });
+        expect(response.transactions[0]).not.toHaveProperty('subtransactions');
+      });
+
+      it('should let transactionId win over every other option', async () => {
+        mockApi.transactions.getTransactionById.mockResolvedValue({ data: { transaction: row({}) } });
+        const response = await run({
+          transactionId: 'txn-1', month: 'current', accountId: 'acct-1', type: 'unapproved',
+          sinceDate: '2024-02-01', untilDate: '2024-01-01', minAmount: 10, maxAmount: 1,
+          totalsOnly: true, limit: 5,
+        });
+        expect(response.success).toBeUndefined();
+        expect(response.transactions).toHaveLength(1);
+        expectNoListCalls();
+      });
+
+      it('should return the live legs of a split', async () => {
+        mockApi.transactions.getTransactionById.mockResolvedValue({
+          data: {
+            transaction: row({
+              subtransactions: [
+                { id: 's1', amount: -10000, category_id: 'c1', deleted: false },
+                { id: 's2', amount: -15990, category_id: 'c2', deleted: false },
+                { id: 's3', amount: -1000, category_id: 'c3', deleted: true },
+              ],
+            }),
+          },
+        });
+        const response = await run({ transactionId: 'txn-1' });
+        expect(response.transactions[0].subtransactions).toHaveLength(2);
+        expect(response.transactions[0].subtransactions.map((s: any) => s.amount)).toEqual([-10, -15.99]);
+      });
+
+      it('should error when the transaction is missing', async () => {
+        mockApi.transactions.getTransactionById.mockResolvedValue({ data: { transaction: undefined } });
+        const response = await run({ transactionId: 'txn-1' });
+        expect(response.success).toBe(false);
+        expect(response.error).toContain('Transaction not found');
+      });
+
+      it('should name the id when YNAB rejects the lookup with a 404', async () => {
+        mockApi.transactions.getTransactionById.mockRejectedValue({ error: { id: '404', name: 'not_found', detail: 'Resource not found' } });
+        const response = await run({ transactionId: 'txn-1' });
+        expect(response.success).toBe(false);
+        expect(response.error).toBe('Transaction not found: txn-1');
+      });
+
+      it('should error when the transaction is deleted', async () => {
+        mockApi.transactions.getTransactionById.mockResolvedValue({ data: { transaction: row({ deleted: true }) } });
+        const response = await run({ transactionId: 'txn-1' });
+        expect(response.success).toBe(false);
+        expect(response.error).toContain('Transaction not found: txn-1');
+      });
+
+      it('should surface API errors', async () => {
+        mockApi.transactions.getTransactionById.mockRejectedValue(new Error('API Error'));
+        const response = await run({ transactionId: 'txn-1' });
+        expect(response.success).toBe(false);
+        expect(response.error).toBe('API Error');
+      });
+
+      it('should error without a plan ID', async () => {
+        delete process.env.YNAB_BUDGET_ID;
+        const response = await run({ transactionId: 'txn-1' });
+        expect(response.success).toBe(false);
+        expect(response.error).toContain('No plan ID provided');
+      });
+    });
+
+    it('should validate untilDate and month formats', () => {
+      expect(GetTransactionsTool.inputSchema).toHaveProperty('untilDate');
+      expect(GetTransactionsTool.inputSchema).toHaveProperty('month');
+      expect(GetTransactionsTool.inputSchema).toHaveProperty('transactionId');
+      expect(GetTransactionsTool.inputSchema).not.toHaveProperty('approved');
+      expect((GetTransactionsTool.inputSchema.untilDate as z.ZodType).safeParse('01/31/2024').success).toBe(false);
+      const month = GetTransactionsTool.inputSchema.month as z.ZodType;
+      expect(month.safeParse('current').success).toBe(true);
+      expect(month.safeParse('2024-03-01').success).toBe(true);
+      expect(month.safeParse('2024-03-15').success).toBe(false);
+      expect(month.safeParse('2024-03').success).toBe(false);
+    });
   });
 
   describe('tool configuration', () => {
     it('should have correct name and description', () => {
       expect(GetTransactionsTool.name).toBe('ynab_get_transactions');
       expect(GetTransactionsTool.description).toContain('Gets transactions');
+      expect(GetTransactionsTool.description).toContain('transactionId');
+      expect(GetTransactionsTool.description).toContain('ignored');
     });
 
     it('should have filter options in input schema', () => {
@@ -460,6 +779,13 @@ describe('GetTransactionsTool', () => {
     it('should reject a sinceDate not in YYYY-MM-DD format', () => {
       const result = (GetTransactionsTool.inputSchema.sinceDate as z.ZodType).safeParse('01/01/2024');
       expect(result.success).toBe(false);
+    });
+
+    it('should reject a negative or fractional lastKnowledgeOfServer and accept 0', () => {
+      const field = GetTransactionsTool.inputSchema.lastKnowledgeOfServer as z.ZodType;
+      expect(field.safeParse(-1).success).toBe(false);
+      expect(field.safeParse(1.5).success).toBe(false);
+      expect(field.safeParse(0).success).toBe(true);
     });
 
     it('should reject a non-integer, non-positive, or too-large limit', () => {
@@ -577,7 +903,7 @@ describe('GetTransactionsTool search', () => {
 
   it('should send untilDate to YNAB and enforce it if later rows come back', async () => {
     const response = await run({ sinceDate: '2026-01-01', untilDate: '2026-03-31' });
-    expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith('test-budget-id', '2026-01-01', '2026-03-31', undefined);
+    expect(mockApi.transactions.getTransactions).toHaveBeenCalledWith('test-budget-id', '2026-01-01', '2026-03-31', undefined, undefined);
     expect(response.transactions.map((t: any) => t.id)).toEqual(['split', 'pay', 'give-1']);
     expect(response.totals).toEqual({ count: 3, inflow: 300, outflow: 160, net: 140 });
   });
