@@ -19,14 +19,14 @@ interface RegisteredTool {
   callback: (input: any) => Promise<any>;
 }
 
-function register(api: ynab.API = {} as ynab.API) {
+function register(api: ynab.API = {} as ynab.API, options?: Parameters<typeof registerAll>[2]) {
   const registered = new Map<string, RegisteredTool>();
   const server: ToolRegistrar = {
     registerTool(name, config, callback) {
       registered.set(name, { config, callback });
     },
   };
-  registerAll(server, api);
+  registerAll(server, api, options);
   return registered;
 }
 
@@ -128,6 +128,8 @@ describe("tool registration", () => {
     expect(registered.get("ynab_create_transaction")?.config.annotations.destructiveHint).toBe(false);
     expect(registered.get("ynab_update_transaction")?.config.annotations.idempotentHint).toBe(true);
     expect(registered.get("ynab_bulk_approve_transactions")?.config.annotations.idempotentHint).toBe(true);
+    expect(registered.get("ynab_bulk_update_transactions")?.config.annotations.idempotentHint).toBe(true);
+    expect(registered.get("ynab_bulk_update_transactions")?.config.annotations.readOnlyHint).toBe(false);
     expect(registered.get("ynab_update_category_budget")?.config.annotations.idempotentHint).toBe(true);
     expect(registered.get("ynab_create_transaction")?.config.annotations.idempotentHint).toBe(false);
     expect(registered.get("ynab_move_money")?.config.annotations.idempotentHint).toBe(false);
@@ -141,6 +143,13 @@ describe("tool registration", () => {
       idempotentHint: false,
       openWorldHint: true,
     });
+  });
+
+  it("does not register the bulk update tool in read-only mode", () => {
+    const registered = register({} as ynab.API, { readOnly: true });
+    expect(registered.has("ynab_get_transactions")).toBe(true);
+    expect(registered.has("ynab_list_scheduled_transactions")).toBe(true);
+    expect(registered.has("ynab_bulk_update_transactions")).toBe(false);
   });
 
   it("rejects ynab_create_transaction input missing both accountId and accountName", () => {

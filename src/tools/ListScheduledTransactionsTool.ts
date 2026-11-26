@@ -5,17 +5,19 @@ import { getErrorMessage } from "./errorUtils.js";
 import { getDecimalDigits, toDollars } from "./money.js";
 
 export const name = "ynab_list_scheduled_transactions";
-export const description = "Lists the scheduled transactions set up in YNAB. Pass scheduledTransactionId to fetch just one. To find recurring charges in transaction history, including ones that are not scheduled, use ynab_detect_recurring. For a projected balance, use ynab_balance_forecast.";
+export const description = "Lists the scheduled transactions set up in YNAB, optionally only those in one account with accountId. Pass scheduledTransactionId to fetch just one (accountId is then ignored). To find recurring charges in transaction history, including ones that are not scheduled, use ynab_detect_recurring. For a projected balance, use ynab_balance_forecast.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   scheduledTransactionId: z.string().optional().describe("Return only this scheduled transaction (optional)"),
+  accountId: z.string().optional().describe("Only return scheduled transactions in this account (optional; ignored when scheduledTransactionId is given)"),
 };
 
 interface ListScheduledTransactionsInput {
   planId?: string;
   budgetId?: string;
   scheduledTransactionId?: string;
+  accountId?: string;
 }
 
 
@@ -36,6 +38,7 @@ export async function execute(input: ListScheduledTransactionsInput, api: ynab.A
     // Filter and format scheduled transactions
     const scheduledTransactions = rows
       .filter((txn) => !txn.deleted)
+      .filter((txn) => input.scheduledTransactionId || input.accountId === undefined || txn.account_id === input.accountId)
       .map((txn) => ({
         id: txn.id,
         date_first: txn.date_first,

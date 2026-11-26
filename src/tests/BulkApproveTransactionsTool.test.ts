@@ -235,6 +235,11 @@ describe('BulkApproveTransactionsTool', () => {
       expect(BulkApproveTransactionsTool.description).toContain('un-approves');
     });
 
+    it('should mark the description deprecated in favour of the bulk update tool', () => {
+      expect(BulkApproveTransactionsTool.description).toMatch(/deprecated/i);
+      expect(BulkApproveTransactionsTool.description).toContain('ynab_bulk_update_transactions');
+    });
+
     it('should have required input schema fields', () => {
       expect(BulkApproveTransactionsTool.inputSchema).toHaveProperty('budgetId');
       expect(BulkApproveTransactionsTool.inputSchema).toHaveProperty('transactionIds');
