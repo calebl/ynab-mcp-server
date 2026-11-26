@@ -147,6 +147,9 @@ describe("tool registration", () => {
       idempotentHint: false,
       openWorldHint: true,
     });
+    for (const name of ["ynab_get_category", "ynab_get_month_category", "ynab_get_month", "ynab_get_user"]) {
+      expect(registered.get(name)?.config.annotations.readOnlyHint, name).toBe(true);
+    }
   });
 
   it("does not register the bulk update tool in read-only mode", () => {
@@ -197,12 +200,31 @@ describe("tool registration", () => {
     expect(result.error?.issues.some((issue) => issue.message === message)).toBe(true);
   });
 
-  it("leaves the category structure tools out in read-only mode", () => {
-    const registered = new Map<string, unknown>();
-    registerAll({ registerTool: (name) => { registered.set(name, true); } }, {} as ynab.API, { readOnly: true });
+  const categoryReadTools = ["ynab_get_category", "ynab_get_month_category", "ynab_get_month", "ynab_get_user", "ynab_list_categories", "ynab_list_months"];
+
+  function registerWithEnv(value: string | undefined) {
+    const registered = new Map<string, Record<string, any>>();
+    registerAll(
+      { registerTool: (name, config) => { registered.set(name, config); } },
+      {} as ynab.API,
+      { readOnly: isReadOnly(value) },
+    );
+    return registered;
+  }
+
+  it.each([undefined, "", "true"])("leaves the category write tools out when YNAB_READ_ONLY is %j", (value) => {
+    const registered = registerWithEnv(value);
     expect(registered.has("ynab_create_category")).toBe(false);
     expect(registered.has("ynab_update_category")).toBe(false);
-    expect(registered.has("ynab_list_categories")).toBe(true);
+    for (const name of categoryReadTools) expect(registered.has(name), name).toBe(true);
+  });
+
+  it("registers the category write tools when YNAB_READ_ONLY is false", () => {
+    const registered = registerWithEnv("false");
+    for (const name of ["ynab_create_category", "ynab_update_category"]) {
+      expect(registered.get(name)?.annotations.readOnlyHint, name).toBe(false);
+    }
+    for (const name of categoryReadTools) expect(registered.has(name), name).toBe(true);
   });
 
   it("passes null optional inputs to tools as omissions", async () => {
@@ -591,7 +613,7 @@ describe("removed aliases", () => {
     });
 
     expect(result.isError).toBeUndefined();
-    expect(api.transactions.getTransactions).toHaveBeenCalledWith("plan-1", "2024-01-01", undefined, "unapproved");
+    expect(api.transactions.getTransactions).toHaveBeenCalledWith("plan-1", "2024-01-01", undefined, "unapproved", undefined);
     const body = JSON.parse(result.content[0].text);
     expect(body.transaction_count).toBe(150);
     expect(body.transactions[0]).toMatchObject({

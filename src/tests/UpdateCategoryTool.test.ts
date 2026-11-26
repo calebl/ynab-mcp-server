@@ -90,9 +90,75 @@ describe('UpdateCategoryTool', () => {
     expect(response.error).toContain('already has a category named');
   });
 
+  it('refuses a move into a group that already holds a category with the same name (REQ-014)', async () => {
+    mockApi.categories.getCategories.mockResolvedValue({
+      data: { category_groups: [...groups, group('g-other', 'Other', [['c-dup', 'entertainment']])] },
+    });
+    const response = await run({ categoryId: 'c-ent', categoryGroupName: 'Other' });
+    expect(response.success).toBe(false);
+    expect(response.error).toContain('already has a category named');
+    expect(mockApi.categories.updateCategory).not.toHaveBeenCalled();
+  });
+
   it('never creates a group when the move target is missing', async () => {
     const response = await run({ categoryId: 'c-ef', categoryGroupName: 'Nowhere' });
-    expect(response).toMatchObject({ success: false, error: 'No category group matching "Nowhere"' });
+    expect(response).toMatchObject({ success: false, error: 'No category group named "Nowhere" (names must match exactly).' });
     expect(mockApi.categories.updateCategory).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing for a near-miss category name and returns the closest names', async () => {
+    const response = await run({ categoryName: 'Entertain', note: 'x' });
+    expect(response.success).toBe(false);
+    expect(response.error).toContain('Closest: 🍿 Entertainment');
+    expect(mockApi.categories.updateCategory).not.toHaveBeenCalled();
+  });
+
+  it('does not rename a different category for a loose name', async () => {
+    mockApi.categories.getCategories.mockResolvedValue({ data: { category_groups: [group('g-bills', 'Bills', [['c-car-ins', 'Car Insurance']])] } });
+    const response = await run({ categoryName: 'Car', name: 'Vehicle' });
+    expect(response.success).toBe(false);
+    expect(response.error).toContain('Closest: Car Insurance');
+    expect(mockApi.categories.updateCategory).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing for a near-miss move target and returns the closest group names', async () => {
+    const response = await run({ categoryId: 'c-ef', categoryGroupName: 'Want' });
+    expect(response.error).toContain('Closest: Wants');
+    expect(mockApi.categories.updateCategory).not.toHaveBeenCalled();
+  });
+
+  it('lets a note-only edit through when the group holds two names with the same exact key', async () => {
+    mockApi.categories.getCategories.mockResolvedValue({ data: { category_groups: [group('g-bills', 'Bills', [['c-rent', 'Rent'], ['c-rent2', '🏠 Rent']])] } });
+    const response = await run({ categoryId: 'c-rent2', note: 'due on the 1st' });
+    expect(response.success).toBe(true);
+    expect(mockApi.categories.updateCategory).toHaveBeenCalledWith('plan-1', 'c-rent2', { category: { note: 'due on the 1st' } });
+    const target = await run({ categoryId: 'c-rent', goalTarget: 1500 });
+    expect(target.success).toBe(true);
+  });
+
+  describe('restricted categories and groups', () => {
+    beforeEach(() => {
+      mockApi.categories.getCategories.mockResolvedValue({
+        data: {
+          category_groups: [
+            group('g-internal', 'Internal Master Category', [['c-rta', 'Inflow: Ready to Assign', { internal: true }]], { internal: true }),
+            group('g-cards', 'Credit Card Payments', [['c-visa', 'Visa']]),
+            group('g-savings', 'Savings', [['c-ef', 'Emergency fund']]),
+          ],
+        },
+      });
+    });
+
+    it.each([
+      ['an internal category', { categoryId: 'c-rta', note: 'x' }, 'is internal to YNAB'],
+      ['a Credit Card Payments category', { categoryName: 'Visa', note: 'x' }, 'managed by YNAB for credit card accounts'],
+      ['a move into the internal group', { categoryId: 'c-ef', categoryGroupId: 'g-internal' }, 'is internal to YNAB'],
+      ['a move into Credit Card Payments', { categoryId: 'c-ef', categoryGroupName: 'Credit Card Payments' }, 'managed by YNAB for credit card accounts'],
+    ])('refuses %s without writing', async (_label, input, error) => {
+      const response = await run(input);
+      expect(response.success).toBe(false);
+      expect(response.error).toContain(error);
+      expect(mockApi.categories.updateCategory).not.toHaveBeenCalled();
+    });
   });
 });

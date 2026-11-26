@@ -13,14 +13,14 @@ import {
 } from "./categoryGroups.js";
 
 export const name = "ynab_create_category";
-export const description = "Creates a category in an existing category group, given as categoryGroupId or categoryGroupName (names match exactly first, then loosely). Set createGroupIfMissing to create the group when no group has that name; a hidden, internal or ambiguous match is reported instead. Refuses a name already used in that group, which guards against accidental repeats but not concurrent calls. A goalTarget gives the category a YNAB target (YNAB makes it a 'needed for spending' goal). To rename, move or re-note a category, use ynab_update_category. Categories can't be hidden or deleted through the API.";
+export const description = "Creates a category in an existing category group, given as categoryGroupId or categoryGroupName (names must match exactly, ignoring case and a leading emoji; on a miss nothing is written and the closest names are returned). Set createGroupIfMissing to create the group when no group has that name; a hidden, internal or ambiguous match is reported instead. Refuses a name already used in that group, which guards against accidental repeats but not concurrent calls. A goalTarget gives the category a YNAB target (YNAB makes it a 'needed for spending' goal). To rename, move or re-note a category, use ynab_update_category. Categories can't be hidden or deleted through the API.";
 export const inputSchema = {
   planId: z.string().optional().describe("The plan ID (optional, defaults to YNAB_PLAN_ID; budgetId is a deprecated alias)"),
   budgetId: z.string().optional().describe("Deprecated alias of planId (still accepted)"),
   name: z.string().describe("The new category's name"),
   categoryGroupId: z.string().optional().describe("The id of the group to create the category in (optional if categoryGroupName is provided; wins if both are given)"),
-  categoryGroupName: z.string().optional().describe("The name of the group to create the category in, matched exactly first, then loosely. Optional if categoryGroupId is provided."),
-  createGroupIfMissing: z.boolean().optional().describe("Create the group named by categoryGroupName when no group has that name (default false). Only exact names count when this is set, so a near match never stands in for the group you meant to create."),
+  categoryGroupName: z.string().optional().describe("The name of the group to create the category in, matched exactly (ignoring case and a leading emoji). Optional if categoryGroupId is provided."),
+  createGroupIfMissing: z.boolean().optional().describe("Create the group named by categoryGroupName when no group has that name (default false)."),
   note: z.string().optional().describe("A note for the category (optional)"),
   goalTarget: z.number().optional().describe("Target amount in dollars, zero or more (optional)"),
   goalTargetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Target date in ISO format (e.g. 2027-03-01), optional"),
@@ -56,7 +56,7 @@ export async function execute(input: CreateCategoryInput, api: ynab.API) {
     const groups = await loadGroups(planId, api);
     const lookup = input.categoryGroupId !== undefined ? { id: input.categoryGroupId } : { name: groupName };
     const createIfMissing = input.createGroupIfMissing === true && input.categoryGroupId === undefined;
-    const resolution = resolveGroup(groups, lookup, { fuzzy: !createIfMissing });
+    const resolution = resolveGroup(groups, lookup);
 
     let groupId: string;
     let resolvedGroupName: string;

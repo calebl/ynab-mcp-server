@@ -56,9 +56,15 @@ describe("resolveGroup", () => {
     expect(resolveGroup(groups, { name: "archive" })).toMatchObject({ kind: "disallowed", reason: "hidden" });
   });
 
-  it("matches exactly, ignoring emoji, before matching loosely", () => {
+  it("matches exactly, ignoring case and emoji", () => {
     const withLookalike = [...groups, group("g-sav2", "Savings goals")];
     expect(resolveGroup(withLookalike, { name: "savings" })).toMatchObject({ kind: "found", item: { id: "g-savings" } });
+  });
+
+  it("reports an exact hidden match instead of loosely picking a visible group", () => {
+    const result = resolveGroup([group("g-a", "Archive", [], { hidden: true }), group("g-b", "Archive 2025")], { name: "archive" });
+    expect(result).toMatchObject({ kind: "disallowed", reason: "hidden" });
+    expect(resolveGroup([group("g-b", "Archive 2025")], { name: "archive" })).toEqual({ kind: "none", suggestions: ["Archive 2025"] });
   });
 
   it("reports two groups with the same exact name as ambiguous", () => {
@@ -67,18 +73,14 @@ describe("resolveGroup", () => {
     expect(result.kind).toBe("ambiguous");
   });
 
-  it("falls back to fuzzy matching for ASCII names, emoji-prefixed ones included", () => {
-    expect(resolveGroup(groups, { name: "sav" })).toMatchObject({ kind: "found", item: { id: "g-savings" } });
+  it("never matches loosely: a miss returns suggestions from the eligible groups", () => {
+    expect(resolveGroup(groups, { name: "sav" })).toEqual({ kind: "none", suggestions: ["😌 Savings"] });
+    expect(resolveGroup(groups, { name: "credit card" })).toEqual({ kind: "none", suggestions: [] });
   });
 
-  it("reports no match without fuzzy matching when told not to", () => {
-    expect(resolveGroup(groups, { name: "sav" }, { fuzzy: false })).toEqual({ kind: "none" });
-  });
-
-  it("never fuzzy-matches names with letters outside a-z", () => {
+  it("does not match non-Latin names loosely", () => {
     const scripts = [group("g-edu", "教育 fund")];
-    expect(resolveGroup(scripts, { name: "旅行 fund" })).toEqual({ kind: "none" });
-    expect(resolveGroup([group("g-trip", "旅行 fund")], { name: "fund" })).toEqual({ kind: "none" });
+    expect(resolveGroup(scripts, { name: "旅行 fund" }).kind).toBe("none");
     expect(resolveGroup(scripts, { name: "教育 FUND" })).toMatchObject({ kind: "found", item: { id: "g-edu" } });
   });
 
@@ -96,6 +98,11 @@ describe("resolveCategory", () => {
   it("refuses internal and credit card payment categories", () => {
     expect(resolveCategory(groups, { id: "c-rta" })).toMatchObject({ kind: "disallowed", reason: "internal" });
     expect(resolveCategory(groups, { name: "Visa" })).toMatchObject({ kind: "disallowed", reason: "credit-card-payments" });
+  });
+
+  it("does not match a longer name loosely", () => {
+    const cars = [group("g-bills", "Bills", [category("c-ins", "Car Insurance")])];
+    expect(resolveCategory(cars, { name: "Car" })).toEqual({ kind: "none", suggestions: ["Car Insurance"] });
   });
 
   it("reports an ambiguous name", () => {

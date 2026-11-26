@@ -18,6 +18,8 @@ export const CREDIT_CARD_PAYMENTS_GROUP = "Credit Card Payments";
  */
 const SYSTEM_GROUPS = new Set(["Internal Master Category", "Hidden Categories"]);
 
+const MAX_SUGGESTIONS = 5;
+
 /** YNAB's limit for category group names (see `SaveCategoryGroup`). */
 export const MAX_GROUP_NAME_LENGTH = 50;
 
@@ -25,7 +27,7 @@ export type Restriction = "internal" | "credit-card-payments" | "hidden";
 
 export type Resolution<T> =
   | { kind: "found"; item: T }
-  | { kind: "none" }
+  | { kind: "none"; suggestions: string[] }
   | { kind: "ambiguous"; candidates: T[] }
   | { kind: "disallowed"; item: T; reason: Restriction };
 
@@ -47,8 +49,7 @@ export async function loadGroups(planId: string, api: ynab.API): Promise<ynab.Ca
 
 /**
  * The key two names must share to count as the same name: case, spacing and
- * any leading emoji are ignored, but letters in every script are kept, unlike
- * the ASCII-only normalization used for fuzzy matching.
+ * any leading emoji are ignored, but letters in every script are kept.
  */
 export function exactKey(name: string): string {
   return name
@@ -59,17 +60,11 @@ export function exactKey(name: string): string {
     .toLowerCase();
 }
 
-/** True when every letter is a-z, so fuzzy matching sees the whole name. */
-function hasOnlyAsciiLetters(name: string): boolean {
-  return !/[^\P{L}A-Za-z]/u.test(name);
-}
-
 function resolve<T extends { id: string; name: string }>(
   items: T[],
   lookup: Lookup,
   kind: string,
   restriction: (item: T, byId: boolean) => Restriction | null,
-  fuzzy: boolean,
 ): Resolution<T> {
   if (lookup.id !== undefined) {
     const item = items.find((candidate) => candidate.id === lookup.id);
@@ -89,16 +84,11 @@ function resolve<T extends { id: string; name: string }>(
     return reason ? { kind: "disallowed", item: exact[0], reason } : { kind: "found", item: exact[0] };
   }
 
-  // Fuzzy scoring drops every letter outside a-z, so a non-Latin name on
-  // either side could match on its leftovers ("fund" against "旅行 fund").
-  if (!fuzzy || !hasOnlyAsciiLetters(name)) return { kind: "none" };
-  const eligible = items.filter((item) => !restriction(item, false) && hasOnlyAsciiLetters(item.name));
-  const ranked = rankMatches(name, eligible);
-  if (ranked.length === 0) return { kind: "none" };
-  const tied = ranked.filter((match) => match.score === ranked[0].score);
-  return tied.length > 1
-    ? { kind: "ambiguous", candidates: tied.map((match) => match.item) }
-    : { kind: "found", item: ranked[0].item };
+  // Names match exactly or not at all; the closest names are returned so the caller can retry.
+  const suggestions = rankMatches(name, items.filter((item) => !restriction(item, false)))
+    .slice(0, MAX_SUGGESTIONS)
+    .map((match) => match.item.name);
+  return { kind: "none", suggestions };
 }
 
 function groupRestriction(group: ynab.CategoryGroupWithCategories, byId: boolean): Restriction | null {
@@ -112,14 +102,10 @@ function groupRestriction(group: ynab.CategoryGroupWithCategories, byId: boolean
 
 /**
  * Resolves the group a category goes into. An id wins over a name; names match
- * exactly first and fall back to fuzzy matching only when `fuzzy` is set.
+ * exactly (ignoring case, spacing and a leading emoji), never loosely.
  */
-export function resolveGroup(
-  groups: ynab.CategoryGroupWithCategories[],
-  lookup: Lookup,
-  { fuzzy = true }: { fuzzy?: boolean } = {},
-): Resolution<ynab.CategoryGroupWithCategories> {
-  return resolve(groups, lookup, "category group", groupRestriction, fuzzy);
+export function resolveGroup(groups: ynab.CategoryGroupWithCategories[], lookup: Lookup): Resolution<ynab.CategoryGroupWithCategories> {
+  return resolve(groups, lookup, "category group", groupRestriction);
 }
 
 /** Resolves a category to edit. Hidden categories qualify; internal and credit card payment ones don't. */
@@ -129,20 +115,20 @@ export function resolveCategory(groups: ynab.CategoryGroupWithCategories[], look
     if (category.internal || SYSTEM_GROUPS.has(category.group.name)) return "internal";
     if (category.group.name === CREDIT_CARD_PAYMENTS_GROUP) return "credit-card-payments";
     return null;
-  }, true);
+  });
 }
 
 const RESTRICTION_REASONS: Record<Restriction, string> = {
   internal: "is internal to YNAB",
   "credit-card-payments": "is managed by YNAB for credit card accounts",
-  hidden: "is hidden; pass its id to use it anyway",
+  hidden: "is hidden; use its id (found in the YNAB app) to use it anyway",
 };
 
 /** The error for any resolution other than `found`. */
 export function describeResolution(resolution: Exclude<Resolution<{ name: string }>, { kind: "found" }>, kind: string, query: string): string {
   switch (resolution.kind) {
     case "none":
-      return `No ${kind} matching "${query}"`;
+      return `No ${kind} named "${query}" (names must match exactly).${resolution.suggestions.length ? ` Closest: ${resolution.suggestions.join(", ")}.` : ""}`;
     case "ambiguous":
       return `"${query}" matches several ${kind}s: ${resolution.candidates.map((item) => item.name).join(", ")}. Use the ${kind} id instead.`;
     case "disallowed":
