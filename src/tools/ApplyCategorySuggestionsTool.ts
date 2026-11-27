@@ -2,7 +2,7 @@ import { z } from "zod";
 import * as ynab from "ynab";
 import { resolvePlanId } from "./planId.js";
 import { getErrorMessage } from "./errorUtils.js";
-import { contentFingerprint, getEligibleCategories, isTransfer } from "./SuggestCategoriesTool.js";
+import { BALANCE_ADJUSTMENT_PAYEE_NAMES, contentFingerprint, getEligibleCategories, isTransfer } from "./SuggestCategoriesTool.js";
 
 export const name = "ynab_apply_category_suggestions";
 export const description = "Applies explicitly supplied category suggestions after refetching and verifying every transaction fingerprint. Never auto-applies, approves, or calls TypeSafe. Supports dry-run and returns a pre-write undo manifest.";
@@ -24,8 +24,12 @@ function result(body: unknown) { return { content: [{ type: "text" as const, tex
 export async function execute(input: Input, api: ynab.API) {
   try {
     const planId = resolvePlanId(input);
-    const categoriesResponse = await api.categories.getCategories(planId);
+    const [categoriesResponse, payeesResponse] = await Promise.all([
+      api.categories.getCategories(planId),
+      api.payees?.getPayees ? api.payees.getPayees(planId) : Promise.resolve({ data: { payees: [] as ynab.Payee[] } }),
+    ]);
     const eligible = new Map(getEligibleCategories(categoriesResponse.data.category_groups).map(c => [c.id, c]));
+    const payeesById = new Map((payeesResponse.data.payees ?? []).map(p => [p.id, p]));
     const seen = new Set<string>();
     const rows: any[] = [];
     const survivors: Array<{ row: Input["suggestions"][number]; transaction: ynab.TransactionDetail }> = [];
@@ -43,7 +47,8 @@ export async function execute(input: Input, api: ynab.API) {
       else if (transaction.approved) reason = "approved";
       else if (transaction.cleared === "reconciled") reason = "reconciled";
       else if (!eligible.has(row.category_id)) reason = "ineligible_category";
-      else if (transaction.transfer_account_id || isTransfer(transaction, new Map())) reason = "transfer";
+      else if (transaction.payee_name && BALANCE_ADJUSTMENT_PAYEE_NAMES.has(transaction.payee_name)) reason = "balance_adjustment";
+      else if (transaction.transfer_account_id || isTransfer(transaction, payeesById)) reason = "transfer";
       else if ((transaction.subtransactions ?? []).some(s => !s.deleted)) reason = "split";
       else if (transaction.category_id) reason = "not_uncategorized";
       else if (transaction.amount >= 0) reason = "not_uncategorized";
